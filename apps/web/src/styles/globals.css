@@ -166,3 +166,61 @@
     --tw-gradient-to: var(--gradient-blue) var(--tw-gradient-to-position);
   }
 }
+
+/* Respect prefers-reduced-motion globally. The Framer Motion components also
+   short-circuit via useReducedMotion(), but this catches every CSS animation
+   (tailwind's animate-pulse, hover transitions, custom keyframes) so users
+   with vestibular sensitivities don't see anything looping. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* Visible focus ring for keyboard navigation. We deliberately do NOT use the
+   default :focus selector because it lights up on mouse clicks too — only
+   :focus-visible is shown when the browser deems focus "keyboard-driven". */
+:focus {
+  outline: none;
+}
+:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+  border-radius: 6px;
+}
+
+/* Screen-reader-only utility for the skip link. Becomes visible when focused. */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+.sr-only:focus,
+.focus\:not-sr-only:focus {
+  position: fixed;
+  top: 1rem;
+  left: 1rem;
+  width: auto;
+  height: auto;
+  padding: 0.75rem 1rem;
+  margin: 0;
+  overflow: visible;
+  clip: auto;
+  white-space: normal;
+  background: var(--primary);
+  color: var(--primary-foreground);
+  border-radius: 0.75rem;
+  z-index: 100;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+}

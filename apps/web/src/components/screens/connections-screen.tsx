@@ -10,6 +10,7 @@ import { SocketEvents, type FriendRequestEventPayload, type FriendRespondEventPa
 import { GlassCard } from '@vently/ui';
 import { listFriends, listFriendRequests, respondToFriendRequest } from '@/lib/api/friends';
 import { useSocketEvent } from '@/lib/socket/use-socket-event';
+import { ConnectionSkeleton } from '@/components/skeletons/connection-skeleton';
 
 export function ConnectionsScreen() {
   const router = useRouter();
@@ -113,7 +114,7 @@ export function ConnectionsScreen() {
         </h2>
 
         {friendsLoading ? (
-          <p className="text-center text-muted-foreground text-sm py-8">Loading…</p>
+          <ConnectionSkeleton />
         ) : !friends || friends.length === 0 ? (
           <GlassCard className="p-8 text-center">
             <Users className="w-10 h-10 mx-auto mb-3 text-muted-foreground" />

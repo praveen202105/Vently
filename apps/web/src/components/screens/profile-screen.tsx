@@ -9,6 +9,8 @@ import { Button, GlassCard } from '@vently/ui';
 import { useAuthStore } from '@/stores/auth-store';
 import { logout, updateProfile } from '@/lib/api/auth';
 import { ApiError } from '@/lib/api/client';
+import { ProfileSkeleton } from '@/components/skeletons/profile-skeleton';
+import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 
 export function ProfileScreen() {
   const router = useRouter();
@@ -19,13 +21,11 @@ export function ProfileScreen() {
   const [editing, setEditing] = useState(false);
   const [nicknameDraft, setNicknameDraft] = useState(profile?.nickname ?? '');
   const [saving, setSaving] = useState(false);
+  const [logoutOpen, setLogoutOpen] = useState(false);
+  const [loggingOut, setLoggingOut] = useState(false);
 
   if (!profile) {
-    return (
-      <div className="min-h-screen flex items-center justify-center p-6">
-        <p className="text-muted-foreground">Loading profile…</p>
-      </div>
-    );
+    return <ProfileSkeleton />;
   }
 
   const saveNickname = async () => {
@@ -51,6 +51,7 @@ export function ProfileScreen() {
   };
 
   const handleLogout = async () => {
+    setLoggingOut(true);
     try {
       await logout();
     } catch {
@@ -156,11 +157,21 @@ export function ProfileScreen() {
           Change mood
         </Button>
 
-        <Button variant="ghost" size="md" className="w-full text-destructive hover:bg-destructive/10" onClick={handleLogout}>
+        <Button variant="ghost" size="md" className="w-full text-destructive hover:bg-destructive/10" onClick={() => setLogoutOpen(true)}>
           <LogOut className="w-4 h-4" />
           Log out
         </Button>
       </div>
+
+      <ConfirmDialog
+        open={logoutOpen}
+        title="Log out of Vently?"
+        description="You'll need to sign in again to chat or take a call."
+        confirmLabel="Log out"
+        busy={loggingOut}
+        onConfirm={handleLogout}
+        onCancel={() => setLogoutOpen(false)}
+      />
     </div>
   );
 }

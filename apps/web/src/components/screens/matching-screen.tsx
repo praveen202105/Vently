@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { motion } from 'motion/react';
+import { motion, useReducedMotion } from 'motion/react';
 import { Sparkles, X } from 'lucide-react';
 import { SocketEvents, type MatchFoundPayload } from '@vently/shared';
 import { AnimatedBackground, Button, GlassCard } from '@vently/ui';
@@ -23,6 +23,7 @@ export function MatchingScreen() {
   const socket = useSocket();
   const profile = useAuthStore((s) => s.profile);
   const hydrated = useAuthStore((s) => s.hydrated);
+  const reduceMotion = useReducedMotion();
   const { mood, status, setQueued, setMatched, setTimeout: markTimeout, reset } = useMatchStore();
   const timeoutRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const socketWatchRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
@@ -146,14 +147,18 @@ export function MatchingScreen() {
       <div className="relative z-10 flex flex-col items-center gap-8">
         <motion.div
           animate={
-            status === 'matched'
-              ? { scale: [1, 1.1, 1] }
-              : { rotate: 360 }
+            reduceMotion
+              ? undefined
+              : status === 'matched'
+                ? { scale: [1, 1.1, 1] }
+                : { rotate: 360 }
           }
           transition={
-            status === 'matched'
-              ? { duration: 0.6 }
-              : { duration: 2, repeat: Infinity, ease: 'linear' }
+            reduceMotion
+              ? undefined
+              : status === 'matched'
+                ? { duration: 0.6 }
+                : { duration: 2, repeat: Infinity, ease: 'linear' }
           }
           className="w-32 h-32 rounded-full bg-gradient-to-br from-purple-600 via-pink-600 to-blue-600 flex items-center justify-center shadow-2xl"
         >

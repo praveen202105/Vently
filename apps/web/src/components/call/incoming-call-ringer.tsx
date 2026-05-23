@@ -2,7 +2,7 @@
 
 import { useCallback, useState } from 'react';
 import { usePathname, useRouter } from 'next/navigation';
-import { motion, AnimatePresence } from 'motion/react';
+import { motion, AnimatePresence, useReducedMotion } from 'motion/react';
 import { Phone, PhoneOff } from 'lucide-react';
 import { SocketEvents, type CallInvitePayload } from '@vently/shared';
 import { useSocket } from '@/lib/socket/use-socket';
@@ -19,6 +19,7 @@ export function IncomingCallRinger() {
   const pathname = usePathname();
   const socket = useSocket();
   const [incoming, setIncoming] = useState<IncomingCall | null>(null);
+  const reduceMotion = useReducedMotion();
 
   // Play the incoming-call ringtone whenever this banner is visible.
   useRingtone(!!incoming, 'incoming');
@@ -73,8 +74,8 @@ export function IncomingCallRinger() {
         >
           <div className="flex items-center gap-3">
             <motion.div
-              animate={{ scale: [1, 1.08, 1] }}
-              transition={{ duration: 1.2, repeat: Infinity }}
+              animate={reduceMotion ? undefined : { scale: [1, 1.08, 1] }}
+              transition={reduceMotion ? undefined : { duration: 1.2, repeat: Infinity }}
               className="w-11 h-11 rounded-full bg-gradient-to-br from-purple-600 to-pink-600 flex items-center justify-center text-white"
             >
               <Phone className="w-5 h-5" />

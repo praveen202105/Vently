@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { motion } from 'motion/react';
+import { motion, useReducedMotion } from 'motion/react';
 import { Mic, MicOff, Phone, PhoneOff, Volume2, VolumeX } from 'lucide-react';
 import { useMatchStore } from '@/stores/match-store';
 import { useWebRTC } from '@/lib/webrtc/use-webrtc';
@@ -21,6 +21,7 @@ export function VoiceCallScreen({ conversationId }: { conversationId: string }) 
   const peer = useMatchStore((s) => s.peer);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const [elapsed, setElapsed] = useState(0);
+  const reduceMotion = useReducedMotion();
 
   const {
     callState,
@@ -90,13 +91,15 @@ export function VoiceCallScreen({ conversationId }: { conversationId: string }) 
 
       <div className="flex flex-col items-center gap-6">
         <motion.div
-          animate={callState === 'CONNECTED' ? { scale: [1, 1.05, 1] } : undefined}
-          transition={{ duration: 2, repeat: Infinity }}
+          animate={
+            reduceMotion || callState !== 'CONNECTED' ? undefined : { scale: [1, 1.05, 1] }
+          }
+          transition={reduceMotion ? undefined : { duration: 2, repeat: Infinity }}
           className="relative"
         >
           <motion.div
-            animate={{ scale: [1, 1.3, 1], opacity: [0.4, 0, 0.4] }}
-            transition={{ duration: 2, repeat: Infinity }}
+            animate={reduceMotion ? undefined : { scale: [1, 1.3, 1], opacity: [0.4, 0, 0.4] }}
+            transition={reduceMotion ? undefined : { duration: 2, repeat: Infinity }}
             className="absolute inset-0 rounded-full bg-primary/40"
           />
           <div className="relative w-40 h-40 rounded-full bg-gradient-to-br from-purple-600 via-pink-600 to-blue-600 flex items-center justify-center text-white text-5xl shadow-2xl">

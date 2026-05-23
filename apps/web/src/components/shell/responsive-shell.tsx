@@ -14,12 +14,12 @@ export function ResponsiveShell({ children }: { children: React.ReactNode }) {
     (p) => pathname === p.replace(/\/$/, '') || pathname.startsWith(p),
   );
 
-  if (hideShell) return <>{children}</>;
+  if (hideShell) return <main id="main">{children}</main>;
 
   return (
     <>
       <DesktopSidebar />
-      <main className="md:pl-64 pb-20 md:pb-0 min-h-screen">{children}</main>
+      <main id="main" className="md:pl-64 pb-20 md:pb-0 min-h-screen">{children}</main>
       <MobileNavigation />
     </>
   );
