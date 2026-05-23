@@ -88,15 +88,18 @@ export async function loginPage(page: Page, ctx: BrowserContext, user: { email: 
   if (!loginRes.ok()) throw new Error(`login failed: ${loginRes.status()} ${await loginRes.text()}`);
   const login = (await loginRes.json()) as { accessToken: string };
 
+  // Pass the cookies through with their original domain from the Set-Cookie
+  // response — the api host. Don't rewrite to "localhost", that breaks any
+  // deploy where api and web aren't on the same host.
   const cookies = (await apiCtx.storageState()).cookies;
   await ctx.addCookies(
     cookies.map((c) => ({
       name: c.name,
       value: c.value,
-      domain: 'localhost',
+      domain: c.domain || new URL(API_HOST).hostname,
       path: c.path ?? '/',
       httpOnly: c.httpOnly,
-      secure: false,
+      secure: c.secure ?? API_HOST.startsWith('https://'),
       sameSite: (c.sameSite as 'Lax' | 'Strict' | 'None') ?? 'Lax',
       expires: c.expires,
     })),
