@@ -4,7 +4,7 @@
 # Build: docker build -f apps/api/Dockerfile -t vently-api .
 
 # ─── Stage 1: install deps ───────────────────────────────────
-FROM node:20-alpine AS deps
+FROM node:20-slim AS deps
 RUN corepack enable && corepack prepare pnpm@9.12.0 --activate
 WORKDIR /repo
 COPY pnpm-workspace.yaml pnpm-lock.yaml* package.json ./
@@ -21,7 +21,7 @@ RUN pnpm --filter @vently/shared build
 RUN pnpm --filter @vently/api build
 
 # ─── Stage 3: runtime ────────────────────────────────────────
-FROM node:20-alpine AS runtime
+FROM node:20-slim AS runtime
 RUN corepack enable && corepack prepare pnpm@9.12.0 --activate
 WORKDIR /repo
 ENV NODE_ENV=production
