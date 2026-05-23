@@ -28,7 +28,9 @@ import {
 // VOICE_ONLY for the same reason, but VOICE_ONLY now bypasses /chat and goes
 // straight to /call, which has its own dedicated test below.)
 const TEST_MOOD = 'FRIENDSHIP';
-const TEST_MOOD_LABEL = /^friendship$/i;
+// Accessible button name is "Friendship Connect instantly" — keep the regex
+// loose like the original /voice only/i so it matches the full label.
+const TEST_MOOD_LABEL = /friendship/i;
 
 let alice: AgentUser;
 let bob: AgentUser;
