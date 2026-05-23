@@ -15,10 +15,9 @@ export function useSocket(): VentlySocket | null {
   const [socket, setSocket] = useState<VentlySocket | null>(() => (token ? getSocket() : null));
 
   useEffect(() => {
-    if (!token) {
-      setSocket(null);
-      return;
-    }
+    // Always re-pull through getSocket so the null-token path also tears down
+    // the module-level singleton. Without this, a local clear() (logout)
+    // leaves the socket alive until something else calls getSocket again.
     setSocket(getSocket());
   }, [token, hasProfile]);
 

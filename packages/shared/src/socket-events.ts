@@ -26,6 +26,7 @@ export const SocketEvents = {
   CHAT_TYPING_STATUS: 'chat:typing-status',
   CHAT_READ: 'chat:read',
   CHAT_READ_STATUS: 'chat:read-status',
+  CHAT_CONVERSATION_ENDED: 'chat:conversation-ended',
 
   // Friends
   FRIEND_REQUEST: 'friend:request',
@@ -92,6 +93,11 @@ export interface ChatTypingPayload {
 export interface ChatReadPayload {
   conversationId: string;
   lastMessageId: string;
+}
+
+export interface ChatConversationEndedPayload {
+  conversationId: string;
+  reason: 'blocked' | 'left' | 'system';
 }
 
 export interface FriendRequestEventPayload {
@@ -161,6 +167,7 @@ export interface ServerToClientEvents {
   [SocketEvents.CHAT_ACK]: (payload: ChatAckPayload) => void;
   [SocketEvents.CHAT_TYPING_STATUS]: (payload: ChatTypingPayload & { userId: string }) => void;
   [SocketEvents.CHAT_READ_STATUS]: (payload: ChatReadPayload & { userId: string }) => void;
+  [SocketEvents.CHAT_CONVERSATION_ENDED]: (payload: ChatConversationEndedPayload) => void;
   [SocketEvents.FRIEND_REQUEST]: (payload: FriendRequestEventPayload) => void;
   [SocketEvents.FRIEND_RESPOND]: (payload: FriendRespondEventPayload) => void;
   [SocketEvents.FRIEND_ONLINE]: (payload: { userId: string }) => void;

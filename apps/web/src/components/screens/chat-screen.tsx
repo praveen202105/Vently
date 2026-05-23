@@ -2,12 +2,13 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { motion, AnimatePresence } from 'motion/react';
-import { ArrowLeft, Phone, Send, UserPlus, Shield, Flag } from 'lucide-react';
+import { AlertCircle, ArrowLeft, Phone, RotateCw, Send, UserPlus, Shield, Flag } from 'lucide-react';
 import { toast } from 'sonner';
 import {
   SocketEvents,
+  type ChatConversationEndedPayload,
   type ChatMessagePayload,
   type ChatTypingPayload,
   type MessagePublic,
@@ -22,14 +23,26 @@ import { sendFriendRequest } from '@/lib/api/friends';
 import { blockUser } from '@/lib/api/blocks';
 import { ApiError } from '@/lib/api/client';
 import { ReportDialog } from '@/components/safety/report-dialog';
+import { MessageSkeleton } from '@/components/skeletons/message-skeleton';
+import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 
 interface PendingMessage extends MessagePublic {
   pending?: true;
+  failed?: true;
   clientId?: string;
 }
 
 const TYPING_DEBOUNCE_MS = 300;
 const TYPING_TIMEOUT_MS = 3_000;
+// Defence in depth: if the peer disconnects mid-keystroke before the server
+// can broadcast their "stopped typing" status, we still clear the indicator
+// after this many ms of silence. The server now ALSO emits isTyping:false on
+// disconnect, but a dropped packet/route would still strand the bubble.
+const PEER_TYPING_AUTOCLEAR_MS = 5_000;
+// How long to wait for chat:ack before considering a message lost. Long enough
+// to absorb a Railway cold-start blip, short enough that the user gets a
+// clear "tap to retry" affordance instead of staring at a greyed-out bubble.
+const ACK_TIMEOUT_MS = 5_000;
 
 function genClientId() {
   return `c_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
@@ -38,6 +51,7 @@ function genClientId() {
 export function ChatScreen({ conversationId }: { conversationId: string }) {
   const router = useRouter();
   const socket = useSocket();
+  const qc = useQueryClient();
   const me = useAuthStore((s) => s.user);
   const peer = useMatchStore((s) => s.peer);
 
@@ -45,10 +59,21 @@ export function ChatScreen({ conversationId }: { conversationId: string }) {
   const [draft, setDraft] = useState('');
   const [peerTyping, setPeerTyping] = useState(false);
   const [reportOpen, setReportOpen] = useState(false);
+  const [blockOpen, setBlockOpen] = useState(false);
+  const [blocking, setBlocking] = useState(false);
+  const [leaveOpen, setLeaveOpen] = useState(false);
 
   const typingTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const lastTypingEmitRef = useRef(0);
   const scrollRef = useRef<HTMLDivElement | null>(null);
+  // Per-message ack timers. Keyed by clientId so we can clear the right one
+  // when its chat:ack arrives, and surface a failed state on the matching
+  // bubble when it doesn't. Stored in a ref because React state updates would
+  // re-render on every keystroke during high-volume chat.
+  const ackTimersRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
+  // Rolling timer that auto-clears the peer's typing indicator if no fresh
+  // isTyping:true event has arrived in PEER_TYPING_AUTOCLEAR_MS.
+  const peerTypingClearRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
 
   // History: fetch the first page on mount.
   const { data: page, isLoading } = useQuery({
@@ -79,18 +104,61 @@ export function ChatScreen({ conversationId }: { conversationId: string }) {
           if (prev.some((m) => m.id === msg.id)) return prev;
           return [...prev, { ...msg, type: 'TEXT', deletedAt: null }];
         });
+        // Peer's incoming message bumps the global unread count — refresh the
+        // nav badge so the user sees it light up in other tabs/sections.
+        if (msg.senderId !== me?.id) {
+          void qc.invalidateQueries({ queryKey: ['conversations', 'unread-count'] });
+        }
       },
-      [conversationId],
+      [conversationId, me?.id, qc],
     ),
   );
 
   useSocketEvent(
     SocketEvents.CHAT_ACK,
     useCallback(({ clientId, messageId }: { clientId: string; messageId: string }) => {
+      const timer = ackTimersRef.current.get(clientId);
+      if (timer) {
+        clearTimeout(timer);
+        ackTimersRef.current.delete(clientId);
+      }
       setMessages((prev) =>
-        prev.map((m) => (m.clientId === clientId ? { ...m, id: messageId, pending: undefined } : m)),
+        prev.map((m) =>
+          m.clientId === clientId
+            ? { ...m, id: messageId, pending: undefined, failed: undefined }
+            : m,
+        ),
       );
     }, []),
+  );
+
+  // Clear any in-flight ack timers when the chat unmounts so they don't fire
+  // against a stale setMessages closure.
+  useEffect(() => {
+    const timers = ackTimersRef.current;
+    return () => {
+      timers.forEach((t) => clearTimeout(t));
+      timers.clear();
+    };
+  }, []);
+
+  // If the peer blocks us mid-chat, the server emits this and we bail to
+  // /connections with a toast instead of letting the user keep typing into
+  // a conversation that no longer accepts messages.
+  useSocketEvent(
+    SocketEvents.CHAT_CONVERSATION_ENDED,
+    useCallback(
+      (payload: ChatConversationEndedPayload) => {
+        if (payload.conversationId !== conversationId) return;
+        if (payload.reason === 'blocked') {
+          toast.error('This conversation has ended.');
+        } else {
+          toast('This conversation has ended.');
+        }
+        router.replace('/connections');
+      },
+      [conversationId, router],
+    ),
   );
 
   useSocketEvent(
@@ -100,15 +168,58 @@ export function ChatScreen({ conversationId }: { conversationId: string }) {
         if (payload.conversationId !== conversationId) return;
         if (payload.userId === me?.id) return;
         setPeerTyping(payload.isTyping);
+        if (peerTypingClearRef.current) {
+          clearTimeout(peerTypingClearRef.current);
+          peerTypingClearRef.current = undefined;
+        }
+        if (payload.isTyping) {
+          peerTypingClearRef.current = setTimeout(() => {
+            setPeerTyping(false);
+            peerTypingClearRef.current = undefined;
+          }, PEER_TYPING_AUTOCLEAR_MS);
+        }
       },
       [conversationId, me?.id],
     ),
   );
 
+  // Clear the rolling typing timer on unmount.
+  useEffect(() => {
+    return () => {
+      if (peerTypingClearRef.current) clearTimeout(peerTypingClearRef.current);
+    };
+  }, []);
+
   // Autoscroll on new messages + when peer starts typing.
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: 'smooth' });
   }, [messages.length, peerTyping]);
+
+  // Mark the latest message read whenever a new peer message lands — keeps
+  // the unread badge accurate without needing a per-bubble IntersectionObserver.
+  // Only fires when the chat is visible; if the user is on another tab/window
+  // the messages just sit unread until they come back.
+  useEffect(() => {
+    if (!socket || messages.length === 0) return;
+    const last = messages[messages.length - 1];
+    if (!last || last.senderId === me?.id || last.pending) return;
+    socket.emit(SocketEvents.CHAT_READ, { conversationId, lastMessageId: last.id });
+    void qc.invalidateQueries({ queryKey: ['conversations', 'unread-count'] });
+  }, [socket, messages, me?.id, conversationId, qc]);
+
+  const armAckTimeout = useCallback((clientId: string) => {
+    const existing = ackTimersRef.current.get(clientId);
+    if (existing) clearTimeout(existing);
+    const timer = setTimeout(() => {
+      ackTimersRef.current.delete(clientId);
+      setMessages((prev) =>
+        prev.map((m) =>
+          m.clientId === clientId ? { ...m, pending: undefined, failed: true } : m,
+        ),
+      );
+    }, ACK_TIMEOUT_MS);
+    ackTimersRef.current.set(clientId, timer);
+  }, []);
 
   const sendMessage = () => {
     const body = draft.trim();
@@ -129,10 +240,31 @@ export function ChatScreen({ conversationId }: { conversationId: string }) {
     setMessages((prev) => [...prev, optimistic]);
     setDraft('');
     socket.emit(SocketEvents.CHAT_SEND, { conversationId, body, clientId });
+    armAckTimeout(clientId);
 
     // Also broadcast that we're no longer typing.
     socket.emit(SocketEvents.CHAT_TYPING, { conversationId, isTyping: false });
   };
+
+  const retryMessage = useCallback(
+    (clientId: string) => {
+      if (!socket) return;
+      const failed = messages.find((m) => m.clientId === clientId && m.failed);
+      if (!failed) return;
+      setMessages((prev) =>
+        prev.map((m) =>
+          m.clientId === clientId ? { ...m, pending: true, failed: undefined } : m,
+        ),
+      );
+      socket.emit(SocketEvents.CHAT_SEND, {
+        conversationId,
+        body: failed.body,
+        clientId,
+      });
+      armAckTimeout(clientId);
+    },
+    [socket, messages, conversationId, armAckTimeout],
+  );
 
   const onInputChange = (next: string) => {
     setDraft(next);
@@ -169,15 +301,18 @@ export function ChatScreen({ conversationId }: { conversationId: string }) {
     }
   };
 
-  const block = async () => {
+  const confirmBlock = async () => {
     if (!peer) return;
-    if (!confirm(`Block ${peer.nickname}? You won't be matched with them again.`)) return;
+    setBlocking(true);
     try {
       await blockUser(peer.userId);
       toast.success('User blocked');
+      setBlockOpen(false);
       router.push('/mood');
     } catch {
       toast.error('Could not block');
+    } finally {
+      setBlocking(false);
     }
   };
 
@@ -237,7 +372,7 @@ export function ChatScreen({ conversationId }: { conversationId: string }) {
         </button>
         <button
           type="button"
-          onClick={block}
+          onClick={() => setBlockOpen(true)}
           disabled={!peer}
           className="p-2 rounded-lg hover:bg-destructive/20 transition text-destructive disabled:opacity-50"
           aria-label="Block user"
@@ -247,9 +382,7 @@ export function ChatScreen({ conversationId }: { conversationId: string }) {
         </button>
         <button
           type="button"
-          onClick={() => {
-            if (confirm('End this chat?')) void leave();
-          }}
+          onClick={() => setLeaveOpen(true)}
           className="text-xs px-3 py-1.5 rounded-lg hover:bg-destructive/10 text-destructive transition"
         >
           End
@@ -262,7 +395,7 @@ export function ChatScreen({ conversationId }: { conversationId: string }) {
         aria-live="polite"
       >
         {isLoading && messages.length === 0 ? (
-          <p className="text-center text-muted-foreground text-sm">Loading…</p>
+          <MessageSkeleton />
         ) : sortedMessages.length === 0 ? (
           <p className="text-center text-muted-foreground text-sm mt-8">
             Say hi to start the conversation.
@@ -278,14 +411,29 @@ export function ChatScreen({ conversationId }: { conversationId: string }) {
                   animate={{ opacity: 1, y: 0 }}
                   className={`flex ${mine ? 'justify-end' : 'justify-start'}`}
                 >
-                  <div
-                    className={`max-w-[80%] md:max-w-[60%] px-4 py-2.5 rounded-2xl ${
-                      mine
-                        ? 'bg-gradient-to-br from-purple-600 via-pink-600 to-blue-600 text-white rounded-br-sm'
-                        : 'bg-glass-bg border border-glass-border rounded-bl-sm'
-                    } ${msg.pending ? 'opacity-60' : ''}`}
-                  >
-                    <p className="text-sm break-words whitespace-pre-wrap">{msg.body}</p>
+                  <div className="flex flex-col items-end gap-1 max-w-[80%] md:max-w-[60%]">
+                    <div
+                      className={`px-4 py-2.5 rounded-2xl ${
+                        mine
+                          ? 'bg-gradient-to-br from-purple-600 via-pink-600 to-blue-600 text-white rounded-br-sm'
+                          : 'bg-glass-bg border border-glass-border rounded-bl-sm'
+                      } ${msg.pending ? 'opacity-60' : ''} ${msg.failed ? 'opacity-80 ring-1 ring-destructive/60' : ''}`}
+                    >
+                      <p className="text-sm break-words whitespace-pre-wrap">{msg.body}</p>
+                    </div>
+                    {mine && msg.failed && msg.clientId && (
+                      <button
+                        type="button"
+                        onClick={() => retryMessage(msg.clientId!)}
+                        className="flex items-center gap-1 text-xs text-destructive hover:text-destructive/80 transition px-1"
+                        aria-label="Retry sending message"
+                      >
+                        <AlertCircle className="w-3 h-3" />
+                        <span>Failed to send.</span>
+                        <RotateCw className="w-3 h-3" />
+                        <span className="underline">Tap to retry</span>
+                      </button>
+                    )}
                   </div>
                 </motion.div>
               );
@@ -350,6 +498,28 @@ export function ChatScreen({ conversationId }: { conversationId: string }) {
           conversationId={conversationId}
         />
       )}
+
+      <ConfirmDialog
+        open={blockOpen}
+        title={`Block ${peer?.nickname ?? 'this user'}?`}
+        description="You won't be matched with them again and they can no longer message you."
+        confirmLabel="Block"
+        busy={blocking}
+        onConfirm={confirmBlock}
+        onCancel={() => setBlockOpen(false)}
+      />
+
+      <ConfirmDialog
+        open={leaveOpen}
+        title="End this chat?"
+        description="You can still find each other through Connections if you've added as friends."
+        confirmLabel="End chat"
+        onConfirm={() => {
+          setLeaveOpen(false);
+          void leave();
+        }}
+        onCancel={() => setLeaveOpen(false)}
+      />
     </div>
   );
 }

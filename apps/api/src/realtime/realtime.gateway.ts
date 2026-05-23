@@ -102,6 +102,19 @@ export class RealtimeGateway implements OnGatewayInit, OnGatewayConnection, OnGa
     const user = socket.data.user;
     if (!user) return;
 
+    // Broadcast "stopped typing" into every conversation room this socket was
+    // in. Without this, peers see a stuck "typing…" indicator forever after
+    // we vanish mid-keystroke (network drop, tab close).
+    for (const room of socket.rooms) {
+      if (room.startsWith('conv:')) {
+        socket.to(room).emit(SocketEvents.CHAT_TYPING_STATUS, {
+          conversationId: room.slice('conv:'.length),
+          isTyping: false,
+          userId: user.userId,
+        });
+      }
+    }
+
     await this.matchmaking.removeFromAllQueues(user.userId);
     await this.presence.markOffline(user.userId);
 

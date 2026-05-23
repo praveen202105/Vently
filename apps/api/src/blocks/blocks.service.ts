@@ -1,12 +1,15 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
+import { SocketEvents } from '@vently/shared';
 import { BlocksRepository } from './blocks.repository.js';
 import { PrismaService } from '../prisma/prisma.service.js';
+import { RealtimeGateway } from '../realtime/realtime.gateway.js';
 
 @Injectable()
 export class BlocksService {
   constructor(
     private readonly repo: BlocksRepository,
     private readonly prisma: PrismaService,
+    private readonly realtime: RealtimeGateway,
   ) {}
 
   async list(userId: string) {
@@ -39,7 +42,11 @@ export class BlocksService {
         },
       })
       .catch(() => undefined);
-    await this.prisma.conversation.updateMany({
+
+    // Find every active conversation between the two users BEFORE ending them
+    // so we can notify the blocked peer. Without this, the blocked user sits
+    // in the chat screen forever, watching "online" status they can't reach.
+    const activeConvs = await this.prisma.conversation.findMany({
       where: {
         endedAt: null,
         AND: [
@@ -47,8 +54,18 @@ export class BlocksService {
           { participants: { some: { userId: blockedId } } },
         ],
       },
+      select: { id: true },
+    });
+    await this.prisma.conversation.updateMany({
+      where: { id: { in: activeConvs.map((c) => c.id) } },
       data: { endedAt: new Date() },
     });
+    for (const conv of activeConvs) {
+      this.realtime.emitToUser(blockedId, SocketEvents.CHAT_CONVERSATION_ENDED, {
+        conversationId: conv.id,
+        reason: 'blocked',
+      });
+    }
   }
 
   async unblock(blockerId: string, blockedId: string) {

@@ -2,7 +2,11 @@
 
 import { io, type Socket } from 'socket.io-client';
 import type { ClientToServerEvents, ServerToClientEvents } from '@vently/shared';
-import { useAuthStore } from '@/stores/auth-store';
+import {
+  AUTH_BROADCAST_CHANNEL,
+  type AuthBroadcastMessage,
+  useAuthStore,
+} from '@/stores/auth-store';
 
 const SOCKET_URL = process.env.NEXT_PUBLIC_SOCKET_URL ?? 'http://localhost:4000';
 
@@ -10,6 +14,21 @@ export type VentlySocket = Socket<ServerToClientEvents, ClientToServerEvents>;
 
 let socket: VentlySocket | null = null;
 let lastTokenUsed: string | null = null;
+
+// Cross-tab logout listener — independent of auth-store's, so we can tear
+// down the module-level socket the moment another tab logs out. Without
+// this, the other tab keeps its socket open and continues receiving server
+// events for a session that no longer exists locally.
+if (typeof window !== 'undefined' && 'BroadcastChannel' in window) {
+  const ch = new BroadcastChannel(AUTH_BROADCAST_CHANNEL);
+  ch.addEventListener('message', (e: MessageEvent<AuthBroadcastMessage>) => {
+    if (e.data?.type === 'logout' && socket) {
+      socket.disconnect();
+      socket = null;
+      lastTokenUsed = null;
+    }
+  });
+}
 
 function buildSocket(token: string): VentlySocket {
   // Default transport order (polling → upgrade to websocket). Forcing
