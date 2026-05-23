@@ -5,6 +5,8 @@
 
 # ─── Stage 1: install deps ───────────────────────────────────
 FROM node:20-slim AS deps
+RUN apt-get update -y && apt-get install -y --no-install-recommends openssl ca-certificates \
+  && rm -rf /var/lib/apt/lists/*
 RUN corepack enable && corepack prepare pnpm@9.12.0 --activate
 WORKDIR /repo
 COPY pnpm-workspace.yaml pnpm-lock.yaml* package.json ./
@@ -22,6 +24,8 @@ RUN pnpm --filter @vently/api build
 
 # ─── Stage 3: runtime ────────────────────────────────────────
 FROM node:20-slim AS runtime
+RUN apt-get update -y && apt-get install -y --no-install-recommends openssl ca-certificates \
+  && rm -rf /var/lib/apt/lists/*
 RUN corepack enable && corepack prepare pnpm@9.12.0 --activate
 WORKDIR /repo
 ENV NODE_ENV=production
