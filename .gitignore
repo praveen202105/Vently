@@ -1,6 +1,9 @@
 # Claude Code runtime
 .claude/
 
+# Vercel CLI link
+.vercel/
+
 # Playwright
 playwright-report/
 test-results/
