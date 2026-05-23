@@ -1,22 +1,21 @@
-import { BadRequestException, forwardRef, Inject, Injectable, Logger } from '@nestjs/common';
-import { SocketEvents } from '@vently/shared';
+import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 import { BlocksRepository } from './blocks.repository.js';
 import { PrismaService } from '../prisma/prisma.service.js';
-import { RealtimeGateway } from '../realtime/realtime.gateway.js';
 
 @Injectable()
 export class BlocksService {
   private readonly logger = new Logger(BlocksService.name);
 
-  // RealtimeGateway is forwardRef'd because the dep graph cycles:
-  //   RealtimeGateway → MatchmakingService → BlocksService → RealtimeGateway.
-  // Without forwardRef, Nest fails to resolve at startup with
-  // "argument dependency at index [4] is not available in RealtimeModule".
+  // No RealtimeGateway injection here on purpose: that would close a cycle
+  // RealtimeGateway → MatchmakingService → BlocksService → RealtimeGateway
+  // which Nest's DI can't resolve at startup (forwardRef wasn't enough — it
+  // still failed under MatchmakingModule's import chain). Instead, block()
+  // returns the conversation IDs it ended and the controller emits the
+  // CHAT_CONVERSATION_ENDED event — controllers can safely depend on the
+  // gateway (FriendsController already does).
   constructor(
     private readonly repo: BlocksRepository,
     private readonly prisma: PrismaService,
-    @Inject(forwardRef(() => RealtimeGateway))
-    private readonly realtime: RealtimeGateway,
   ) {}
 
   async list(userId: string) {
@@ -35,7 +34,7 @@ export class BlocksService {
     }));
   }
 
-  async block(blockerId: string, blockedId: string) {
+  async block(blockerId: string, blockedId: string): Promise<{ endedConversationIds: string[] }> {
     if (blockerId === blockedId) throw new BadRequestException("You can't block yourself");
     await this.repo.create(blockerId, blockedId);
     // Side effect: tear down friendship + end any active conversation between them.
@@ -61,8 +60,9 @@ export class BlocksService {
       });
 
     // Find every active conversation between the two users BEFORE ending them
-    // so we can notify the blocked peer. Without this, the blocked user sits
-    // in the chat screen forever, watching "online" status they can't reach.
+    // so the controller can notify the blocked peer. Without that notification,
+    // the blocked user sits in the chat screen forever watching "online"
+    // status they can't reach.
     const activeConvs = await this.prisma.conversation.findMany({
       where: {
         endedAt: null,
@@ -77,12 +77,7 @@ export class BlocksService {
       where: { id: { in: activeConvs.map((c) => c.id) } },
       data: { endedAt: new Date() },
     });
-    for (const conv of activeConvs) {
-      this.realtime.emitToUser(blockedId, SocketEvents.CHAT_CONVERSATION_ENDED, {
-        conversationId: conv.id,
-        reason: 'blocked',
-      });
-    }
+    return { endedConversationIds: activeConvs.map((c) => c.id) };
   }
 
   async unblock(blockerId: string, blockedId: string) {
