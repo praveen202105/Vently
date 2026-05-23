@@ -31,10 +31,14 @@ COPY --from=build /repo/node_modules ./node_modules
 COPY --from=build /repo/packages/shared/dist ./packages/shared/dist
 COPY --from=build /repo/packages/shared/package.json ./packages/shared/package.json
 COPY --from=build /repo/packages/shared/prisma ./packages/shared/prisma
+COPY --from=build /repo/packages/shared/node_modules ./packages/shared/node_modules
 COPY --from=build /repo/apps/api/dist ./apps/api/dist
 COPY --from=build /repo/apps/api/package.json ./apps/api/package.json
 COPY --from=build /repo/apps/api/node_modules ./apps/api/node_modules
 
 WORKDIR /repo/apps/api
 EXPOSE 4000
-CMD ["sh", "-c", "pnpm --filter @vently/shared exec prisma migrate deploy && node dist/main.js"]
+# `prisma migrate deploy` runs from packages/shared (the schema lives there).
+# We invoke the binary directly out of its hoisted .pnpm location instead of
+# pnpm exec — Alpine sometimes loses ENOENT on the indirect launcher.
+CMD ["sh", "-c", "cd /repo/packages/shared && node_modules/.bin/prisma migrate deploy && cd /repo/apps/api && node dist/main.js"]
