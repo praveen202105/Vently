@@ -17,6 +17,8 @@ import { ChatModule } from './chat/chat.module.js';
 import { RealtimeModule } from './realtime/realtime.module.js';
 import { FriendsModule } from './friends/friends.module.js';
 import { BlocksModule } from './blocks/blocks.module.js';
+import { WebrtcModule } from './webrtc/webrtc.module.js';
+import { CallsModule } from './calls/calls.module.js';
 
 @Module({
   imports: [
@@ -55,8 +57,9 @@ import { BlocksModule } from './blocks/blocks.module.js';
     RealtimeModule,
     FriendsModule,
     BlocksModule,
+    WebrtcModule,
+    CallsModule,
     // Feature modules wired in later phases (see VENTLY_PLAN.md §3.1):
-    //   CallsModule, WebrtcModule,
     //   ReportsModule, ModerationModule, NotificationsModule
   ],
   providers: [
