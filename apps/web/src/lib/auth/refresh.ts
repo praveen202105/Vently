@@ -1,18 +1,34 @@
 'use client';
 
 import { useEffect, useRef } from 'react';
-import { useRouter } from 'next/navigation';
+import { usePathname, useRouter } from 'next/navigation';
 import { useAuthStore } from '@/stores/auth-store';
 import { getMe } from '@/lib/api/auth';
 
-// Silent refresh strategy:
-// 1. On app mount, if no access token in memory, try GET /me (which goes through
-//    api() → 401 → /auth/refresh → retry). If that fails, we're anonymous.
-// 2. Then schedule a periodic refresh ~30s before the JWT expiry (15min - 30s).
+// Silent refresh + auth gate. Middleware can't read the api-domain cookie when
+// web and api are on different hosts (Vercel ↔ Railway), so this hook is the
+// authoritative auth check on the client:
+//   1. On mount of any (app) route, call /me. The api() wrapper auto-handles
+//      401 → /auth/refresh → retry, so a valid refresh cookie hydrates the store.
+//   2. If /me ultimately fails (no refresh / refresh rejected), push /login
+//      with ?next so we come back after sign-in.
+//   3. Once authenticated, refresh again ~30s before the 15min JWT expiry.
 const REFRESH_INTERVAL_MS = (15 * 60 - 30) * 1000;
+
+// Public routes inside the matcher that should NOT bounce to /login on a
+// failed /me — login/register live in the (auth) group and the (marketing)
+// pages stay readable anonymously.
+const PUBLIC_PREFIXES = ['/', '/welcome', '/home', '/login', '/register', '/forgot-password'];
+
+function isPublic(pathname: string) {
+  return PUBLIC_PREFIXES.some((p) =>
+    p === '/' ? pathname === '/' : pathname === p || pathname.startsWith(`${p}/`),
+  );
+}
 
 export function useAuthBootstrap() {
   const router = useRouter();
+  const pathname = usePathname();
   const setAuth = useAuthStore((s) => s.setAuth);
   const clear = useAuthStore((s) => s.clear);
   const hydrated = useAuthStore((s) => s.hydrated);
@@ -31,11 +47,16 @@ export function useAuthBootstrap() {
         if (token) {
           setAuth({ accessToken: token, user: me.user, profile: me.profile });
         } else {
-          // /me succeeded but token wasn't refreshed — anonymous browse.
           clear();
         }
       } catch {
         clear();
+        // Only redirect on protected routes — bouncing /welcome users to /login
+        // would be hostile.
+        if (pathname && !isPublic(pathname)) {
+          const next = encodeURIComponent(pathname);
+          router.replace(`/login?next=${next}`);
+        }
       } finally {
         timer = setInterval(async () => {
           try {
@@ -53,7 +74,7 @@ export function useAuthBootstrap() {
     return () => {
       if (timer) clearInterval(timer);
     };
-  }, [setAuth, clear, router]);
+  }, [setAuth, clear, router, pathname]);
 
   return hydrated;
 }

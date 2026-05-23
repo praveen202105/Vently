@@ -80,10 +80,15 @@ export class AuthController {
 
   private setRefreshCookie(res: Response, tokens: IssuedTokens) {
     const isProd = this.config.get<string>('NODE_ENV') === 'production';
+    // In production the api lives on a different eTLD+1 than the web (e.g.
+    // *.railway.app vs *.vercel.app), so the browser needs SameSite=None to
+    // include the cookie on cross-site fetch from the web app. None requires
+    // Secure (HTTPS), which Railway provides. Locally we stay on Lax so dev
+    // works without HTTPS.
     res.cookie(REFRESH_COOKIE, tokens.refreshToken, {
       httpOnly: true,
       secure: isProd,
-      sameSite: 'lax',
+      sameSite: isProd ? 'none' : 'lax',
       domain: this.config.get<string>('COOKIE_DOMAIN') || undefined,
       path: '/',
       expires: tokens.refreshExpiresAt,
@@ -95,7 +100,7 @@ export class AuthController {
     res.clearCookie(REFRESH_COOKIE, {
       httpOnly: true,
       secure: isProd,
-      sameSite: 'lax',
+      sameSite: isProd ? 'none' : 'lax',
       domain: this.config.get<string>('COOKIE_DOMAIN') || undefined,
       path: '/',
     });
