@@ -11,7 +11,7 @@ import { getIceServers } from './ice-servers';
 
 export type CallState =
   | 'IDLE'
-  | 'DIALING' // we initiated, waiting for callee
+  | 'DIALING' // we initiated, waiting for peer to accept
   | 'RINGING' // they initiated, waiting for us to accept
   | 'CONNECTING' // SDP/ICE exchange in flight
   | 'CONNECTED'
@@ -37,12 +37,21 @@ interface UseWebRTCReturn {
   error: string | null;
 }
 
+// How long the caller waits for the peer to accept before timing out.
+const ACCEPT_TIMEOUT_MS = 30_000;
+
 export function useWebRTC({ conversationId, isIncoming = false }: UseWebRTCArgs): UseWebRTCReturn {
   const socket = useSocket();
 
   const pcRef = useRef<RTCPeerConnection | null>(null);
   const localStreamRef = useRef<MediaStream | null>(null);
   const pendingCandidatesRef = useRef<RTCIceCandidateInit[]>([]);
+  // Caller-side flag: set when peer accepts so the SDP-offer step can fire.
+  // Without this, we'd race the offer ahead of the peer's PeerConnection
+  // existing — they're still on the ringer when the offer broadcast goes out
+  // and the event is lost.
+  const peerAcceptedRef = useRef(false);
+  const acceptTimeoutRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
 
   const [callState, setCallState] = useState<CallState>(isIncoming ? 'RINGING' : 'IDLE');
   const [remoteStream, setRemoteStream] = useState<MediaStream | null>(null);
@@ -51,6 +60,10 @@ export function useWebRTC({ conversationId, isIncoming = false }: UseWebRTCArgs)
   const [error, setError] = useState<string | null>(null);
 
   const teardown = useCallback(() => {
+    if (acceptTimeoutRef.current) {
+      clearTimeout(acceptTimeoutRef.current);
+      acceptTimeoutRef.current = undefined;
+    }
     if (pcRef.current) {
       pcRef.current.onicecandidate = null;
       pcRef.current.ontrack = null;
@@ -64,6 +77,7 @@ export function useWebRTC({ conversationId, isIncoming = false }: UseWebRTCArgs)
     }
     setRemoteStream(null);
     pendingCandidatesRef.current = [];
+    peerAcceptedRef.current = false;
   }, []);
 
   const createPeerConnection = useCallback(async () => {
@@ -101,10 +115,19 @@ export function useWebRTC({ conversationId, isIncoming = false }: UseWebRTCArgs)
     return stream;
   }, []);
 
+  /**
+   * Caller flow:
+   *   1. Get mic, create PC, attach local tracks.
+   *   2. Emit call:invite. State = DIALING.
+   *   3. Wait for call:accept from peer (handled in the socket effect).
+   *   4. When call:accept arrives → createOffer + emit call:offer → state = CONNECTING.
+   *   5. Peer answers with call:answer → setRemoteDescription → ICE → CONNECTED.
+   */
   const startCall = useCallback(async () => {
     if (!socket) return;
     setError(null);
     setCallState('DIALING');
+    peerAcceptedRef.current = false;
     try {
       const stream = await getLocalStream();
       const pc = await createPeerConnection();
@@ -112,10 +135,15 @@ export function useWebRTC({ conversationId, isIncoming = false }: UseWebRTCArgs)
 
       socket.emit(SocketEvents.CALL_INVITE, { conversationId, fromUserId: '' });
 
-      const offer = await pc.createOffer();
-      await pc.setLocalDescription(offer);
-      socket.emit(SocketEvents.CALL_OFFER, { conversationId, sdp: offer });
-      setCallState('CONNECTING');
+      // Time out if the peer never accepts within 30s.
+      acceptTimeoutRef.current = setTimeout(() => {
+        if (!peerAcceptedRef.current) {
+          setError('No answer');
+          socket.emit(SocketEvents.CALL_HANGUP, { conversationId, reason: 'no-answer' });
+          teardown();
+          setCallState('ENDED');
+        }
+      }, ACCEPT_TIMEOUT_MS);
     } catch (err) {
       setError((err as Error).message ?? 'Could not start call');
       teardown();
@@ -123,6 +151,15 @@ export function useWebRTC({ conversationId, isIncoming = false }: UseWebRTCArgs)
     }
   }, [socket, conversationId, createPeerConnection, getLocalStream, teardown]);
 
+  /**
+   * Callee flow:
+   *   1. Get mic, create PC, attach local tracks.
+   *   2. Emit call:accept (this is the synchronization point the caller waits for).
+   *      State = CONNECTING.
+   *   3. Caller sends call:offer → setRemoteDescription → createAnswer →
+   *      emit call:answer.
+   *   4. ICE exchange continues → CONNECTED.
+   */
   const acceptCall = useCallback(async () => {
     if (!socket) return;
     setError(null);
@@ -168,41 +205,75 @@ export function useWebRTC({ conversationId, isIncoming = false }: UseWebRTCArgs)
   useEffect(() => {
     if (!socket) return;
 
+    const onAccept = async () => {
+      // Caller side: peer is now on the call screen with their PeerConnection
+      // ready. Safe to send the SDP offer now.
+      peerAcceptedRef.current = true;
+      if (acceptTimeoutRef.current) {
+        clearTimeout(acceptTimeoutRef.current);
+        acceptTimeoutRef.current = undefined;
+      }
+      const pc = pcRef.current;
+      if (!pc) return;
+      try {
+        const offer = await pc.createOffer();
+        await pc.setLocalDescription(offer);
+        socket.emit(SocketEvents.CALL_OFFER, { conversationId, sdp: offer });
+        setCallState('CONNECTING');
+      } catch (err) {
+        setError((err as Error).message ?? 'Could not create offer');
+        teardown();
+        setCallState('ENDED');
+      }
+    };
+
     const onOffer = async ({ sdp }: CallSdpPayload) => {
-      const pc = pcRef.current ?? (await createPeerConnection());
-      // If we didn't already set up local tracks (caller side handled this in
-      // startCall), make sure we have them now.
-      if (!localStreamRef.current) {
-        const stream = await getLocalStream();
-        stream.getTracks().forEach((t) => pc.addTrack(t, stream));
+      const pc = pcRef.current;
+      if (!pc) {
+        // The offer arrived before we created our PeerConnection. This is the
+        // bug we just fixed by waiting for call:accept on the caller side, so
+        // we shouldn't see it anymore — but log it loudly if we do.
+        // eslint-disable-next-line no-console
+        console.warn('[webrtc] received call:offer with no peer connection ready');
+        return;
       }
-      await pc.setRemoteDescription(sdp);
-      const answer = await pc.createAnswer();
-      await pc.setLocalDescription(answer);
-      socket.emit(SocketEvents.CALL_ANSWER, { conversationId, sdp: answer });
-      // Drain any candidates that arrived early.
-      for (const c of pendingCandidatesRef.current) {
-        try {
-          await pc.addIceCandidate(c);
-        } catch {
-          // ignore
+      try {
+        await pc.setRemoteDescription(sdp);
+        const answer = await pc.createAnswer();
+        await pc.setLocalDescription(answer);
+        socket.emit(SocketEvents.CALL_ANSWER, { conversationId, sdp: answer });
+        // Drain any candidates that arrived before we set remoteDescription.
+        for (const c of pendingCandidatesRef.current) {
+          try {
+            await pc.addIceCandidate(c);
+          } catch {
+            // ignore — peer may have sent a stale candidate after teardown
+          }
         }
+        pendingCandidatesRef.current = [];
+      } catch (err) {
+        setError((err as Error).message ?? 'Failed to answer');
+        teardown();
+        setCallState('ENDED');
       }
-      pendingCandidatesRef.current = [];
     };
 
     const onAnswer = async ({ sdp }: CallSdpPayload) => {
       const pc = pcRef.current;
       if (!pc) return;
-      await pc.setRemoteDescription(sdp);
-      for (const c of pendingCandidatesRef.current) {
-        try {
-          await pc.addIceCandidate(c);
-        } catch {
-          // ignore
+      try {
+        await pc.setRemoteDescription(sdp);
+        for (const c of pendingCandidatesRef.current) {
+          try {
+            await pc.addIceCandidate(c);
+          } catch {
+            // ignore
+          }
         }
+        pendingCandidatesRef.current = [];
+      } catch (err) {
+        setError((err as Error).message ?? 'Failed to apply answer');
       }
-      pendingCandidatesRef.current = [];
     };
 
     const onIce = async ({ candidate }: CallIceCandidatePayload) => {
@@ -218,13 +289,12 @@ export function useWebRTC({ conversationId, isIncoming = false }: UseWebRTCArgs)
       }
     };
 
-    const onAccept = () => {
-      // Caller side: peer accepted. SDP offer/answer flow continues automatically.
-    };
     const onReject = () => {
+      setError('Call rejected');
       teardown();
       setCallState('ENDED');
     };
+
     const onHangup = () => {
       teardown();
       setCallState('ENDED');
@@ -245,7 +315,7 @@ export function useWebRTC({ conversationId, isIncoming = false }: UseWebRTCArgs)
       socket.off(SocketEvents.CALL_REJECT, onReject);
       socket.off(SocketEvents.CALL_HANGUP, onHangup);
     };
-  }, [socket, conversationId, createPeerConnection, getLocalStream, teardown]);
+  }, [socket, conversationId, teardown]);
 
   // Tear down everything when the consuming component unmounts.
   useEffect(() => () => teardown(), [teardown]);
