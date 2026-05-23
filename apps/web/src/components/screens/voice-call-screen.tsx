@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { motion } from 'motion/react';
-import { Mic, MicOff, PhoneOff, Volume2, VolumeX } from 'lucide-react';
+import { Mic, MicOff, Phone, PhoneOff, Volume2, VolumeX } from 'lucide-react';
 import { useMatchStore } from '@/stores/match-store';
 import { useWebRTC } from '@/lib/webrtc/use-webrtc';
 import { useRingtone } from '@/lib/webrtc/use-ringtone';
@@ -129,9 +129,9 @@ export function VoiceCallScreen({ conversationId }: { conversationId: string }) 
               type="button"
               onClick={acceptCall}
               aria-label="Accept"
-              className="p-5 rounded-full bg-emerald-500 text-white shadow-lg"
+              className="p-5 rounded-full bg-emerald-500 text-white shadow-lg shadow-emerald-500/30"
             >
-              <Mic className="w-7 h-7" />
+              <Phone className="w-7 h-7" />
             </button>
           </>
         ) : (
