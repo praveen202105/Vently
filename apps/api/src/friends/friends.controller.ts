@@ -119,6 +119,15 @@ export class FriendsController {
   @Delete(':userId')
   @HttpCode(HttpStatus.NO_CONTENT)
   async unfriend(@CurrentUser() user: AuthUser, @Param('userId') friendUserId: string) {
-    await this.friends.unfriend(user.userId, friendUserId);
+    const { endedConversationIds } = await this.friends.unfriend(user.userId, friendUserId);
+    // Tell the now-ex-friend their /chat screen has gone stale. Mirrors the
+    // block + chat-leave flow so the peer is bounced to /connections instead
+    // of staying parked in a conversation that no longer accepts messages.
+    for (const conversationId of endedConversationIds) {
+      this.realtime.emitToUser(friendUserId, SocketEvents.CHAT_CONVERSATION_ENDED, {
+        conversationId,
+        reason: 'left',
+      });
+    }
   }
 }

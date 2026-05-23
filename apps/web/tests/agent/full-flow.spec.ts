@@ -349,6 +349,83 @@ test.describe('🤖 Vently Testing Agent', () => {
     await alicePage.screenshot({ path: 'agent-results/12-alice-voice-call.png', fullPage: true });
     await bobPage.screenshot({ path: 'agent-results/12-bob-voice-call.png', fullPage: true });
   });
+
+  // ────────────────────────────────────────────────────────────────────────
+  // Phase 10 — Friend chat history is persistent
+  // After Alice + Bob friended in test 6, their FRIEND conversation must
+  // survive End/Back presses and remain reopenable from /connections with
+  // the full message thread intact.
+  // ────────────────────────────────────────────────────────────────────────
+
+  test('13. Friends preserve chat history (tile preview + reopen + scroll)', async () => {
+    step('Alice navigates from /call back to /connections');
+    await alicePage.goto('/connections', { waitUntil: 'networkidle' });
+
+    step('Bob also returns to /connections so socket events route correctly');
+    await bobPage.goto('/connections', { waitUntil: 'networkidle' });
+
+    step("Alice's friend tile for Bob should be present and clickable");
+    const bobTile = alicePage.getByRole('button', { name: new RegExp(bob.nickname, 'i') });
+    await expect(bobTile.first()).toBeVisible({ timeout: 10_000 });
+
+    step('Tile should show a last-message preview (from the test-5 exchange)');
+    // The preview will either be "You: agent-hi..." (Alice's last) or
+    // "agent-hey..." (Bob's last), or the system "You're now friends!"
+    // message — any of those is fine, we just need a non-empty preview.
+    const tileText = await bobTile.first().textContent();
+    expect(tileText).toBeTruthy();
+
+    step('Alice taps the tile and lands on /chat/[friendConvId]');
+    await bobTile.first().click();
+    await alicePage.waitForURL(/\/chat\//, { timeout: 10_000 });
+    const friendConvId = alicePage.url().split('/chat/')[1]!;
+    // eslint-disable-next-line no-console
+    console.log(`   ✓ Re-opened friend conversation ${friendConvId}`);
+
+    step('Verify via API that the FRIEND conversation is NOT ended');
+    const metaRes = await alicePage.request.get(
+      `${API_HOST}/api/conversations/${friendConvId}`,
+      { headers: { Authorization: `Bearer ${alice.accessToken}` } },
+    );
+    expect(metaRes.ok()).toBeTruthy();
+    const meta = (await metaRes.json()) as { type: string; endedAt: string | null };
+    expect(meta.type).toBe('FRIEND');
+    expect(meta.endedAt).toBeNull();
+
+    step('Historical messages from test 5 should still be visible');
+    // The "You're now friends!" SYSTEM message is the most reliable assertion —
+    // it was inserted on friendship acceptance and persists for the life of
+    // the conversation.
+    await expect(alicePage.getByText(/you're now friends/i).first()).toBeVisible({
+      timeout: 10_000,
+    });
+
+    step('The End button should be labelled "Back" for a FRIEND chat, not "End"');
+    await expect(alicePage.getByRole('button', { name: /^back$/i })).toBeVisible();
+
+    step('Alice sends a fresh message; Bob receives it in real time');
+    const reconnectMsg = `agent-reconnect ${Date.now()}`;
+    await alicePage.getByPlaceholder(/type a message/i).fill(reconnectMsg);
+    await alicePage.keyboard.press('Enter');
+    // Bob is on /connections — open the friend tile to verify.
+    await bobPage.getByRole('button', { name: new RegExp(alice.nickname, 'i') }).first().click();
+    await bobPage.waitForURL(/\/chat\//, { timeout: 10_000 });
+    await expect(bobPage.getByText(reconnectMsg)).toBeVisible({ timeout: 10_000 });
+
+    step('Tapping "Back" returns Alice to /connections without ending the chat');
+    await alicePage.getByRole('button', { name: /^back$/i }).click();
+    await alicePage.waitForURL(/\/connections/, { timeout: 5_000 });
+
+    step('Conversation is STILL not ended after the Back press');
+    const metaRes2 = await alicePage.request.get(
+      `${API_HOST}/api/conversations/${friendConvId}`,
+      { headers: { Authorization: `Bearer ${alice.accessToken}` } },
+    );
+    const meta2 = (await metaRes2.json()) as { endedAt: string | null };
+    expect(meta2.endedAt).toBeNull();
+
+    await alicePage.screenshot({ path: 'agent-results/13-alice-connections.png', fullPage: true });
+  });
 });
 
 // Suppress "unused import" hint for SocketEvents — handy to keep around for

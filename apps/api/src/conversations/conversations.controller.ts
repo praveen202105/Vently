@@ -26,6 +26,15 @@ export class ConversationsController {
     return this.conversations.unreadCount(user.userId);
   }
 
+  @Get(':id')
+  // Single-conversation metadata. Drives the mood-aware End button on the
+  // chat screen ("End" vs "Back to friends") and recovers peer info if the
+  // match-store wasn't hydrated (e.g. user opened /chat/[id] directly via a
+  // /connections deep link or a refresh).
+  getOne(@CurrentUser() user: AuthUser, @Param('id') id: string) {
+    return this.conversations.getConversation(id, user.userId);
+  }
+
   @Delete(':id')
   @HttpCode(HttpStatus.NO_CONTENT)
   async leave(@CurrentUser() user: AuthUser, @Param('id') id: string) {

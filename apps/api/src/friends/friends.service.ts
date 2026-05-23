@@ -25,34 +25,83 @@ export class FriendsService {
     });
     const profileMap = new Map(profiles.map((p) => [p.userId, p]));
 
-    // Find a shared FRIEND-type conversation per pair (the one promoted from
-    // the original match — there is only one per friendship).
+    // Find the FRIEND-type conversation per pair. Filter by type so a stray
+    // DIRECT conversation between the same two users (rematch after unfriend,
+    // legacy data) doesn't shadow the real friend thread. There's at most one
+    // active FRIEND conversation per pair by construction (respond() promotes
+    // the existing one, the fallback below creates one when none exists).
     const conversations = await this.prisma.conversation.findMany({
       where: {
-        participants: {
-          some: { userId },
-        },
+        type: 'FRIEND',
+        endedAt: null,
         AND: [
-          {
-            participants: {
-              some: { userId: { in: friendIds } },
-            },
-          },
+          { participants: { some: { userId } } },
+          { participants: { some: { userId: { in: friendIds } } } },
         ],
       },
       include: {
         participants: { select: { userId: true } },
+        // Most-recent non-deleted message per conv — drives the tile preview.
+        messages: {
+          where: { deletedAt: null },
+          orderBy: { createdAt: 'desc' },
+          take: 1,
+          select: { id: true, body: true, senderId: true, type: true, createdAt: true },
+        },
       },
     });
 
-    const convoByFriendId = new Map<string, string>();
+    interface FriendConvSummary {
+      id: string;
+      lastMessage: {
+        id: string;
+        body: string;
+        senderId: string;
+        type: string;
+        createdAt: string;
+      } | null;
+    }
+    const convoByFriendId = new Map<string, FriendConvSummary>();
     for (const c of conversations) {
       const peer = c.participants.find((p) => p.userId !== userId);
-      if (peer) convoByFriendId.set(peer.userId, c.id);
+      if (!peer) continue;
+      const last = c.messages[0];
+      convoByFriendId.set(peer.userId, {
+        id: c.id,
+        lastMessage: last
+          ? {
+              id: last.id,
+              body: last.body,
+              senderId: last.senderId,
+              type: last.type,
+              createdAt: last.createdAt.toISOString(),
+            }
+          : null,
+      });
     }
+
+    // Per-conversation unread count for the badge on each friend tile.
+    // Aggregated in one query with groupBy so we don't run N+1 counts.
+    const convIds = [...convoByFriendId.values()].map((v) => v.id);
+    const unreadGroups = convIds.length
+      ? await this.prisma.message.groupBy({
+          by: ['conversationId'],
+          where: {
+            conversationId: { in: convIds },
+            deletedAt: null,
+            senderId: { not: userId },
+            receipts: { none: { userId, readAt: { not: null } } },
+          },
+          _count: { _all: true },
+        })
+      : [];
+    const unreadByConvId = new Map<string, number>(
+      unreadGroups.map((g) => [g.conversationId, g._count._all]),
+    );
 
     return friendRows.map((r) => {
       const profile = profileMap.get(r.friendUserId);
+      const summary = convoByFriendId.get(r.friendUserId);
       return {
         profile: profile
           ? {
@@ -63,7 +112,9 @@ export class FriendsService {
             }
           : null,
         friendedAt: r.since.toISOString(),
-        conversationId: convoByFriendId.get(r.friendUserId) ?? null,
+        conversationId: summary?.id ?? null,
+        lastMessage: summary?.lastMessage ?? null,
+        unreadCount: summary ? (unreadByConvId.get(summary.id) ?? 0) : 0,
       };
     });
   }
@@ -118,22 +169,42 @@ export class FriendsService {
       },
       orderBy: { createdAt: 'desc' },
     });
+
+    let conversationId: string;
     if (shared) {
       await this.prisma.conversation.update({
         where: { id: shared.id },
         data: { type: 'FRIEND' },
       });
-      await this.prisma.message.create({
+      conversationId = shared.id;
+    } else {
+      // Edge case: friends accepted with no active conversation between them
+      // (legacy data, request expired then revived, or future flows that
+      // create friendships outside of an in-progress chat). Create the
+      // FRIEND conversation on the spot so it's available from /connections
+      // immediately, with no client-side branching for "friend with no
+      // conversation yet".
+      const fresh = await this.prisma.conversation.create({
         data: {
-          conversationId: shared.id,
-          senderId: req.toUserId,
-          body: "You're now friends!",
-          type: 'SYSTEM',
+          type: 'FRIEND',
+          participants: {
+            create: [{ userId: req.fromUserId }, { userId: req.toUserId }],
+          },
         },
       });
+      conversationId = fresh.id;
     }
 
-    return { kind: 'accepted' as const, request: updated, conversationId: shared?.id ?? null };
+    await this.prisma.message.create({
+      data: {
+        conversationId,
+        senderId: req.toUserId,
+        body: "You're now friends!",
+        type: 'SYSTEM',
+      },
+    });
+
+    return { kind: 'accepted' as const, request: updated, conversationId };
   }
 
   async cancelRequest(userId: string, requestId: string) {
@@ -170,9 +241,33 @@ export class FriendsService {
     }));
   }
 
-  async unfriend(userId: string, friendUserId: string) {
+  async unfriend(userId: string, friendUserId: string): Promise<{ endedConversationIds: string[] }> {
     const friendship = await this.repo.findFriendship(userId, friendUserId);
     if (!friendship) throw new NotFoundException('Not friends');
     await this.repo.deleteFriendship(userId, friendUserId);
+
+    // End the FRIEND conversation so it disappears from /connections on both
+    // sides. Mirror the block + chat-leave flow: return the IDs and let the
+    // controller emit CHAT_CONVERSATION_ENDED to the other side (controller
+    // has the RealtimeGateway dep, this service can't without re-introducing
+    // the cycle we broke in Batch D).
+    const activeConvs = await this.prisma.conversation.findMany({
+      where: {
+        type: 'FRIEND',
+        endedAt: null,
+        AND: [
+          { participants: { some: { userId } } },
+          { participants: { some: { userId: friendUserId } } },
+        ],
+      },
+      select: { id: true },
+    });
+    if (activeConvs.length > 0) {
+      await this.prisma.conversation.updateMany({
+        where: { id: { in: activeConvs.map((c) => c.id) } },
+        data: { endedAt: new Date() },
+      });
+    }
+    return { endedConversationIds: activeConvs.map((c) => c.id) };
   }
 }

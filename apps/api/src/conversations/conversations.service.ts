@@ -51,10 +51,25 @@ export class ConversationsService {
     const part = await this.repo.isParticipant(conversationId, userId);
     if (!part) throw new NotFoundException('Conversation not found');
 
-    // Capture the other participants BEFORE ending so the controller can emit
-    // CHAT_CONVERSATION_ENDED to them. Without this, the peer stays parked on
-    // the chat screen typing into a conversation that's already over on the
-    // server (every chat:send would now fail the assertParticipant check).
+    // FRIEND conversations are persistent — "End" on the client side is a
+    // navigation, not a destruction. The leaver's leftAt doesn't get set so
+    // their participant row stays whole and they can re-enter from
+    // /connections at any time with the full message history intact. The
+    // peer isn't notified (no CHAT_CONVERSATION_ENDED) because the chat
+    // isn't ending. Block + Unfriend continue to be the explicit ways to
+    // tear down a friend chat (handled in blocks.service / friends.service).
+    const conv = await this.prisma.conversation.findUnique({
+      where: { id: conversationId },
+      select: { type: true },
+    });
+    if (conv?.type === 'FRIEND') {
+      return { peerUserIds: [] };
+    }
+
+    // DIRECT conversations: unchanged behaviour. Capture the other
+    // participants BEFORE ending so the controller can emit
+    // CHAT_CONVERSATION_ENDED to them. Without this, the peer stays parked
+    // on the chat screen typing into a conversation that's already over.
     const others = await this.prisma.conversationParticipant.findMany({
       where: { conversationId, userId: { not: userId } },
       select: { userId: true },
@@ -64,6 +79,48 @@ export class ConversationsService {
     await this.repo.endConversation(conversationId);
 
     return { peerUserIds: others.map((p) => p.userId) };
+  }
+
+  async getConversation(conversationId: string, userId: string) {
+    // Single-conversation metadata — used by chat-screen on mount to decide
+    // whether the End button should say "End" (DIRECT) or "Back to friends"
+    // (FRIEND), and to recover peer info if match-store hasn't been hydrated
+    // (e.g. user opened /chat/[id] directly via a /connections deep link).
+    await this.assertParticipant(conversationId, userId);
+    const conv = await this.prisma.conversation.findUnique({
+      where: { id: conversationId },
+      select: { id: true, type: true, createdAt: true, endedAt: true },
+    });
+    if (!conv) throw new NotFoundException('Conversation not found');
+
+    // ConversationParticipant has no `user` relation — fetch the peer's
+    // profile separately so the chat-screen can render their nickname /
+    // avatar / online status on a cold load.
+    const peerPart = await this.prisma.conversationParticipant.findFirst({
+      where: { conversationId, userId: { not: userId } },
+      select: { userId: true },
+    });
+    const peerProfile = peerPart
+      ? await this.prisma.profile.findUnique({
+          where: { userId: peerPart.userId },
+          select: { userId: true, nickname: true, gender: true, avatarSeed: true, isOnline: true },
+        })
+      : null;
+    return {
+      id: conv.id,
+      type: conv.type,
+      createdAt: conv.createdAt.toISOString(),
+      endedAt: conv.endedAt?.toISOString() ?? null,
+      peer: peerProfile
+        ? {
+            userId: peerProfile.userId,
+            nickname: peerProfile.nickname,
+            gender: peerProfile.gender,
+            avatarSeed: peerProfile.avatarSeed,
+            isOnline: peerProfile.isOnline,
+          }
+        : null,
+    };
   }
 
   // Total messages addressed to this user that haven't been read yet. Drives

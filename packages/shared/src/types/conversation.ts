@@ -11,6 +11,24 @@ export interface ConversationSummary {
   unreadCount: number;
 }
 
+// Minimal shape returned by GET /conversations/:id. Chat-screen reads this on
+// mount to decide whether the End button means "End" (DIRECT) or "Back to
+// friends" (FRIEND), and to hydrate peer info if the match-store hasn't been
+// populated (deep-link into /chat/[id] from /connections).
+export interface ConversationDetail {
+  id: string;
+  type: ConvType;
+  createdAt: string;
+  endedAt: string | null;
+  peer: {
+    userId: string;
+    nickname: string;
+    gender: ProfilePublic['gender'];
+    avatarSeed: string;
+    isOnline: boolean;
+  } | null;
+}
+
 export interface MessagePublic {
   id: string;
   conversationId: string;

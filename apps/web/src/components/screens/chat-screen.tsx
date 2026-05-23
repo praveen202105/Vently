@@ -1,8 +1,8 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useInfiniteQuery, useQuery, useQueryClient } from '@tanstack/react-query';
 import { motion, AnimatePresence } from 'motion/react';
 import { AlertCircle, ArrowLeft, Phone, RotateCw, Send, UserPlus, Shield, Flag } from 'lucide-react';
 import { toast } from 'sonner';
@@ -18,7 +18,7 @@ import { useAuthStore } from '@/stores/auth-store';
 import { useMatchStore } from '@/stores/match-store';
 import { useSocket } from '@/lib/socket/use-socket';
 import { useSocketEvent } from '@/lib/socket/use-socket-event';
-import { listMessages, leaveConversation } from '@/lib/api/conversations';
+import { getConversation, listMessages, leaveConversation } from '@/lib/api/conversations';
 import { sendFriendRequest } from '@/lib/api/friends';
 import { blockUser } from '@/lib/api/blocks';
 import { ApiError } from '@/lib/api/client';
@@ -74,18 +74,76 @@ export function ChatScreen({ conversationId }: { conversationId: string }) {
   // Rolling timer that auto-clears the peer's typing indicator if no fresh
   // isTyping:true event has arrived in PEER_TYPING_AUTOCLEAR_MS.
   const peerTypingClearRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  // Sentinel at the top of the scroll container — when it enters the viewport
+  // we fetch the next (older) page of messages.
+  const topSentinelRef = useRef<HTMLDivElement | null>(null);
+  // Used to keep the user's visual position anchored when older messages
+  // are prepended at the top of the list.
+  const prevScrollHeightRef = useRef(0);
+  const isPrependingRef = useRef(false);
 
-  // History: fetch the first page on mount.
-  const { data: page, isLoading } = useQuery({
+  // Conversation metadata — drives the End-vs-Back button label + the
+  // "Save as friend" visibility (hidden when already FRIEND type). Fetched
+  // once on mount; the type/peer don't change during a session.
+  const { data: conversation } = useQuery({
+    queryKey: ['conversations', conversationId, 'meta'],
+    queryFn: () => getConversation(conversationId),
+    staleTime: 60_000,
+  });
+  const isFriendConvo = conversation?.type === 'FRIEND';
+
+  // Message history with cursor pagination. listMessages returns the OLDEST
+  // 30 of the requested cursor window in chronological order (items[0] is
+  // oldest, items[length-1] is newest), with nextCursor pointing to the
+  // page that contains messages OLDER than items[0]. We map TanStack's
+  // pages array to a flat chronological stream by reversing.
+  const {
+    data: pages,
+    isLoading,
+    fetchNextPage,
+    hasNextPage,
+    isFetchingNextPage,
+  } = useInfiniteQuery({
     queryKey: ['conversations', conversationId, 'messages'],
-    queryFn: () => listMessages(conversationId),
+    queryFn: ({ pageParam }: { pageParam: string | undefined }) =>
+      listMessages(conversationId, pageParam),
+    initialPageParam: undefined as string | undefined,
+    getNextPageParam: (last) => last.nextCursor ?? undefined,
     staleTime: 0,
   });
 
+  // Page-count tracker so we know whether `pages` updated because of
+  // initial load (seed everything) vs fetchNextPage (only prepend the new
+  // older window). The naive approach of `setMessages(flat)` on every
+  // pages change would wipe optimistic + socket-received messages that
+  // aren't in the server response yet.
+  const lastPageCountRef = useRef(0);
   useEffect(() => {
-    if (!page) return;
-    setMessages(page.items);
-  }, [page]);
+    if (!pages) return;
+    const newCount = pages.pages.length;
+    const lastCount = lastPageCountRef.current;
+    if (lastCount === 0) {
+      // Initial load — flatten all pages chronologically into the message
+      // stream. pages[0] is the newest window; reversed iteration puts the
+      // oldest window first.
+      const flat = [...pages.pages].reverse().flatMap((p) => p.items);
+      setMessages(flat);
+    } else if (newCount > lastCount) {
+      // fetchNextPage just appended an older window. Prepend its items so
+      // the user sees them above the current viewport, but DON'T touch the
+      // tail — that's where any optimistic/pending or freshly socket-
+      // delivered messages live.
+      const olderPage = pages.pages[newCount - 1];
+      if (olderPage) {
+        setMessages((prev) => {
+          const existingIds = new Set(prev.map((m) => m.id));
+          const fresh = olderPage.items.filter((m) => !existingIds.has(m.id));
+          return [...fresh, ...prev];
+        });
+      }
+    }
+    lastPageCountRef.current = newCount;
+  }, [pages]);
 
   // Re-join the conversation room on socket reconnect.
   useEffect(() => {
@@ -190,9 +248,50 @@ export function ChatScreen({ conversationId }: { conversationId: string }) {
     };
   }, []);
 
-  // Autoscroll on new messages + when peer starts typing.
+  // Load older messages when the top sentinel scrolls into view.
   useEffect(() => {
-    scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: 'smooth' });
+    const sentinel = topSentinelRef.current;
+    const scroller = scrollRef.current;
+    if (!sentinel || !scroller || !hasNextPage) return;
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries[0]?.isIntersecting && hasNextPage && !isFetchingNextPage) {
+          // Snapshot scroll height BEFORE the prepend so we can restore the
+          // user's visual position after the older page lands.
+          prevScrollHeightRef.current = scroller.scrollHeight;
+          isPrependingRef.current = true;
+          void fetchNextPage();
+        }
+      },
+      { root: scroller, threshold: 0 },
+    );
+    observer.observe(sentinel);
+    return () => observer.disconnect();
+  }, [hasNextPage, isFetchingNextPage, fetchNextPage]);
+
+  // Combined scroll management:
+  //  - if older messages just prepended, keep the user anchored to what
+  //    they were already reading (compensate for the new content above).
+  //  - otherwise (new message at the bottom), autoscroll only if the user
+  //    was already within 100px of the bottom. Don't yank a user who's
+  //    deliberately scrolled back to read older messages.
+  // useLayoutEffect runs synchronously after DOM mutation but BEFORE paint,
+  // so the user never sees the scroll jump.
+  useLayoutEffect(() => {
+    const scroller = scrollRef.current;
+    if (!scroller) return;
+    if (isPrependingRef.current) {
+      const diff = scroller.scrollHeight - prevScrollHeightRef.current;
+      if (diff > 0) scroller.scrollTop = diff;
+      isPrependingRef.current = false;
+      prevScrollHeightRef.current = 0;
+      return;
+    }
+    const nearBottom =
+      scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight < 100;
+    if (nearBottom) {
+      scroller.scrollTo({ top: scroller.scrollHeight, behavior: 'smooth' });
+    }
   }, [messages.length, peerTyping]);
 
   // Mark the latest message read whenever a new peer message lands — keeps
@@ -285,6 +384,14 @@ export function ChatScreen({ conversationId }: { conversationId: string }) {
   };
 
   const leave = async () => {
+    // FRIEND conversations are persistent — "End" on this surface just means
+    // "back to the connections list". No DELETE request, no destruction; the
+    // user can re-open the same thread any time from /connections. DIRECT
+    // conversations get the original behaviour (DELETE + bounce to /mood).
+    if (isFriendConvo) {
+      router.push('/connections');
+      return;
+    }
     try {
       await leaveConversation(conversationId);
     } catch {
@@ -346,16 +453,18 @@ export function ChatScreen({ conversationId }: { conversationId: string }) {
             {peerTyping ? 'typing…' : peer ? 'online' : '—'}
           </p>
         </div>
-        <button
-          type="button"
-          onClick={addFriend}
-          disabled={!peer}
-          className="p-2 rounded-lg hover:bg-primary/20 transition text-primary disabled:opacity-50"
-          aria-label="Save as friend"
-          title="Save as friend"
-        >
-          <UserPlus className="w-5 h-5" />
-        </button>
+        {!isFriendConvo && (
+          <button
+            type="button"
+            onClick={addFriend}
+            disabled={!peer}
+            className="p-2 rounded-lg hover:bg-primary/20 transition text-primary disabled:opacity-50"
+            aria-label="Save as friend"
+            title="Save as friend"
+          >
+            <UserPlus className="w-5 h-5" />
+          </button>
+        )}
         <button
           type="button"
           onClick={() => router.push(`/call/${conversationId}`)}
@@ -386,10 +495,18 @@ export function ChatScreen({ conversationId }: { conversationId: string }) {
         </button>
         <button
           type="button"
-          onClick={() => setLeaveOpen(true)}
-          className="text-xs px-3 py-1.5 rounded-lg hover:bg-destructive/10 text-destructive transition"
+          // For FRIEND chats the button is a navigation, not a destructive
+          // action — skip the confirm dialog and just go back to /connections.
+          // For DIRECT chats it still pops the existing "End this chat?"
+          // confirm flow.
+          onClick={() => (isFriendConvo ? void leave() : setLeaveOpen(true))}
+          className={`text-xs px-3 py-1.5 rounded-lg transition ${
+            isFriendConvo
+              ? 'hover:bg-muted text-muted-foreground'
+              : 'hover:bg-destructive/10 text-destructive'
+          }`}
         >
-          End
+          {isFriendConvo ? 'Back' : 'End'}
         </button>
       </header>
 
@@ -398,6 +515,14 @@ export function ChatScreen({ conversationId }: { conversationId: string }) {
         className="flex-1 overflow-y-auto p-4 space-y-3"
         aria-live="polite"
       >
+        {/* Sentinel + indicator for "load older" pagination. The IntersectionObserver
+            attached to topSentinelRef triggers fetchNextPage whenever it enters
+            the scroll viewport. The indicator gives the user a hint that more
+            history exists; hidden when there's nothing older to load. */}
+        <div ref={topSentinelRef} aria-hidden="true" />
+        {isFetchingNextPage && (
+          <p className="text-center text-xs text-muted-foreground">Loading older messages…</p>
+        )}
         {isLoading && messages.length === 0 ? (
           <MessageSkeleton />
         ) : sortedMessages.length === 0 ? (

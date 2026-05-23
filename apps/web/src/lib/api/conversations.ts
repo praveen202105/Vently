@@ -1,8 +1,12 @@
-import type { ConversationSummary, MessagePage } from '@vently/shared';
+import type { ConversationDetail, ConversationSummary, MessagePage } from '@vently/shared';
 import { api } from './client';
 
 export function listConversations() {
   return api<ConversationSummary[]>('/conversations');
+}
+
+export function getConversation(conversationId: string) {
+  return api<ConversationDetail>(`/conversations/${conversationId}`);
 }
 
 export function listMessages(conversationId: string, cursor?: string, limit = 30) {
