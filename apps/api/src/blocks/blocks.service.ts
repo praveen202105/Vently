@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable, Logger } from '@nestjs/common';
+import { BadRequestException, forwardRef, Inject, Injectable, Logger } from '@nestjs/common';
 import { SocketEvents } from '@vently/shared';
 import { BlocksRepository } from './blocks.repository.js';
 import { PrismaService } from '../prisma/prisma.service.js';
@@ -8,9 +8,14 @@ import { RealtimeGateway } from '../realtime/realtime.gateway.js';
 export class BlocksService {
   private readonly logger = new Logger(BlocksService.name);
 
+  // RealtimeGateway is forwardRef'd because the dep graph cycles:
+  //   RealtimeGateway → MatchmakingService → BlocksService → RealtimeGateway.
+  // Without forwardRef, Nest fails to resolve at startup with
+  // "argument dependency at index [4] is not available in RealtimeModule".
   constructor(
     private readonly repo: BlocksRepository,
     private readonly prisma: PrismaService,
+    @Inject(forwardRef(() => RealtimeGateway))
     private readonly realtime: RealtimeGateway,
   ) {}
 
