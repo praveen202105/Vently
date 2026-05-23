@@ -44,11 +44,26 @@ export class ConversationsService {
     return part;
   }
 
-  async leave(conversationId: string, userId: string) {
+  async leave(
+    conversationId: string,
+    userId: string,
+  ): Promise<{ peerUserIds: string[] }> {
     const part = await this.repo.isParticipant(conversationId, userId);
     if (!part) throw new NotFoundException('Conversation not found');
+
+    // Capture the other participants BEFORE ending so the controller can emit
+    // CHAT_CONVERSATION_ENDED to them. Without this, the peer stays parked on
+    // the chat screen typing into a conversation that's already over on the
+    // server (every chat:send would now fail the assertParticipant check).
+    const others = await this.prisma.conversationParticipant.findMany({
+      where: { conversationId, userId: { not: userId } },
+      select: { userId: true },
+    });
+
     await this.repo.setLeftAt(conversationId, userId);
     await this.repo.endConversation(conversationId);
+
+    return { peerUserIds: others.map((p) => p.userId) };
   }
 
   // Total messages addressed to this user that haven't been read yet. Drives
