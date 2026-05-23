@@ -14,8 +14,9 @@ import { useSocketEvent } from '@/lib/socket/use-socket-event';
 const TIMEOUT_MS = 60_000;
 // If we can't open a socket in this long, something is wrong (no token, no
 // profile, network blocking WSS+polling, etc.). Show an error instead of
-// staring at "Looking for someone…" indefinitely.
-const SOCKET_CONNECT_TIMEOUT_MS = 8_000;
+// staring at "Looking for someone…" indefinitely. 20s gives Railway's free
+// tier room to cold-start + polling fallback to engage.
+const SOCKET_CONNECT_TIMEOUT_MS = 20_000;
 
 export function MatchingScreen() {
   const router = useRouter();
@@ -27,6 +28,11 @@ export function MatchingScreen() {
   const socketWatchRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const hasJoinedRef = useRef(false);
   const [socketError, setSocketError] = useState<string | null>(null);
+  // socket.io's `connected` property is NOT reactive — React doesn't re-render
+  // when it flips. We mirror it into state via the 'connect'/'disconnect'
+  // events so the watchdog effect below can react when the socket comes online
+  // (or drops out).
+  const [socketConnected, setSocketConnected] = useState<boolean>(false);
 
   const cancel = useCallback(() => {
     socket?.emit(SocketEvents.MATCH_CANCEL);
@@ -46,26 +52,52 @@ export function MatchingScreen() {
     if (!mood) router.replace('/mood');
   }, [mood, router]);
 
-  // Watch the socket and show an error if it never connects. This catches
-  // every "stuck on matching" case: failed auth, blocked WSS+polling, missing
-  // profile (caught above too but defensive), api down, etc.
+  // Mirror socket.connected into reactive state by subscribing to the
+  // connect/disconnect events. Needed so the watchdog effect re-runs and
+  // clears the error the moment the socket actually comes online (which can
+  // be 5-15s on a cold-started Railway + socket.io polling fallback).
+  useEffect(() => {
+    if (!socket) {
+      setSocketConnected(false);
+      return;
+    }
+    setSocketConnected(socket.connected);
+    const onConnect = () => setSocketConnected(true);
+    const onDisconnect = () => setSocketConnected(false);
+    socket.on('connect', onConnect);
+    socket.on('disconnect', onDisconnect);
+    return () => {
+      socket.off('connect', onConnect);
+      socket.off('disconnect', onDisconnect);
+    };
+  }, [socket]);
+
+  // Watch the socket and show an error only if it STILL hasn't connected after
+  // SOCKET_CONNECT_TIMEOUT_MS. This catches genuine failures (failed auth,
+  // blocked WSS+polling, api down) while tolerating slow cold starts.
   useEffect(() => {
     if (!hydrated || !profile || !mood) return;
-    if (socket && socket.connected) {
+    if (socketConnected) {
+      // Socket came (or already was) online — clear any prior error and bail.
       setSocketError(null);
+      if (socketWatchRef.current) {
+        clearTimeout(socketWatchRef.current);
+        socketWatchRef.current = undefined;
+      }
       return;
     }
     socketWatchRef.current = setTimeout(() => {
-      if (!socket || !socket.connected) {
-        setSocketError(
-          'Could not connect to the matchmaking server. Check your network and try again.',
-        );
-      }
+      setSocketError(
+        'Could not connect to the matchmaking server. Check your network and try again.',
+      );
     }, SOCKET_CONNECT_TIMEOUT_MS);
     return () => {
-      if (socketWatchRef.current) clearTimeout(socketWatchRef.current);
+      if (socketWatchRef.current) {
+        clearTimeout(socketWatchRef.current);
+        socketWatchRef.current = undefined;
+      }
     };
-  }, [socket, hydrated, profile, mood]);
+  }, [socketConnected, hydrated, profile, mood]);
 
   // Emit match:join once when the socket + mood are ready.
   useEffect(() => {
