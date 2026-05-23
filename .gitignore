@@ -9,6 +9,8 @@ playwright-report/
 test-results/
 blob-report/
 playwright/.cache/
+agent-report/
+agent-results/
 
 # Dependencies
 node_modules/

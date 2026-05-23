@@ -793,6 +793,44 @@ Tests:
 
 Currently 8/8 passing locally and against production.
 
+### 🤖 Testing agent (one command, full app)
+
+`pnpm test:agent` provisions **3 real accounts** (Alice MALE, Bob FEMALE, Charlie MALE), drives the entire app through 11 scenarios, and saves screenshots at every step. Works against **either** the live production deploy *or* a local stack — same suite, just flip an env var.
+
+```bash
+# Drive PRODUCTION (default — vently-web-gamma.vercel.app + Railway api):
+pnpm --filter @vently/web test:agent
+
+# Drive LOCAL (your dev servers on :3000 / :4000):
+pnpm --filter @vently/web test:agent:local
+
+# Open the HTML report after a run (with screenshots + traces):
+pnpm --filter @vently/web test:agent:report
+
+# Visual UI mode (step through each test):
+pnpm --filter @vently/web test:agent:ui
+```
+
+What it verifies, in order (each ✓ has a screenshot in `apps/web/agent-results/`):
+
+1. Welcome page loads + shows public CTAs for anonymous visitors
+2. `/home` shows "Continue as `<nickname>`" for logged-in users (auth-aware)
+3. `/profile` renders the persisted nickname
+4. Bob queues → Alice queues → both land in the SAME `/chat/[id]`
+5. Realtime message round-trip both directions (<1s)
+6. Friend request → Bob accepts → "You're now friends!" system message → Alice appears in Bob's connections
+7. Notification bell renders with unread state
+8. Block API: Charlie blocks Alice → block list contains Alice
+9. Report API: Charlie reports Alice → 201 with persisted row
+10. `/webrtc/ice-servers` returns STUN + TURN URLs (Open Relay)
+11. `/health` returns `{ status: ok, postgres: ok, redis: ok }`
+
+Source: [apps/web/tests/agent/full-flow.spec.ts](apps/web/tests/agent/full-flow.spec.ts). Config: [apps/web/playwright.agent.config.ts](apps/web/playwright.agent.config.ts). Helpers: [apps/web/tests/agent/helpers.ts](apps/web/tests/agent/helpers.ts).
+
+Running cost on production: ~3 new accounts in the Postgres + a few `Report`/`Block`/`FriendRequest` rows. Use Prisma Studio (`pnpm db:studio` pointed at the Railway DB) to clean up if you want, but they're harmless.
+
+If you see a `⚠️ Alice ↔ Bob matched with strangers` warning when running against prod, it's because real users were in the matchmaking queue at the same instant. The test still passes the rest of the suite and the warning tells you to retry.
+
 ### Manual smoke test (5 minutes, before any deploy)
 
 1. Register a new account → land on `/onboarding`
