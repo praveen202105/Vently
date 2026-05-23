@@ -208,7 +208,12 @@ test.describe('🤖 Vently Testing Agent', () => {
     await bobPage.getByRole('button', { name: 'Accept' }).first().click();
 
     step('Both should see the "You\'re now friends!" system message in chat');
-    await expect(alicePage.getByText(/you're now friends/i)).toBeVisible({ timeout: 8_000 });
+    // Use .first() — both the inline chat bubble and (potentially) the
+    // sonner toast that fires from the FRIEND_RESPOND handler can render
+    // the same string. We only care that the SYSTEM message lands.
+    await expect(alicePage.getByText(/you're now friends/i).first()).toBeVisible({
+      timeout: 8_000,
+    });
 
     step(`${alice.nickname} should now appear in ${bob.nickname}'s connections`);
     await expect(bobPage.getByText(alice.nickname).first()).toBeVisible({ timeout: 8_000 });
