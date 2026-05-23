@@ -6,6 +6,9 @@ import { LoggerModule } from 'nestjs-pino';
 import { PrismaModule } from './prisma/prisma.module.js';
 import { RedisModule } from './redis/redis.module.js';
 import { HealthModule } from './health/health.module.js';
+import { AuthModule } from './auth/auth.module.js';
+import { UsersModule } from './users/users.module.js';
+import { ProfilesModule } from './profiles/profiles.module.js';
 
 @Module({
   imports: [
@@ -33,8 +36,10 @@ import { HealthModule } from './health/health.module.js';
     PrismaModule,
     RedisModule,
     HealthModule,
-    // Feature modules wired in Phase 1+ (see VENTLY_PLAN.md §3.1):
-    //   AuthModule, UsersModule, ProfilesModule,
+    AuthModule,
+    UsersModule,
+    ProfilesModule,
+    // Feature modules wired in later phases (see VENTLY_PLAN.md §3.1):
     //   MatchmakingModule, ChatModule, FriendsModule,
     //   CallsModule, WebrtcModule, ReportsModule, BlocksModule,
     //   NotificationsModule, ModerationModule, PresenceModule, RealtimeModule
