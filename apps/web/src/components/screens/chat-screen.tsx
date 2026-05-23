@@ -4,13 +4,15 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 import { useRouter } from 'next/navigation';
 import { useInfiniteQuery, useQuery, useQueryClient } from '@tanstack/react-query';
 import { motion, AnimatePresence } from 'motion/react';
-import { AlertCircle, ArrowLeft, Phone, RotateCw, Send, UserPlus, Shield, Flag } from 'lucide-react';
+import { AlertCircle, ArrowLeft, Check, Phone, RotateCw, Send, UserPlus, Shield, Flag, X } from 'lucide-react';
 import { toast } from 'sonner';
 import {
   SocketEvents,
   type ChatConversationEndedPayload,
   type ChatMessagePayload,
   type ChatTypingPayload,
+  type FriendRequestEventPayload,
+  type FriendRespondEventPayload,
   type MessagePublic,
 } from '@vently/shared';
 import { GlassCard } from '@vently/ui';
@@ -19,7 +21,7 @@ import { useMatchStore } from '@/stores/match-store';
 import { useSocket } from '@/lib/socket/use-socket';
 import { useSocketEvent } from '@/lib/socket/use-socket-event';
 import { getConversation, listMessages, leaveConversation } from '@/lib/api/conversations';
-import { sendFriendRequest } from '@/lib/api/friends';
+import { respondToFriendRequest, sendFriendRequest } from '@/lib/api/friends';
 import { blockUser } from '@/lib/api/blocks';
 import { ApiError } from '@/lib/api/client';
 import { ReportDialog } from '@/components/safety/report-dialog';
@@ -62,6 +64,18 @@ export function ChatScreen({ conversationId }: { conversationId: string }) {
   const [blockOpen, setBlockOpen] = useState(false);
   const [blocking, setBlocking] = useState(false);
   const [leaveOpen, setLeaveOpen] = useState(false);
+  // Incoming friend-request banner state — populated when the peer of THIS
+  // chat sends a FRIEND_REQUEST. Drives the inline Accept/Reject UI above
+  // the message list, which is more discoverable than a toast for a user
+  // who's literally mid-conversation with the requester.
+  const [incomingFriendRequest, setIncomingFriendRequest] = useState<
+    FriendRequestEventPayload | null
+  >(null);
+  const [respondingToRequest, setRespondingToRequest] = useState(false);
+  // Tracks whether the local user has already sent a friend request to the
+  // peer in this session. Switches the "Save as friend" button to a
+  // "Request sent" affordance so the user doesn't double-tap and re-fire.
+  const [requestSent, setRequestSent] = useState(false);
 
   const typingTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const lastTypingEmitRef = useRef(0);
@@ -218,6 +232,79 @@ export function ChatScreen({ conversationId }: { conversationId: string }) {
       [conversationId, router],
     ),
   );
+
+  // Peer sent us a friend request while we're in the chat with them. Show
+  // an inline Accept/Reject banner above the message list — much more
+  // discoverable than waiting for the user to navigate to /connections.
+  // We only react when the request is from the CURRENT chat peer; requests
+  // from other users are handled by the global <FriendRequestToaster />.
+  useSocketEvent(
+    SocketEvents.FRIEND_REQUEST,
+    useCallback(
+      (payload: FriendRequestEventPayload) => {
+        if (!peer || payload.fromUserId !== peer.userId) return;
+        setIncomingFriendRequest(payload);
+      },
+      [peer],
+    ),
+  );
+
+  // Peer accepted (or rejected) a friend request we sent them. On accept
+  // the server promotes the conversation type to FRIEND — refresh the meta
+  // query so the End button flips to "Back" and the Save-as-friend button
+  // disappears without a manual reload.
+  useSocketEvent(
+    SocketEvents.FRIEND_RESPOND,
+    useCallback(
+      (payload: FriendRespondEventPayload) => {
+        if (!peer || payload.byUserId !== peer.userId) return;
+        if (payload.accepted) {
+          toast.success("You're now friends!");
+          setRequestSent(false);
+          void qc.invalidateQueries({ queryKey: ['conversations', conversationId, 'meta'] });
+          void qc.invalidateQueries({ queryKey: ['friends'] });
+        } else {
+          // Don't toast a rejection — silently hide the "request sent"
+          // affordance so the user can try again later if they want.
+          setRequestSent(false);
+        }
+      },
+      [peer, qc, conversationId],
+    ),
+  );
+
+  const acceptIncomingRequest = useCallback(async () => {
+    if (!incomingFriendRequest) return;
+    setRespondingToRequest(true);
+    try {
+      await respondToFriendRequest(incomingFriendRequest.requestId, true);
+      toast.success("You're now friends!");
+      setIncomingFriendRequest(null);
+      // Conversation type just flipped to FRIEND on the server — refresh
+      // meta so the End button becomes "Back" and the Save button hides.
+      void qc.invalidateQueries({ queryKey: ['conversations', conversationId, 'meta'] });
+      void qc.invalidateQueries({ queryKey: ['friends'] });
+      void qc.invalidateQueries({ queryKey: ['friends', 'requests'] });
+    } catch {
+      toast.error('Could not accept the request');
+    } finally {
+      setRespondingToRequest(false);
+    }
+  }, [incomingFriendRequest, qc, conversationId]);
+
+  const rejectIncomingRequest = useCallback(async () => {
+    if (!incomingFriendRequest) return;
+    setRespondingToRequest(true);
+    try {
+      await respondToFriendRequest(incomingFriendRequest.requestId, false);
+      setIncomingFriendRequest(null);
+      void qc.invalidateQueries({ queryKey: ['friends', 'requests'] });
+    } catch {
+      toast.error('Could not reject the request');
+    } finally {
+      setRespondingToRequest(false);
+    }
+  }, [incomingFriendRequest, qc]);
 
   useSocketEvent(
     SocketEvents.CHAT_TYPING_STATUS,
@@ -401,11 +488,18 @@ export function ChatScreen({ conversationId }: { conversationId: string }) {
   };
 
   const addFriend = async () => {
-    if (!peer) return;
+    if (!peer || requestSent) return;
     try {
       const result = await sendFriendRequest(peer.userId);
-      if (result.kind === 'requested') toast.success('Friend request sent');
-      else if (result.kind === 'accepted') toast.success("You're now friends!");
+      if (result.kind === 'requested') {
+        toast.success('Friend request sent');
+        setRequestSent(true);
+      } else if (result.kind === 'accepted') {
+        toast.success("You're now friends!");
+        // Auto-accept case (peer had a pending request to us already) —
+        // conversation type just promoted, refresh meta.
+        void qc.invalidateQueries({ queryKey: ['conversations', conversationId, 'meta'] });
+      }
     } catch (err) {
       const msg = err instanceof ApiError ? err.message : 'Could not send request';
       toast.error(msg);
@@ -457,12 +551,16 @@ export function ChatScreen({ conversationId }: { conversationId: string }) {
           <button
             type="button"
             onClick={addFriend}
-            disabled={!peer}
-            className="p-2 rounded-lg hover:bg-primary/20 transition text-primary disabled:opacity-50"
-            aria-label="Save as friend"
-            title="Save as friend"
+            disabled={!peer || requestSent}
+            className={`p-2 rounded-lg transition disabled:opacity-50 ${
+              requestSent
+                ? 'text-muted-foreground'
+                : 'hover:bg-primary/20 text-primary'
+            }`}
+            aria-label={requestSent ? 'Friend request sent' : 'Save as friend'}
+            title={requestSent ? 'Friend request sent' : 'Save as friend'}
           >
-            <UserPlus className="w-5 h-5" />
+            {requestSent ? <Check className="w-5 h-5" /> : <UserPlus className="w-5 h-5" />}
           </button>
         )}
         <button
@@ -509,6 +607,52 @@ export function ChatScreen({ conversationId }: { conversationId: string }) {
           {isFriendConvo ? 'Back' : 'End'}
         </button>
       </header>
+
+      {/* In-chat friend-request banner. Fires when the active peer sends
+          a friend request — much more discoverable than waiting for the
+          user to navigate to /connections. Pulses gently to draw the eye. */}
+      <AnimatePresence>
+        {incomingFriendRequest && peer && (
+          <motion.div
+            initial={{ opacity: 0, y: -8, height: 0 }}
+            animate={{ opacity: 1, y: 0, height: 'auto' }}
+            exit={{ opacity: 0, y: -8, height: 0 }}
+            className="border-b border-glass-border bg-glass-bg backdrop-blur-xl"
+          >
+            <div className="flex items-center gap-3 px-4 py-3">
+              <div className="w-9 h-9 rounded-full bg-gradient-to-br from-purple-600 to-pink-600 flex items-center justify-center text-white text-sm shrink-0">
+                <UserPlus className="w-4 h-4" />
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="text-sm truncate">
+                  <span className="font-medium">{peer.nickname}</span> wants to be friends
+                </p>
+                <p className="text-xs text-muted-foreground">
+                  Accept to keep this chat in Connections forever.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={rejectIncomingRequest}
+                disabled={respondingToRequest}
+                aria-label="Reject friend request"
+                className="p-2 rounded-lg bg-muted text-muted-foreground hover:bg-destructive/20 hover:text-destructive transition disabled:opacity-50"
+              >
+                <X className="w-4 h-4" />
+              </button>
+              <button
+                type="button"
+                onClick={acceptIncomingRequest}
+                disabled={respondingToRequest}
+                aria-label="Accept friend request"
+                className="p-2 rounded-lg bg-primary/20 text-primary hover:bg-primary/30 transition disabled:opacity-50"
+              >
+                <Check className="w-4 h-4" />
+              </button>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       <div
         ref={scrollRef}

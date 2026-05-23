@@ -9,7 +9,6 @@ import { toast } from 'sonner';
 import {
   SocketEvents,
   type ChatMessagePayload,
-  type FriendRequestEventPayload,
   type FriendRespondEventPayload,
 } from '@vently/shared';
 import { GlassCard } from '@vently/ui';
@@ -69,17 +68,11 @@ export function ConnectionsScreen() {
     ),
   );
 
-  // Real-time updates: new request → toast + refresh, response → refresh.
-  useSocketEvent(
-    SocketEvents.FRIEND_REQUEST,
-    useCallback(
-      (payload: FriendRequestEventPayload) => {
-        toast.message(`${payload.fromNickname || 'Someone'} wants to be friends`);
-        void qc.invalidateQueries({ queryKey: ['friends', 'requests'] });
-      },
-      [qc],
-    ),
-  );
+  // FRIEND_REQUEST is now handled by the global <FriendRequestToaster /> in
+  // the (app) layout (see apps/web/app/(app)/layout.tsx) — fires on every
+  // screen, not just /connections. We still listen for FRIEND_RESPOND here
+  // because the friend list itself needs to refresh when a request is
+  // resolved (whoever this user just sent a request TO accepted/rejected).
   useSocketEvent(
     SocketEvents.FRIEND_RESPOND,
     useCallback(

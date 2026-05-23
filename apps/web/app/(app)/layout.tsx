@@ -1,9 +1,12 @@
 import { ResponsiveShell } from '@/components/shell/responsive-shell';
 import { IncomingCallRinger } from '@/components/call/incoming-call-ringer';
+import { FriendRequestToaster } from '@/components/notifications/friend-request-toaster';
 
 // AuthBootstrap moved to the ROOT layout so every page (including marketing)
-// hydrates the session. This layout just adds the app chrome + the in-app
-// incoming-call ringer that listens for call:invite on any /chat-or-call route.
+// hydrates the session. This layout adds the app chrome + global event
+// listeners that need to fire on any authenticated route:
+//   - IncomingCallRinger:    listens for call:invite anywhere
+//   - FriendRequestToaster:  listens for friend:request anywhere
 export default function AppShellLayout({ children }: { children: React.ReactNode }) {
   return (
     <>
@@ -14,6 +17,7 @@ export default function AppShellLayout({ children }: { children: React.ReactNode
       </a>
       <ResponsiveShell>{children}</ResponsiveShell>
       <IncomingCallRinger />
+      <FriendRequestToaster />
     </>
   );
 }
