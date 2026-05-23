@@ -15,3 +15,7 @@ export function listMessages(conversationId: string, cursor?: string, limit = 30
 export function leaveConversation(conversationId: string) {
   return api<void>(`/conversations/${conversationId}`, { method: 'DELETE' });
 }
+
+export function getUnreadCount() {
+  return api<{ count: number }>('/conversations/unread-count');
+}

@@ -13,6 +13,11 @@ export class ConversationsController {
     return this.conversations.listForUser(user.userId);
   }
 
+  @Get('unread-count')
+  unreadCount(@CurrentUser() user: AuthUser) {
+    return this.conversations.unreadCount(user.userId);
+  }
+
   @Delete(':id')
   @HttpCode(HttpStatus.NO_CONTENT)
   async leave(@CurrentUser() user: AuthUser, @Param('id') id: string) {

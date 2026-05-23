@@ -1,9 +1,13 @@
 import { ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { ConversationsRepository } from './conversations.repository.js';
+import { PrismaService } from '../prisma/prisma.service.js';
 
 @Injectable()
 export class ConversationsService {
-  constructor(private readonly repo: ConversationsRepository) {}
+  constructor(
+    private readonly repo: ConversationsRepository,
+    private readonly prisma: PrismaService,
+  ) {}
 
   async listForUser(userId: string) {
     const rows = await this.repo.listForUser(userId);
@@ -45,5 +49,23 @@ export class ConversationsService {
     if (!part) throw new NotFoundException('Conversation not found');
     await this.repo.setLeftAt(conversationId, userId);
     await this.repo.endConversation(conversationId);
+  }
+
+  // Total messages addressed to this user that haven't been read yet. Drives
+  // the unread badge on the Chat tab. Counts across every active conversation
+  // — the badge only needs a single integer, not per-conversation breakdown.
+  async unreadCount(userId: string): Promise<{ count: number }> {
+    const count = await this.prisma.message.count({
+      where: {
+        deletedAt: null,
+        senderId: { not: userId },
+        conversation: {
+          endedAt: null,
+          participants: { some: { userId } },
+        },
+        receipts: { none: { userId, readAt: { not: null } } },
+      },
+    });
+    return { count };
   }
 }
