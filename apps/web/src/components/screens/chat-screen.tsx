@@ -174,13 +174,37 @@ export function ChatScreen({ conversationId }: { conversationId: string }) {
   }, [socket, conversationId]);
 
   // Tell the server which conversation we're focused on, so it can suppress
-  // push notifications for messages we're already reading. Clear on unmount
-  // (or when the conversation id changes mid-mount, which shouldn't happen
-  // in practice but is correct).
+  // push notifications for messages we're already reading. "Focused" means
+  // BOTH the route is mounted AND the browser tab is visible — a
+  // backgrounded tab should let push through (otherwise the user gets the
+  // in-tab ringer/sound but no OS notification, which is the worst of
+  // both worlds). visibilitychange tracks the tab state in real time.
   useEffect(() => {
     if (!socket || !conversationId) return;
-    socket.emit(SocketEvents.PRESENCE_FOCUS, { conversationId });
+
+    const isVisible = () =>
+      typeof document === 'undefined' || document.visibilityState === 'visible';
+
+    const sync = () => {
+      socket.emit(SocketEvents.PRESENCE_FOCUS, {
+        conversationId: isVisible() ? conversationId : null,
+      });
+    };
+
+    // Initial state on mount.
+    sync();
+
+    // Update whenever the browser tab visibility flips. Browsers also fire
+    // 'blur' on the window when another app takes focus — listen to that
+    // too so a different desktop app stealing focus also unblocks push.
+    document.addEventListener('visibilitychange', sync);
+    window.addEventListener('blur', sync);
+    window.addEventListener('focus', sync);
+
     return () => {
+      document.removeEventListener('visibilitychange', sync);
+      window.removeEventListener('blur', sync);
+      window.removeEventListener('focus', sync);
       socket.emit(SocketEvents.PRESENCE_FOCUS, { conversationId: null });
     };
   }, [socket, conversationId]);
