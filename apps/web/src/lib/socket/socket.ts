@@ -12,15 +12,31 @@ let socket: VentlySocket | null = null;
 let lastTokenUsed: string | null = null;
 
 function buildSocket(token: string): VentlySocket {
-  return io(SOCKET_URL, {
+  // Default transport order (polling → upgrade to websocket). Forcing
+  // 'websocket' only fails silently on networks that block WSS upgrades
+  // (some mobile carriers, corporate proxies, captive portals). Polling
+  // gets us through and the client auto-upgrades once it's working.
+  const s = io(SOCKET_URL, {
     auth: { token },
-    transports: ['websocket'],
+    transports: ['polling', 'websocket'],
     autoConnect: true,
     reconnection: true,
     reconnectionDelay: 500,
     reconnectionDelayMax: 5_000,
     withCredentials: true,
+    timeout: 20_000,
   });
+
+  if (typeof window !== 'undefined') {
+    // Surface connect failures so they show up in DevTools console + Sentry
+    // (Phase 6) instead of being lost.
+    s.on('connect_error', (err) => {
+      // eslint-disable-next-line no-console
+      console.warn('[socket] connect_error:', err.message);
+    });
+  }
+
+  return s;
 }
 
 /**

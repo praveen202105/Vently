@@ -41,7 +41,10 @@ export class RealtimeGateway implements OnGatewayInit, OnGatewayConnection, OnGa
       const token =
         (socket.handshake.auth as { token?: string }).token ??
         socket.handshake.headers.authorization?.replace(/^Bearer\s+/i, '');
-      if (!token) return next(new Error('Missing auth token'));
+      if (!token) {
+        this.logger.warn(`socket auth: missing token (sid=${socket.id})`);
+        return next(new Error('Missing auth token'));
+      }
 
       try {
         const payload = this.jwt.verify<JwtPayload>(token, {
@@ -54,6 +57,9 @@ export class RealtimeGateway implements OnGatewayInit, OnGatewayConnection, OnGa
           })
           .then((user) => {
             if (!user || !user.profile) {
+              this.logger.warn(
+                `socket auth: profile missing for user ${payload.sub} (sid=${socket.id})`,
+              );
               return next(new Error('Profile required before connecting'));
             }
             (socket as AuthedSocket).data.user = {
@@ -65,8 +71,14 @@ export class RealtimeGateway implements OnGatewayInit, OnGatewayConnection, OnGa
             };
             next();
           })
-          .catch((err) => next(err as Error));
-      } catch {
+          .catch((err) => {
+            this.logger.error('socket auth: db lookup failed', err);
+            next(err as Error);
+          });
+      } catch (err) {
+        this.logger.warn(
+          `socket auth: invalid token (sid=${socket.id}): ${(err as Error).message}`,
+        );
         next(new Error('Invalid token'));
       }
     });
