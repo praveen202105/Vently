@@ -16,7 +16,7 @@ RUN pnpm install --frozen-lockfile
 # ─── Stage 2: build ──────────────────────────────────────────
 FROM deps AS build
 COPY . .
-RUN pnpm --filter @vently/shared prisma generate
+RUN pnpm --filter @vently/shared exec prisma generate
 RUN pnpm --filter @vently/shared build
 RUN pnpm --filter @vently/api build
 
@@ -37,4 +37,4 @@ COPY --from=build /repo/apps/api/node_modules ./apps/api/node_modules
 
 WORKDIR /repo/apps/api
 EXPOSE 4000
-CMD ["sh", "-c", "pnpm --filter @vently/shared prisma migrate deploy && node dist/main.js"]
+CMD ["sh", "-c", "pnpm --filter @vently/shared exec prisma migrate deploy && node dist/main.js"]
