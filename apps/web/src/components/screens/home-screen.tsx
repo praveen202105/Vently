@@ -1,6 +1,6 @@
-import Link from 'next/link';
 import { MessageCircle, Heart, Shield, Users, Clock, Sparkles } from 'lucide-react';
 import { GlassCard } from '@vently/ui';
+import { AuthAwareCta } from '@/components/marketing/auth-aware-cta';
 
 // Marketing page — Server Component (RSC). No client-side state, fully static.
 // Renders the same hero / stats / features / how-it-works grid from the
@@ -64,20 +64,7 @@ export function HomeScreen() {
           Anonymous emotional chat + voice. Find someone who understands you.
         </p>
 
-        <div className="flex flex-col sm:flex-row gap-3 justify-center mt-8">
-          <Link
-            href="/register"
-            className="px-6 py-3 rounded-2xl bg-gradient-to-r from-purple-600 via-pink-600 to-blue-600 text-white shadow-lg shadow-primary/30 hover:shadow-2xl hover:shadow-primary/50 transition"
-          >
-            Get started
-          </Link>
-          <Link
-            href="/login"
-            className="px-6 py-3 rounded-2xl border-2 border-primary text-primary hover:bg-primary/10 transition"
-          >
-            Sign in
-          </Link>
-        </div>
+        <AuthAwareCta variant="hero" />
       </section>
 
       <section className="grid grid-cols-3 gap-4 text-center">
@@ -136,12 +123,7 @@ export function HomeScreen() {
           <p className="text-muted-foreground mb-5 text-sm">
             Takes under a minute. You can leave anytime.
           </p>
-          <Link
-            href="/register"
-            className="inline-block px-6 py-3 rounded-2xl bg-gradient-to-r from-purple-600 via-pink-600 to-blue-600 text-white shadow-lg shadow-primary/30 hover:shadow-2xl hover:shadow-primary/50 transition"
-          >
-            Create your account
-          </Link>
+          <AuthAwareCta variant="card" />
         </GlassCard>
       </section>
     </div>

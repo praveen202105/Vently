@@ -32,7 +32,9 @@ export function LoginForm() {
     try {
       const res = await login(data);
       setAuth({ accessToken: res.accessToken, user: res.user, profile: res.profile });
-      const next = search.get('next') ?? (res.profile ? '/home' : '/onboarding');
+      // After login, drop the user into the authenticated app. /home is a
+      // marketing surface that doesn't tell the user they're signed in.
+      const next = search.get('next') ?? (res.profile ? '/mood' : '/onboarding');
       router.replace(next);
     } catch (err) {
       const msg = err instanceof ApiError ? err.message : 'Login failed';

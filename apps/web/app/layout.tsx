@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from 'next';
 import { Toaster } from 'sonner';
 import { QueryProvider } from '@/providers/query-provider';
+import { AuthBootstrap } from '@/components/auth/auth-bootstrap';
 import '@/styles/globals.css';
 
 // next/font/google was flaking the dev SSR with intermittent JSON parse
@@ -28,7 +29,12 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   return (
     <html lang="en" className="dark">
       <body>
-        <QueryProvider>{children}</QueryProvider>
+        <QueryProvider>
+          {/* Hydrate the session on every route so marketing/home pages can
+              show personalised CTAs and so a refresh on any page doesn't make
+              the user look anonymous to themselves. */}
+          <AuthBootstrap>{children}</AuthBootstrap>
+        </QueryProvider>
         <Toaster theme="dark" position="top-center" richColors />
       </body>
     </html>
