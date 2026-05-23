@@ -1,0 +1,33 @@
+{
+  "name": "@vently/config",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "./index.js",
+  "files": [
+    "tsconfig.base.json",
+    "tsconfig.nest.json",
+    "tsconfig.next.json",
+    "tsconfig.lib.json",
+    "eslint.config.js",
+    "tailwind-preset.js",
+    "index.js"
+  ],
+  "exports": {
+    "./tsconfig.base.json": "./tsconfig.base.json",
+    "./tsconfig.nest.json": "./tsconfig.nest.json",
+    "./tsconfig.next.json": "./tsconfig.next.json",
+    "./tsconfig.lib.json": "./tsconfig.lib.json",
+    "./eslint": "./eslint.config.js",
+    "./tailwind-preset": "./tailwind-preset.js"
+  },
+  "devDependencies": {
+    "@typescript-eslint/eslint-plugin": "^8.6.0",
+    "@typescript-eslint/parser": "^8.6.0",
+    "eslint": "^9.10.0",
+    "eslint-config-prettier": "^9.1.0",
+    "eslint-plugin-react": "^7.36.1",
+    "eslint-plugin-react-hooks": "^5.1.0-rc-fb9a90fa48-20240614",
+    "typescript": "^5.5.4"
+  }
+}

@@ -1,0 +1,52 @@
+# Claude Code runtime
+.claude/
+
+# Dependencies
+node_modules/
+.pnpm-store/
+
+# Build output
+dist/
+build/
+.next/
+.turbo/
+*.tsbuildinfo
+
+# Environment
+.env
+.env.local
+.env.*.local
+!.env.example
+
+# IDE
+.vscode/
+.idea/
+*.swp
+.DS_Store
+
+# Logs
+*.log
+npm-debug.log*
+pnpm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Coverage
+coverage/
+*.lcov
+
+# Testing
+.nyc_output/
+
+# Prisma
+**/prisma/migrations/dev.db*
+
+# OS
+Thumbs.db
+
+# Sentry
+.sentryclirc
+
+# Temp
+tmp/
+temp/

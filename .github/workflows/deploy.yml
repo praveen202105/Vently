@@ -1,0 +1,37 @@
+name: Deploy
+
+on:
+  push:
+    branches: [main]
+
+jobs:
+  api:
+    name: Deploy API → Railway
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    if: false # Enable once Railway project + RAILWAY_TOKEN secret are set.
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9.12.0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter @vently/shared prisma generate
+      - run: pnpm --filter @vently/api build
+
+      - name: Install Railway CLI
+        run: npm i -g @railway/cli
+
+      - name: Deploy
+        env:
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+        run: railway up --service api --detach
+
+  # Web is deployed by Vercel's git integration automatically — no GH Action needed.

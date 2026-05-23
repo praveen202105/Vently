@@ -1,0 +1,265 @@
+// Vently — Prisma schema
+// See VENTLY_PLAN.md §3.2 for the data-model rationale.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ─── Identity ──────────────────────────────────────────────────────────────
+
+model User {
+  id           String    @id @default(cuid())
+  email        String    @unique
+  passwordHash String?
+  googleId     String?   @unique
+  role         Role      @default(USER)
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  profile  Profile?
+  sessions Session[]
+
+  @@index([email])
+}
+
+model Profile {
+  userId     String      @id
+  user       User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  nickname   String      @unique
+  gender     Gender
+  bio        String?
+  avatarSeed String
+  mood       MoodIntent?
+  isOnline   Boolean     @default(false)
+  lastSeenAt DateTime    @default(now())
+  createdAt  DateTime    @default(now())
+  updatedAt  DateTime    @updatedAt
+
+  @@index([isOnline, gender])
+}
+
+model Session {
+  id               String   @id @default(cuid())
+  userId           String
+  user             User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  refreshTokenHash String   @unique
+  deviceInfo       String?
+  expiresAt        DateTime
+  createdAt        DateTime @default(now())
+
+  @@index([userId])
+  @@index([expiresAt])
+}
+
+// ─── Conversations & Messages ───────────────────────────────────────────────
+
+model Conversation {
+  id        String    @id @default(cuid())
+  type      ConvType  @default(DIRECT)
+  createdAt DateTime  @default(now())
+  endedAt   DateTime?
+
+  participants ConversationParticipant[]
+  messages     Message[]
+  calls        CallSession[]
+  reports      Report[]
+}
+
+model ConversationParticipant {
+  conversationId String
+  userId         String
+  joinedAt       DateTime  @default(now())
+  leftAt         DateTime?
+
+  conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+
+  @@id([conversationId, userId])
+  @@index([userId])
+}
+
+model Message {
+  id             String      @id @default(cuid())
+  conversationId String
+  senderId       String
+  body           String
+  type           MessageType @default(TEXT)
+  createdAt      DateTime    @default(now())
+  deletedAt      DateTime?
+
+  conversation Conversation     @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  receipts     MessageReceipt[]
+  flags        ModerationFlag[]
+
+  @@index([conversationId, createdAt])
+  @@index([senderId])
+}
+
+model MessageReceipt {
+  messageId   String
+  userId      String
+  deliveredAt DateTime?
+  readAt      DateTime?
+
+  message Message @relation(fields: [messageId], references: [id], onDelete: Cascade)
+
+  @@id([messageId, userId])
+  @@index([userId])
+}
+
+// ─── Social Graph ───────────────────────────────────────────────────────────
+
+model FriendRequest {
+  id         String          @id @default(cuid())
+  fromUserId String
+  toUserId   String
+  status     FriendReqStatus @default(PENDING)
+  createdAt  DateTime        @default(now())
+  updatedAt  DateTime        @updatedAt
+
+  @@unique([fromUserId, toUserId])
+  @@index([toUserId, status])
+}
+
+model Friendship {
+  // userAId < userBId always — enforce in the service layer for canonical pairs.
+  userAId   String
+  userBId   String
+  createdAt DateTime @default(now())
+
+  @@id([userAId, userBId])
+  @@index([userBId])
+}
+
+model Block {
+  blockerId String
+  blockedId String
+  createdAt DateTime @default(now())
+
+  @@id([blockerId, blockedId])
+  @@index([blockedId])
+}
+
+// ─── Safety & Moderation ────────────────────────────────────────────────────
+
+model Report {
+  id             String       @id @default(cuid())
+  reporterId     String
+  reportedId     String
+  conversationId String?
+  reason         String
+  details        String?
+  status         ReportStatus @default(OPEN)
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+
+  conversation Conversation? @relation(fields: [conversationId], references: [id])
+
+  @@index([status])
+  @@index([reportedId])
+}
+
+model ModerationFlag {
+  id        String   @id @default(cuid())
+  messageId String?
+  reason    String
+  severity  Int
+  action    String?
+  createdAt DateTime @default(now())
+
+  message Message? @relation(fields: [messageId], references: [id], onDelete: SetNull)
+
+  @@index([severity])
+}
+
+// ─── Voice Calls ────────────────────────────────────────────────────────────
+
+model CallSession {
+  id             String    @id @default(cuid())
+  conversationId String
+  callerId       String
+  calleeId       String
+  startedAt      DateTime  @default(now())
+  endedAt        DateTime?
+  durationSec    Int?
+  endReason      String?
+
+  conversation Conversation @relation(fields: [conversationId], references: [id])
+
+  @@index([conversationId])
+  @@index([callerId])
+  @@index([calleeId])
+}
+
+// ─── Notifications ──────────────────────────────────────────────────────────
+
+model Notification {
+  id        String    @id @default(cuid())
+  userId    String
+  type      NotifType
+  payload   Json
+  readAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  @@index([userId, readAt])
+  @@index([userId, createdAt])
+}
+
+// ─── Enums ──────────────────────────────────────────────────────────────────
+
+enum Role {
+  USER
+  MOD
+  ADMIN
+}
+
+enum Gender {
+  MALE
+  FEMALE
+}
+
+enum MoodIntent {
+  LONELY
+  NEED_TO_TALK
+  FRIENDSHIP
+  LATE_NIGHT
+  ADVICE
+  FLIRTY
+  VOICE_ONLY
+}
+
+enum ConvType {
+  DIRECT
+  FRIEND
+}
+
+enum MessageType {
+  TEXT
+  SYSTEM
+}
+
+enum FriendReqStatus {
+  PENDING
+  ACCEPTED
+  REJECTED
+  CANCELLED
+}
+
+enum ReportStatus {
+  OPEN
+  REVIEWING
+  RESOLVED
+}
+
+enum NotifType {
+  MATCH_FOUND
+  MESSAGE
+  FRIEND_REQUEST
+  FRIEND_ACCEPTED
+  MISSED_CALL
+  SYSTEM
+}

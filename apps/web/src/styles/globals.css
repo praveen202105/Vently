@@ -1,0 +1,168 @@
+@import 'tailwindcss';
+
+/* Vently is a dark-only product. We expose the same tokens at :root and .dark
+   so any third-party component that toggles `.dark` still resolves correctly. */
+@custom-variant dark (&:is(.dark *));
+
+:root {
+  --font-size: 16px;
+
+  --background: #0a0a0f;
+  --foreground: #f0f0f5;
+  --card: rgba(20, 20, 35, 0.6);
+  --card-foreground: #f0f0f5;
+  --popover: rgba(15, 15, 25, 0.95);
+  --popover-foreground: #f0f0f5;
+
+  --primary: #6366f1;
+  --primary-foreground: #ffffff;
+
+  --secondary: #ec4899;
+  --secondary-foreground: #ffffff;
+
+  --accent: #3b82f6;
+  --accent-foreground: #ffffff;
+
+  --muted: rgba(255, 255, 255, 0.05);
+  --muted-foreground: rgba(240, 240, 245, 0.6);
+
+  --destructive: #ef4444;
+  --destructive-foreground: #ffffff;
+
+  --border: rgba(255, 255, 255, 0.08);
+  --input: rgba(255, 255, 255, 0.05);
+  --input-background: rgba(255, 255, 255, 0.05);
+  --switch-background: rgba(255, 255, 255, 0.1);
+
+  --font-weight-medium: 500;
+  --font-weight-normal: 400;
+  --ring: #6366f1;
+
+  --gradient-purple: #7c3aed;
+  --gradient-pink: #ec4899;
+  --gradient-blue: #3b82f6;
+
+  --glass-bg: rgba(20, 20, 35, 0.4);
+  --glass-border: rgba(255, 255, 255, 0.1);
+
+  --radius: 1rem;
+
+  --sidebar: rgba(15, 15, 25, 0.8);
+  --sidebar-foreground: #f0f0f5;
+  --sidebar-primary: #6366f1;
+  --sidebar-primary-foreground: #ffffff;
+  --sidebar-accent: rgba(99, 102, 241, 0.1);
+  --sidebar-accent-foreground: #f0f0f5;
+  --sidebar-border: rgba(255, 255, 255, 0.08);
+  --sidebar-ring: #6366f1;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-input-background: var(--input-background);
+  --color-ring: var(--ring);
+
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+}
+
+@source '../../../packages/ui/src';
+
+@layer base {
+  * {
+    border-color: var(--border);
+  }
+
+  html {
+    scroll-behavior: smooth;
+    font-size: var(--font-size);
+  }
+
+  body {
+    background: linear-gradient(180deg, #0a0a0f 0%, #0f0a1a 50%, #0a0a0f 100%);
+    color: var(--foreground);
+    min-height: 100vh;
+    overflow-x: hidden;
+    font-family: var(--font-inter), system-ui, -apple-system, sans-serif;
+  }
+
+  ::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+  ::-webkit-scrollbar-track {
+    background: rgba(255, 255, 255, 0.05);
+  }
+  ::-webkit-scrollbar-thumb {
+    background: rgba(99, 102, 241, 0.5);
+    border-radius: 4px;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: rgba(99, 102, 241, 0.7);
+  }
+
+  h1,
+  h2,
+  h3,
+  h4 {
+    font-weight: var(--font-weight-medium);
+    line-height: 1.5;
+  }
+
+  button,
+  label {
+    font-weight: var(--font-weight-medium);
+  }
+}
+
+@layer utilities {
+  .bg-glass-bg {
+    background-color: var(--glass-bg);
+  }
+  .border-glass-border {
+    border-color: var(--glass-border);
+  }
+  .bg-gradient-purple {
+    background-color: var(--gradient-purple);
+  }
+  .bg-gradient-pink {
+    background-color: var(--gradient-pink);
+  }
+  .bg-gradient-blue {
+    background-color: var(--gradient-blue);
+  }
+  .from-gradient-purple {
+    --tw-gradient-from: var(--gradient-purple) var(--tw-gradient-from-position);
+    --tw-gradient-to: rgba(124, 58, 237, 0) var(--tw-gradient-to-position);
+    --tw-gradient-stops: var(--tw-gradient-from), var(--tw-gradient-to);
+  }
+  .via-gradient-pink {
+    --tw-gradient-via-position: 50%;
+    --tw-gradient-via-stops: var(--tw-gradient-from),
+      var(--gradient-pink) var(--tw-gradient-via-position),
+      var(--tw-gradient-to);
+    --tw-gradient-stops: var(--tw-gradient-via-stops);
+  }
+  .to-gradient-blue {
+    --tw-gradient-to: var(--gradient-blue) var(--tw-gradient-to-position);
+  }
+}
