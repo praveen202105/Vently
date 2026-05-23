@@ -15,6 +15,8 @@ import {
 } from '@vently/shared';
 import { ConversationsService } from '../conversations/conversations.service.js';
 import { MessagesService } from '../messages/messages.service.js';
+import { BlocksService } from '../blocks/blocks.service.js';
+import { PrismaService } from '../prisma/prisma.service.js';
 import { type AuthedSocket, convRoom } from '../realtime/types.js';
 
 const MAX_BODY_LEN = 2000;
@@ -27,6 +29,8 @@ export class ChatGateway {
   constructor(
     private readonly conversations: ConversationsService,
     private readonly messages: MessagesService,
+    private readonly blocks: BlocksService,
+    private readonly prisma: PrismaService,
   ) {}
 
   // Lets a reconnected/refreshed client re-join its conversation room.
@@ -49,6 +53,17 @@ export class ChatGateway {
     if (!body || body.length > MAX_BODY_LEN) return { ok: false, error: 'Invalid body' };
 
     const user = socket.data.user;
+
+    // Block-check: refuse to deliver between users who blocked each other.
+    const peer = await this.prisma.conversationParticipant.findFirst({
+      where: { conversationId: payload.conversationId, userId: { not: user.userId } },
+      select: { userId: true },
+    });
+    if (peer) {
+      const blocked = await this.blocks.isBlocked(user.userId, peer.userId);
+      if (blocked) return { ok: false, error: 'Cannot send to this user' };
+    }
+
     const msg = await this.messages.send({
       conversationId: payload.conversationId,
       senderId: user.userId,

@@ -15,6 +15,8 @@ import { PresenceModule } from './presence/presence.module.js';
 import { MatchmakingModule } from './matchmaking/matchmaking.module.js';
 import { ChatModule } from './chat/chat.module.js';
 import { RealtimeModule } from './realtime/realtime.module.js';
+import { FriendsModule } from './friends/friends.module.js';
+import { BlocksModule } from './blocks/blocks.module.js';
 
 @Module({
   imports: [
@@ -51,8 +53,9 @@ import { RealtimeModule } from './realtime/realtime.module.js';
     MatchmakingModule,
     ChatModule,
     RealtimeModule,
+    FriendsModule,
+    BlocksModule,
     // Feature modules wired in later phases (see VENTLY_PLAN.md §3.1):
-    //   FriendsModule, BlocksModule,
     //   CallsModule, WebrtcModule,
     //   ReportsModule, ModerationModule, NotificationsModule
   ],

@@ -96,4 +96,14 @@ export class RealtimeGateway implements OnGatewayInit, OnGatewayConnection, OnGa
     this.server.emit(SocketEvents.PRESENCE_OFFLINE, { userId: user.userId });
     this.logger.debug(`disconnected ${user.userId}`);
   }
+
+  /** Emit an event into a specific user's room (all their connected sockets). */
+  emitToUser<E extends string, P>(userId: string, event: E, payload: P) {
+    this.server?.to(userRoom(userId)).emit(event, payload as never);
+  }
+
+  /** Broadcast inside an active conversation room. */
+  emitToConversation<E extends string, P>(conversationId: string, event: E, payload: P) {
+    this.server?.to(`conv:${conversationId}`).emit(event, payload as never);
+  }
 }

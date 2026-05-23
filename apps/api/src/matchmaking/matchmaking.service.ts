@@ -3,6 +3,7 @@ import type Redis from 'ioredis';
 import type { Gender, MoodIntent } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { REDIS_CLIENT } from '../redis/redis.module.js';
+import { BlocksService } from '../blocks/blocks.service.js';
 
 const GENDERS: Gender[] = ['MALE', 'FEMALE'];
 const MOODS: MoodIntent[] = [
@@ -55,6 +56,7 @@ export class MatchmakingService {
   constructor(
     @Inject(REDIS_CLIENT) private readonly redis: Redis,
     private readonly prisma: PrismaService,
+    private readonly blocks: BlocksService,
   ) {}
 
   async join(args: {
@@ -72,14 +74,29 @@ export class MatchmakingService {
     // Make sure we don't have stale tickets in our own queue from a prior session.
     await this.redis.zrem(myQueue, args.userId);
 
-    const peerId = (await this.redis.eval(
-      MATCH_SCRIPT,
-      2,
-      oppQueue,
-      myQueue,
-      args.userId,
-      Date.now().toString(),
-    )) as string | null;
+    // Try up to 3 times in case the first peer is blocked. We re-eval the Lua
+    // script each iteration so the work stays atomic per attempt.
+    let peerId: string | null = null;
+    for (let attempt = 0; attempt < 3; attempt++) {
+      peerId = (await this.redis.eval(
+        MATCH_SCRIPT,
+        2,
+        oppQueue,
+        myQueue,
+        args.userId,
+        Date.now().toString(),
+      )) as string | null;
+
+      if (!peerId) break;
+
+      const blocked = await this.blocks.isBlocked(args.userId, peerId);
+      if (!blocked) break;
+
+      // Blocked peer — discard the match and try again. (Their ticket is gone
+      // from the queue; if they're still online they'll re-queue on next tick.)
+      this.logger.debug(`skipped blocked peer ${peerId} for ${args.userId}`);
+      peerId = null;
+    }
 
     if (!peerId) {
       this.logger.debug(`queued ${args.userId} on ${myQueue}`);

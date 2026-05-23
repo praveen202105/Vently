@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useQuery } from '@tanstack/react-query';
 import { motion, AnimatePresence } from 'motion/react';
-import { ArrowLeft, Phone, Send } from 'lucide-react';
+import { ArrowLeft, Phone, Send, UserPlus, Shield } from 'lucide-react';
 import { toast } from 'sonner';
 import {
   SocketEvents,
@@ -18,6 +18,9 @@ import { useMatchStore } from '@/stores/match-store';
 import { useSocket } from '@/lib/socket/use-socket';
 import { useSocketEvent } from '@/lib/socket/use-socket-event';
 import { listMessages, leaveConversation } from '@/lib/api/conversations';
+import { sendFriendRequest } from '@/lib/api/friends';
+import { blockUser } from '@/lib/api/blocks';
+import { ApiError } from '@/lib/api/client';
 
 interface PendingMessage extends MessagePublic {
   pending?: true;
@@ -152,6 +155,30 @@ export function ChatScreen({ conversationId }: { conversationId: string }) {
     router.push('/mood');
   };
 
+  const addFriend = async () => {
+    if (!peer) return;
+    try {
+      const result = await sendFriendRequest(peer.userId);
+      if (result.kind === 'requested') toast.success('Friend request sent');
+      else if (result.kind === 'accepted') toast.success("You're now friends!");
+    } catch (err) {
+      const msg = err instanceof ApiError ? err.message : 'Could not send request';
+      toast.error(msg);
+    }
+  };
+
+  const block = async () => {
+    if (!peer) return;
+    if (!confirm(`Block ${peer.nickname}? You won't be matched with them again.`)) return;
+    try {
+      await blockUser(peer.userId);
+      toast.success('User blocked');
+      router.push('/mood');
+    } catch {
+      toast.error('Could not block');
+    }
+  };
+
   const sortedMessages = useMemo(
     () =>
       [...messages].sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()),
@@ -180,11 +207,31 @@ export function ChatScreen({ conversationId }: { conversationId: string }) {
         </div>
         <button
           type="button"
+          onClick={addFriend}
+          disabled={!peer}
+          className="p-2 rounded-lg hover:bg-primary/20 transition text-primary disabled:opacity-50"
+          aria-label="Save as friend"
+          title="Save as friend"
+        >
+          <UserPlus className="w-5 h-5" />
+        </button>
+        <button
+          type="button"
           onClick={() => router.push(`/call/${conversationId}`)}
           className="p-2 rounded-lg hover:bg-primary/20 transition text-primary"
           aria-label="Start voice call"
         >
           <Phone className="w-5 h-5" />
+        </button>
+        <button
+          type="button"
+          onClick={block}
+          disabled={!peer}
+          className="p-2 rounded-lg hover:bg-destructive/20 transition text-destructive disabled:opacity-50"
+          aria-label="Block user"
+          title="Block"
+        >
+          <Shield className="w-5 h-5" />
         </button>
         <button
           type="button"
