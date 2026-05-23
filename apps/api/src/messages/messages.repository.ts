@@ -18,12 +18,15 @@ export class MessagesRepository {
 
   // Cursor pagination: pass the oldest message id you have. Returns the next
   // page of messages older than that, plus a nextCursor if there are more.
+  // Each message now ships with its reactions inline so the client can render
+  // the pill row without an extra round-trip per bubble.
   async listPage(conversationId: string, cursor?: string, limit = 30) {
     const where = { conversationId, deletedAt: null };
     const messages = await this.prisma.message.findMany({
       where,
       orderBy: { createdAt: 'desc' },
       take: limit + 1,
+      include: { reactions: { select: { emoji: true, userId: true } } },
       ...(cursor
         ? {
             cursor: { id: cursor },
@@ -39,6 +42,47 @@ export class MessagesRepository {
       items: items.reverse(), // chronological for the UI
       nextCursor: hasMore && last ? last.id : null,
     };
+  }
+
+  // Idempotent reaction toggle: returns whether the reaction was added or
+  // removed. Implementation uses the unique constraint on
+  // (messageId, userId, emoji) so concurrent taps don't dup-insert.
+  async toggleReaction(args: {
+    messageId: string;
+    userId: string;
+    emoji: string;
+  }): Promise<{ action: 'add' | 'remove' }> {
+    const existing = await this.prisma.messageReaction.findUnique({
+      where: {
+        messageId_userId_emoji: {
+          messageId: args.messageId,
+          userId: args.userId,
+          emoji: args.emoji,
+        },
+      },
+    });
+    if (existing) {
+      await this.prisma.messageReaction.delete({ where: { id: existing.id } });
+      return { action: 'remove' };
+    }
+    await this.prisma.messageReaction.create({
+      data: {
+        messageId: args.messageId,
+        userId: args.userId,
+        emoji: args.emoji,
+      },
+    });
+    return { action: 'add' };
+  }
+
+  // Find the conversation id of a message (lookup needed for assertParticipant
+  // before letting a reaction land).
+  async getConversationId(messageId: string): Promise<string | null> {
+    const msg = await this.prisma.message.findUnique({
+      where: { id: messageId },
+      select: { conversationId: true },
+    });
+    return msg?.conversationId ?? null;
   }
 
   async markRead(args: { conversationId: string; userId: string; lastMessageId: string }) {

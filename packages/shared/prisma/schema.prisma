@@ -21,8 +21,9 @@ model User {
   createdAt    DateTime  @default(now())
   updatedAt    DateTime  @updatedAt
 
-  profile  Profile?
-  sessions Session[]
+  profile           Profile?
+  sessions          Session[]
+  pushSubscriptions PushSubscription[]
 
   @@index([email])
 }
@@ -93,6 +94,7 @@ model Message {
 
   conversation Conversation     @relation(fields: [conversationId], references: [id], onDelete: Cascade)
   receipts     MessageReceipt[]
+  reactions    MessageReaction[]
   flags        ModerationFlag[]
 
   @@index([conversationId, createdAt])
@@ -108,6 +110,39 @@ model MessageReceipt {
   message Message @relation(fields: [messageId], references: [id], onDelete: Cascade)
 
   @@id([messageId, userId])
+  @@index([userId])
+}
+
+// Per-user emoji reactions to a message. Toggling: insert on first tap,
+// delete on second tap of the same (messageId, userId, emoji) tuple — the
+// unique constraint guarantees idempotency from the server's perspective.
+model MessageReaction {
+  id        String   @id @default(cuid())
+  messageId String
+  userId    String
+  emoji     String
+  createdAt DateTime @default(now())
+
+  message Message @relation(fields: [messageId], references: [id], onDelete: Cascade)
+
+  @@unique([messageId, userId, emoji])
+  @@index([messageId])
+}
+
+// Web Push subscription per device. One row = one PushManager subscription;
+// users can have multiple (phone + laptop). Dead subscriptions (HTTP 410)
+// are pruned by the PushService.
+model PushSubscription {
+  id        String   @id @default(cuid())
+  userId    String
+  endpoint  String   @unique
+  p256dh    String
+  auth      String
+  userAgent String?
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
   @@index([userId])
 }
 

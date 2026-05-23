@@ -29,6 +29,11 @@ export interface ConversationDetail {
   } | null;
 }
 
+export interface MessageReactionPublic {
+  emoji: string;
+  userId: string;
+}
+
 export interface MessagePublic {
   id: string;
   conversationId: string;
@@ -37,6 +42,10 @@ export interface MessagePublic {
   type: MessageType;
   createdAt: string;
   deletedAt: string | null;
+  // Per-message reactions. The same user can have at most one row per emoji
+  // (DB unique constraint), so client-side dedup by (emoji, userId) is safe.
+  // Empty array when the message has no reactions yet.
+  reactions: MessageReactionPublic[];
 }
 
 export interface MessagePage {

@@ -27,6 +27,10 @@ export const SocketEvents = {
   CHAT_READ: 'chat:read',
   CHAT_READ_STATUS: 'chat:read-status',
   CHAT_CONVERSATION_ENDED: 'chat:conversation-ended',
+  CHAT_REACTION: 'chat:reaction',
+
+  // Presence (focus suppression for push)
+  PRESENCE_FOCUS: 'presence:focus',
 
   // Friends
   FRIEND_REQUEST: 'friend:request',
@@ -105,6 +109,21 @@ export interface ChatConversationEndedPayload {
   reason: 'blocked' | 'left' | 'system';
 }
 
+export interface ChatReactionPayload {
+  messageId: string;
+  conversationId: string;
+  userId: string;
+  emoji: string;
+  action: 'add' | 'remove';
+}
+
+// Sent by the client to tell the server which conversation (if any) the user
+// is currently looking at. The server uses this to suppress redundant push
+// notifications for the conversation the user is actively reading.
+export interface PresenceFocusPayload {
+  conversationId: string | null;
+}
+
 export interface FriendRequestEventPayload {
   requestId: string;
   fromUserId: string;
@@ -148,6 +167,7 @@ export interface NotificationPayload {
 
 export interface ClientToServerEvents {
   [SocketEvents.PRESENCE_HEARTBEAT]: () => void;
+  [SocketEvents.PRESENCE_FOCUS]: (payload: PresenceFocusPayload) => void;
   [SocketEvents.MATCH_JOIN]: (payload: MatchJoinPayload) => void;
   [SocketEvents.MATCH_CANCEL]: () => void;
   [SocketEvents.CHAT_JOIN]: (payload: { conversationId: string }) => void;
@@ -173,6 +193,7 @@ export interface ServerToClientEvents {
   [SocketEvents.CHAT_TYPING_STATUS]: (payload: ChatTypingPayload & { userId: string }) => void;
   [SocketEvents.CHAT_READ_STATUS]: (payload: ChatReadPayload & { userId: string }) => void;
   [SocketEvents.CHAT_CONVERSATION_ENDED]: (payload: ChatConversationEndedPayload) => void;
+  [SocketEvents.CHAT_REACTION]: (payload: ChatReactionPayload) => void;
   [SocketEvents.FRIEND_REQUEST]: (payload: FriendRequestEventPayload) => void;
   [SocketEvents.FRIEND_RESPOND]: (payload: FriendRespondEventPayload) => void;
   [SocketEvents.FRIEND_ONLINE]: (payload: { userId: string }) => void;

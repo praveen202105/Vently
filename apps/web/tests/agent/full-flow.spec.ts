@@ -436,6 +436,107 @@ test.describe('🤖 Vently Testing Agent', () => {
 
     await alicePage.screenshot({ path: 'agent-results/13-alice-connections.png', fullPage: true });
   });
+
+  // ────────────────────────────────────────────────────────────────────────
+  // Phase 11 — Message reactions
+  // Verifies the toggle endpoint + listMessages projection. We exercise via
+  // API rather than the hover UI (Playwright hover events into the message
+  // bubble are timing-sensitive and don't reliably show the picker in
+  // headless Chromium).
+  // ────────────────────────────────────────────────────────────────────────
+
+  test('14. Reactions: Alice reacts to a message, toggles off, both reflect via API', async () => {
+    // Alice + Bob were friends from test 6 — the FRIEND conversation exists.
+    // Pull the latest messages and pick the most recent one from Bob (not
+    // Alice's own) for a more realistic reaction target.
+    const friendsRes = await alicePage.request.get(`${API_HOST}/api/friends`, {
+      headers: { Authorization: `Bearer ${alice.accessToken}` },
+    });
+    const friends = (await friendsRes.json()) as {
+      profile: { userId: string } | null;
+      conversationId: string | null;
+    }[];
+    const bobFriendRow = friends.find((f) => f.profile?.userId === bob.userId);
+    test.skip(!bobFriendRow?.conversationId, 'no friend conversation between Alice + Bob');
+    const conversationId = bobFriendRow!.conversationId!;
+
+    const msgsRes = await alicePage.request.get(
+      `${API_HOST}/api/conversations/${conversationId}/messages?limit=10`,
+      { headers: { Authorization: `Bearer ${alice.accessToken}` } },
+    );
+    const page = (await msgsRes.json()) as {
+      items: { id: string; senderId: string; reactions: { emoji: string; userId: string }[] }[];
+    };
+    // Find any non-system message from someone other than alice (could be
+    // bob, or alice's own if bob never sent — fall back).
+    const target =
+      page.items.find((m) => m.senderId !== alice.userId) ?? page.items[page.items.length - 1];
+    expect(target).toBeTruthy();
+    const messageId = target!.id;
+
+    step('Alice reacts ❤️ to the target message');
+    const addRes = await alicePage.request.post(
+      `${API_HOST}/api/messages/${messageId}/reactions`,
+      {
+        data: { emoji: '❤️' },
+        headers: { Authorization: `Bearer ${alice.accessToken}` },
+      },
+    );
+    expect(addRes.ok()).toBeTruthy();
+    const addBody = (await addRes.json()) as { action: 'add' | 'remove' };
+    // The reaction may have been left from a prior run; either action is
+    // acceptable here. We assert end state below.
+
+    step('Re-fetch messages — the message should have Alice in its reactions');
+    const verifyRes = await alicePage.request.get(
+      `${API_HOST}/api/conversations/${conversationId}/messages?limit=10`,
+      { headers: { Authorization: `Bearer ${alice.accessToken}` } },
+    );
+    const verify = (await verifyRes.json()) as {
+      items: { id: string; reactions: { emoji: string; userId: string }[] }[];
+    };
+    const found = verify.items.find((m) => m.id === messageId);
+    expect(found).toBeTruthy();
+    // If the first toggle was an 'add', alice's reaction is now present. If
+    // 'remove' (already present from earlier), it's now absent. Toggle once
+    // more to land in a known state.
+    const aliceReacted = found!.reactions.some(
+      (r) => r.userId === alice.userId && r.emoji === '❤️',
+    );
+    if (!aliceReacted && addBody.action === 'remove') {
+      // Re-add to reach the "reacted" state for the assertion below.
+      await alicePage.request.post(`${API_HOST}/api/messages/${messageId}/reactions`, {
+        data: { emoji: '❤️' },
+        headers: { Authorization: `Bearer ${alice.accessToken}` },
+      });
+    }
+
+    step('Toggle off — second POST removes the reaction');
+    const removeRes = await alicePage.request.post(
+      `${API_HOST}/api/messages/${messageId}/reactions`,
+      {
+        data: { emoji: '❤️' },
+        headers: { Authorization: `Bearer ${alice.accessToken}` },
+      },
+    );
+    expect(removeRes.ok()).toBeTruthy();
+    const removeBody = (await removeRes.json()) as { action: 'add' | 'remove' };
+    expect(removeBody.action).toBe('remove');
+
+    step('Final state: Alice no longer reacted');
+    const finalRes = await alicePage.request.get(
+      `${API_HOST}/api/conversations/${conversationId}/messages?limit=10`,
+      { headers: { Authorization: `Bearer ${alice.accessToken}` } },
+    );
+    const final = (await finalRes.json()) as {
+      items: { id: string; reactions: { emoji: string; userId: string }[] }[];
+    };
+    const finalMsg = final.items.find((m) => m.id === messageId);
+    const stillReacted = finalMsg!.reactions.some(
+      (r) => r.userId === alice.userId && r.emoji === '❤️',
+    );
+    expect(stillReacted).toBe(false);
+  });
 });
 
 // Suppress "unused import" hint for SocketEvents — handy to keep around for

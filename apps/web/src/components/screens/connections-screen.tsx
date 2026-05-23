@@ -17,22 +17,7 @@ import { listFriends, listFriendRequests, respondToFriendRequest } from '@/lib/a
 import { useSocketEvent } from '@/lib/socket/use-socket-event';
 import { ConnectionSkeleton } from '@/components/skeletons/connection-skeleton';
 import { NavBadge } from '@/components/shell/nav-badge';
-
-// Cheap relative-time formatter — anything older than 24h gets a date, the
-// rest gets a "2m" / "3h" / "yesterday" string. Intentionally not pulling in
-// date-fns just for this one display.
-function formatRelative(iso: string): string {
-  const ms = Date.now() - new Date(iso).getTime();
-  if (ms < 60_000) return 'now';
-  const mins = Math.floor(ms / 60_000);
-  if (mins < 60) return `${mins}m`;
-  const hours = Math.floor(mins / 60);
-  if (hours < 24) return `${hours}h`;
-  const days = Math.floor(hours / 24);
-  if (days === 1) return 'yesterday';
-  if (days < 7) return `${days}d`;
-  return new Date(iso).toLocaleDateString();
-}
+import { formatRelative } from '@/lib/utils/time';
 
 export function ConnectionsScreen() {
   const router = useRouter();

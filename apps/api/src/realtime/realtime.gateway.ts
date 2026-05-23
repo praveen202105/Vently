@@ -2,18 +2,22 @@ import { Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 import {
+  ConnectedSocket,
+  MessageBody,
   OnGatewayConnection,
   OnGatewayDisconnect,
   OnGatewayInit,
+  SubscribeMessage,
   WebSocketGateway,
   WebSocketServer,
 } from '@nestjs/websockets';
 import type { Server } from 'socket.io';
-import { SocketEvents } from '@vently/shared';
+import { SocketEvents, type PresenceFocusPayload } from '@vently/shared';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { PresenceService } from '../presence/presence.service.js';
 import { MatchmakingService } from '../matchmaking/matchmaking.service.js';
 import { type AuthedSocket, userRoom } from './types.js';
+import { FocusService } from './focus.service.js';
 
 interface JwtPayload {
   sub: string;
@@ -33,7 +37,19 @@ export class RealtimeGateway implements OnGatewayInit, OnGatewayConnection, OnGa
     private readonly prisma: PrismaService,
     private readonly presence: PresenceService,
     private readonly matchmaking: MatchmakingService,
+    private readonly focus: FocusService,
   ) {}
+
+  // Client tells us which conversation they're currently looking at. Drives
+  // PushService's "skip if focused" check so users mid-chat don't get
+  // duplicate push notifications for messages they're already reading.
+  @SubscribeMessage(SocketEvents.PRESENCE_FOCUS)
+  onFocus(
+    @ConnectedSocket() socket: AuthedSocket,
+    @MessageBody() payload: PresenceFocusPayload,
+  ) {
+    this.focus.setFocus(socket.data.user.userId, payload.conversationId ?? null);
+  }
 
   afterInit() {
     this.server.use((socket, next) => {
@@ -117,6 +133,10 @@ export class RealtimeGateway implements OnGatewayInit, OnGatewayConnection, OnGa
 
     await this.matchmaking.removeFromAllQueues(user.userId);
     await this.presence.markOffline(user.userId);
+    // Clear active-conversation focus so any push fired after this point
+    // (we just disconnected, so we WANT the OS notification) isn't
+    // suppressed by stale focus state.
+    this.focus.clearAllForUser(user.userId);
 
     this.server.emit(SocketEvents.PRESENCE_OFFLINE, { userId: user.userId });
     this.logger.debug(`disconnected ${user.userId}`);

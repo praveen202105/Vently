@@ -20,6 +20,8 @@ import { ModerationService } from '../moderation/moderation.service.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { type AuthedSocket, convRoom } from '../realtime/types.js';
 import { SocketThrottleService } from '../realtime/socket-throttle.service.js';
+import { FocusService } from '../realtime/focus.service.js';
+import { PushService } from '../push/push.service.js';
 
 const MAX_BODY_LEN = 2000;
 // Per-user-per-event caps. Values are deliberately generous so a real
@@ -43,6 +45,8 @@ export class ChatGateway {
     private readonly moderation: ModerationService,
     private readonly prisma: PrismaService,
     private readonly throttle: SocketThrottleService,
+    private readonly focus: FocusService,
+    private readonly push: PushService,
   ) {}
 
   // Lets a reconnected/refreshed client re-join its conversation room.
@@ -112,6 +116,26 @@ export class ChatGateway {
 
     // Also send to self so other open tabs of the sender see it.
     socket.emit(SocketEvents.CHAT_MESSAGE, msg);
+
+    // Web push to the peer — only if they're NOT currently focused on this
+    // conversation. The socket-level CHAT_MESSAGE above already handles the
+    // in-app case; push is the OS-level wake-up when the tab is backgrounded
+    // or closed. Fire-and-forget so the chat:send response isn't blocked on
+    // the push service.
+    if (peer) {
+      const peerFocused = this.focus.isFocusedOn(peer.userId, payload.conversationId);
+      if (!peerFocused) {
+        const preview = body.length > 80 ? `${body.slice(0, 77)}…` : body;
+        void this.push.sendToUser(peer.userId, {
+          title: user.nickname,
+          body: preview,
+          url: `/chat/${payload.conversationId}`,
+          // Tag groups consecutive messages from the same conversation into
+          // one OS notification instead of N pings during an active burst.
+          tag: `chat:${payload.conversationId}`,
+        });
+      }
+    }
 
     return { ok: true, messageId: msg.id };
   }

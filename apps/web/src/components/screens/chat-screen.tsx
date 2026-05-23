@@ -10,10 +10,12 @@ import {
   SocketEvents,
   type ChatConversationEndedPayload,
   type ChatMessagePayload,
+  type ChatReactionPayload,
   type ChatTypingPayload,
   type FriendRequestEventPayload,
   type FriendRespondEventPayload,
   type MessagePublic,
+  type MessageReactionPublic,
 } from '@vently/shared';
 import { GlassCard } from '@vently/ui';
 import { useAuthStore } from '@/stores/auth-store';
@@ -23,10 +25,14 @@ import { useSocketEvent } from '@/lib/socket/use-socket-event';
 import { getConversation, listMessages, leaveConversation } from '@/lib/api/conversations';
 import { respondToFriendRequest, sendFriendRequest } from '@/lib/api/friends';
 import { blockUser } from '@/lib/api/blocks';
+import { toggleReaction as apiToggleReaction } from '@/lib/api/messages';
 import { ApiError } from '@/lib/api/client';
 import { ReportDialog } from '@/components/safety/report-dialog';
 import { MessageSkeleton } from '@/components/skeletons/message-skeleton';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
+import { ReactionPicker } from '@/components/chat/reaction-picker';
+import { ReactionPills } from '@/components/chat/reaction-pills';
+import { formatChatTime, shouldShowTimestamp } from '@/lib/utils/time';
 
 interface PendingMessage extends MessagePublic {
   pending?: true;
@@ -72,6 +78,8 @@ export function ChatScreen({ conversationId }: { conversationId: string }) {
     FriendRequestEventPayload | null
   >(null);
   const [respondingToRequest, setRespondingToRequest] = useState(false);
+  // Which message id (if any) is currently showing the reaction picker.
+  const [pickerOpenForId, setPickerOpenForId] = useState<string | null>(null);
   // Tracks whether the local user has already sent a friend request to the
   // peer in this session. Switches the "Save as friend" button to a
   // "Request sent" affordance so the user doesn't double-tap and re-fire.
@@ -165,6 +173,18 @@ export function ChatScreen({ conversationId }: { conversationId: string }) {
     socket.emit(SocketEvents.CHAT_JOIN, { conversationId });
   }, [socket, conversationId]);
 
+  // Tell the server which conversation we're focused on, so it can suppress
+  // push notifications for messages we're already reading. Clear on unmount
+  // (or when the conversation id changes mid-mount, which shouldn't happen
+  // in practice but is correct).
+  useEffect(() => {
+    if (!socket || !conversationId) return;
+    socket.emit(SocketEvents.PRESENCE_FOCUS, { conversationId });
+    return () => {
+      socket.emit(SocketEvents.PRESENCE_FOCUS, { conversationId: null });
+    };
+  }, [socket, conversationId]);
+
   // Live message handler.
   useSocketEvent(
     SocketEvents.CHAT_MESSAGE,
@@ -174,7 +194,7 @@ export function ChatScreen({ conversationId }: { conversationId: string }) {
         setMessages((prev) => {
           // Replace optimistic message if its clientId matches via chat:ack flow.
           if (prev.some((m) => m.id === msg.id)) return prev;
-          return [...prev, { ...msg, type: 'TEXT', deletedAt: null }];
+          return [...prev, { ...msg, type: 'TEXT', deletedAt: null, reactions: [] }];
         });
         // Peer's incoming message bumps the global unread count — refresh the
         // nav badge so the user sees it light up in other tabs/sections.
@@ -291,6 +311,85 @@ export function ChatScreen({ conversationId }: { conversationId: string }) {
       setRespondingToRequest(false);
     }
   }, [incomingFriendRequest, qc, conversationId]);
+
+  // Apply a reaction add/remove to the local messages state. Used by both
+  // the optimistic local toggle AND the inbound CHAT_REACTION broadcast.
+  // De-duplicates by (emoji, userId) so a server broadcast of an action the
+  // local user already applied optimistically doesn't create a duplicate.
+  const applyReactionChange = useCallback(
+    (payload: ChatReactionPayload) => {
+      setMessages((prev) =>
+        prev.map((m) => {
+          if (m.id !== payload.messageId) return m;
+          const existing: MessageReactionPublic[] = m.reactions ?? [];
+          if (payload.action === 'add') {
+            const dup = existing.some(
+              (r) => r.userId === payload.userId && r.emoji === payload.emoji,
+            );
+            if (dup) return m;
+            return { ...m, reactions: [...existing, { emoji: payload.emoji, userId: payload.userId }] };
+          }
+          return {
+            ...m,
+            reactions: existing.filter(
+              (r) => !(r.userId === payload.userId && r.emoji === payload.emoji),
+            ),
+          };
+        }),
+      );
+    },
+    [],
+  );
+
+  // Inbound reaction events from any participant. The server broadcasts to
+  // the entire conversation room (including the originator) so all open
+  // clients converge.
+  useSocketEvent(
+    SocketEvents.CHAT_REACTION,
+    useCallback(
+      (payload: ChatReactionPayload) => {
+        if (payload.conversationId !== conversationId) return;
+        applyReactionChange(payload);
+      },
+      [conversationId, applyReactionChange],
+    ),
+  );
+
+  const toggleReaction = useCallback(
+    async (messageId: string, emoji: string) => {
+      if (!me) return;
+      const target = messages.find((m) => m.id === messageId);
+      if (!target) return;
+      const alreadyMine = (target.reactions ?? []).some(
+        (r) => r.userId === me.id && r.emoji === emoji,
+      );
+      const optimisticAction: 'add' | 'remove' = alreadyMine ? 'remove' : 'add';
+      // Optimistic apply for snappiness — server will broadcast the real
+      // action and our dedup keeps the state consistent either way.
+      applyReactionChange({
+        messageId,
+        conversationId,
+        userId: me.id,
+        emoji,
+        action: optimisticAction,
+      });
+      try {
+        await apiToggleReaction(messageId, emoji);
+      } catch (err) {
+        // Roll back the optimistic change.
+        applyReactionChange({
+          messageId,
+          conversationId,
+          userId: me.id,
+          emoji,
+          action: optimisticAction === 'add' ? 'remove' : 'add',
+        });
+        const msg = err instanceof ApiError ? err.message : 'Could not react';
+        toast.error(msg);
+      }
+    },
+    [me, messages, conversationId, applyReactionChange],
+  );
 
   const rejectIncomingRequest = useCallback(async () => {
     if (!incomingFriendRequest) return;
@@ -424,6 +523,7 @@ export function ChatScreen({ conversationId }: { conversationId: string }) {
       type: 'TEXT',
       createdAt: new Date().toISOString(),
       deletedAt: null,
+      reactions: [],
       pending: true,
       clientId,
     };
@@ -675,8 +775,15 @@ export function ChatScreen({ conversationId }: { conversationId: string }) {
           </p>
         ) : (
           <AnimatePresence initial={false}>
-            {sortedMessages.map((msg) => {
+            {sortedMessages.map((msg, idx) => {
               const mine = msg.senderId === me?.id;
+              const prev = idx > 0 ? sortedMessages[idx - 1] : null;
+              const showTimestamp = shouldShowTimestamp(
+                prev?.createdAt ?? null,
+                msg.createdAt,
+                prev?.senderId ?? null,
+                msg.senderId,
+              );
               return (
                 <motion.div
                   key={msg.id}
@@ -684,16 +791,51 @@ export function ChatScreen({ conversationId }: { conversationId: string }) {
                   animate={{ opacity: 1, y: 0 }}
                   className={`flex ${mine ? 'justify-end' : 'justify-start'}`}
                 >
-                  <div className="flex flex-col items-end gap-1 max-w-[80%] md:max-w-[60%]">
-                    <div
-                      className={`px-4 py-2.5 rounded-2xl ${
-                        mine
-                          ? 'bg-gradient-to-br from-purple-600 via-pink-600 to-blue-600 text-white rounded-br-sm'
-                          : 'bg-glass-bg border border-glass-border rounded-bl-sm'
-                      } ${msg.pending ? 'opacity-60' : ''} ${msg.failed ? 'opacity-80 ring-1 ring-destructive/60' : ''}`}
-                    >
-                      <p className="text-sm break-words whitespace-pre-wrap">{msg.body}</p>
+                  <div className={`flex flex-col gap-1 max-w-[80%] md:max-w-[60%] ${mine ? 'items-end' : 'items-start'}`}>
+                    {/* Cluster-aware timestamp above the first bubble of a
+                        sender run (or after a >5min gap). */}
+                    {showTimestamp && (
+                      <span className="text-[10px] text-muted-foreground px-1">
+                        {formatChatTime(msg.createdAt)}
+                      </span>
+                    )}
+                    <div className="relative group">
+                      <div
+                        // Hover (desktop) or onContextMenu (mobile long-press)
+                        // opens the reaction picker for this bubble.
+                        onMouseEnter={() =>
+                          window.matchMedia('(hover: hover)').matches && setPickerOpenForId(msg.id)
+                        }
+                        onMouseLeave={() =>
+                          window.matchMedia('(hover: hover)').matches && setPickerOpenForId(null)
+                        }
+                        onContextMenu={(e) => {
+                          // Long-press shows the OS context menu by default
+                          // on mobile; suppress it and open our picker.
+                          e.preventDefault();
+                          setPickerOpenForId((id) => (id === msg.id ? null : msg.id));
+                        }}
+                        className={`px-4 py-2.5 rounded-2xl ${
+                          mine
+                            ? 'bg-gradient-to-br from-purple-600 via-pink-600 to-blue-600 text-white rounded-br-sm'
+                            : 'bg-glass-bg border border-glass-border rounded-bl-sm'
+                        } ${msg.pending ? 'opacity-60' : ''} ${msg.failed ? 'opacity-80 ring-1 ring-destructive/60' : ''}`}
+                      >
+                        <p className="text-sm break-words whitespace-pre-wrap">{msg.body}</p>
+                      </div>
+                      <ReactionPicker
+                        open={pickerOpenForId === msg.id && !msg.pending && !msg.failed}
+                        onPick={(emoji) => void toggleReaction(msg.id, emoji)}
+                        onClose={() => setPickerOpenForId(null)}
+                      />
                     </div>
+                    {/* Pills below the bubble — clickable to toggle. */}
+                    <ReactionPills
+                      reactions={msg.reactions ?? []}
+                      meId={me?.id}
+                      mine={mine}
+                      onToggle={(emoji) => void toggleReaction(msg.id, emoji)}
+                    />
                     {mine && msg.failed && msg.clientId && (
                       <button
                         type="button"

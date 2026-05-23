@@ -17,6 +17,7 @@ import { RealtimeGateway } from '../realtime/realtime.gateway.js';
 import { FriendsService } from './friends.service.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { NotificationsService } from '../notifications/notifications.service.js';
+import { PushService } from '../push/push.service.js';
 import { CreateFriendRequestDto, RespondFriendRequestDto } from './dto/friend-request.dto.js';
 
 @Controller('friends')
@@ -27,6 +28,7 @@ export class FriendsController {
     private readonly prisma: PrismaService,
     private readonly realtime: RealtimeGateway,
     private readonly notifications: NotificationsService,
+    private readonly push: PushService,
   ) {}
 
   @Get()
@@ -58,6 +60,13 @@ export class FriendsController {
         fromUserId: user.userId,
         fromNickname: profile?.nickname ?? '',
       });
+      // OS-level wake-up for the recipient if their browser is closed.
+      void this.push.sendToUser(dto.toUserId, {
+        title: 'New friend request',
+        body: `${profile?.nickname ?? 'Someone'} wants to be friends`,
+        url: '/connections',
+        tag: `friend-req:${result.request.id}`,
+      });
     } else if (result.kind === 'accepted') {
       this.realtime.emitToUser(result.request.fromUserId, SocketEvents.FRIEND_RESPOND, {
         requestId: result.request.id,
@@ -67,6 +76,18 @@ export class FriendsController {
       await this.notifications.push(result.request.fromUserId, 'FRIEND_ACCEPTED', {
         requestId: result.request.id,
         byUserId: user.userId,
+      });
+      // Auto-accept case (peer already had a pending request to us). Tell
+      // the original sender they got accepted.
+      const myProfile = await this.prisma.profile.findUnique({
+        where: { userId: user.userId },
+        select: { nickname: true },
+      });
+      void this.push.sendToUser(result.request.fromUserId, {
+        title: "You're now friends",
+        body: `${myProfile?.nickname ?? 'Someone'} accepted your friend request`,
+        url: '/connections',
+        tag: `friend-acc:${result.request.id}`,
       });
     }
 
@@ -89,6 +110,18 @@ export class FriendsController {
       await this.notifications.push(result.request.fromUserId, 'FRIEND_ACCEPTED', {
         requestId: result.request.id,
         byUserId: user.userId,
+      });
+      // OS-level wake-up for the original requester. They were the one
+      // hoping to hear back — push them so they don't miss the moment.
+      const myProfile = await this.prisma.profile.findUnique({
+        where: { userId: user.userId },
+        select: { nickname: true },
+      });
+      void this.push.sendToUser(result.request.fromUserId, {
+        title: "You're now friends",
+        body: `${myProfile?.nickname ?? 'Someone'} accepted your friend request`,
+        url: result.conversationId ? `/chat/${result.conversationId}` : '/connections',
+        tag: `friend-acc:${result.request.id}`,
       });
     }
     if (result.kind === 'accepted' && result.conversationId) {

@@ -22,6 +22,7 @@ import { CallsModule } from './calls/calls.module.js';
 import { ModerationModule } from './moderation/moderation.module.js';
 import { ReportsModule } from './reports/reports.module.js';
 import { NotificationsModule } from './notifications/notifications.module.js';
+import { PushModule } from './push/push.module.js';
 
 @Module({
   imports: [
@@ -69,6 +70,7 @@ import { NotificationsModule } from './notifications/notifications.module.js';
     CallsModule,
     ModerationModule,
     NotificationsModule,
+    PushModule,
     ReportsModule,
   ],
   providers: [
