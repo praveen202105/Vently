@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { createHash, randomBytes } from 'node:crypto';
 import { PrismaService } from '../../prisma/prisma.service.js';
 
@@ -14,6 +14,8 @@ export function generateRefreshToken() {
 
 @Injectable()
 export class SessionRepository {
+  private readonly logger = new Logger(SessionRepository.name);
+
   constructor(private readonly prisma: PrismaService) {}
 
   create(args: { userId: string; refreshToken: string; expiresAt: Date; deviceInfo?: string }) {
@@ -33,14 +35,32 @@ export class SessionRepository {
     });
   }
 
-  deleteById(id: string) {
-    return this.prisma.session.delete({ where: { id } }).catch(() => undefined);
+  async deleteById(id: string) {
+    try {
+      return await this.prisma.session.delete({ where: { id } });
+    } catch (err) {
+      // P2025 = session already gone (concurrent logout/refresh rotation).
+      // Idempotent. Other errors get logged so DB issues aren't invisible.
+      const code = (err as { code?: string }).code;
+      if (code !== 'P2025') {
+        this.logger.warn(`session.deleteById(${id}) failed: ${(err as Error).message}`);
+      }
+      return undefined;
+    }
   }
 
-  deleteByToken(refreshToken: string) {
-    return this.prisma.session
-      .delete({ where: { refreshTokenHash: hashToken(refreshToken) } })
-      .catch(() => undefined);
+  async deleteByToken(refreshToken: string) {
+    try {
+      return await this.prisma.session.delete({
+        where: { refreshTokenHash: hashToken(refreshToken) },
+      });
+    } catch (err) {
+      const code = (err as { code?: string }).code;
+      if (code !== 'P2025') {
+        this.logger.warn(`session.deleteByToken failed: ${(err as Error).message}`);
+      }
+      return undefined;
+    }
   }
 
   deleteAllForUser(userId: string) {

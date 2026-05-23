@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable } from '@nestjs/common';
+import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 import { SocketEvents } from '@vently/shared';
 import { BlocksRepository } from './blocks.repository.js';
 import { PrismaService } from '../prisma/prisma.service.js';
@@ -6,6 +6,8 @@ import { RealtimeGateway } from '../realtime/realtime.gateway.js';
 
 @Injectable()
 export class BlocksService {
+  private readonly logger = new Logger(BlocksService.name);
+
   constructor(
     private readonly repo: BlocksRepository,
     private readonly prisma: PrismaService,
@@ -41,7 +43,17 @@ export class BlocksService {
               : { userAId: blockedId, userBId: blockerId },
         },
       })
-      .catch(() => undefined);
+      .catch((err: unknown) => {
+        // P2025 = no friendship to delete (the two users may have never been
+        // friends). That's expected when blocking a stranger — don't log it.
+        // Any other failure (DB down, perms) is a real problem worth knowing.
+        const code = (err as { code?: string }).code;
+        if (code !== 'P2025') {
+          this.logger.warn(
+            `friendship.delete during block(${blockerId}->${blockedId}) failed: ${(err as Error).message}`,
+          );
+        }
+      });
 
     // Find every active conversation between the two users BEFORE ending them
     // so we can notify the blocked peer. Without this, the blocked user sits

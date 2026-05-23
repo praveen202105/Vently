@@ -37,8 +37,15 @@ export function VoiceCallScreen({ conversationId }: { conversationId: string }) 
   } = useWebRTC({ conversationId, isIncoming });
 
   // Auto-start the call when we open the screen as the caller (non-incoming).
+  // One-shot via ref so a socket reconnect (which rebuilds `startCall`'s
+  // identity through useCallback's deps) doesn't fire a second CALL_INVITE.
+  // The hook's own pcRef guard would catch it too, but stopping here saves
+  // a getUserMedia round-trip.
+  const autoStartedRef = useRef(false);
   useEffect(() => {
+    if (autoStartedRef.current) return;
     if (callState === 'IDLE' && !isIncoming) {
+      autoStartedRef.current = true;
       void startCall();
     }
   }, [callState, isIncoming, startCall]);

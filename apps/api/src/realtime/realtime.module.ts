@@ -1,13 +1,15 @@
-import { Module } from '@nestjs/common';
+import { Global, Module } from '@nestjs/common';
 import { JwtModule } from '@nestjs/jwt';
 import { PresenceModule } from '../presence/presence.module.js';
 import { MatchmakingModule } from '../matchmaking/matchmaking.module.js';
 import { ChatModule } from '../chat/chat.module.js';
 import { RealtimeGateway } from './realtime.gateway.js';
+import { SocketThrottleService } from './socket-throttle.service.js';
 
+@Global()
 @Module({
   imports: [JwtModule.register({}), PresenceModule, MatchmakingModule, ChatModule],
-  providers: [RealtimeGateway],
-  exports: [RealtimeGateway],
+  providers: [RealtimeGateway, SocketThrottleService],
+  exports: [RealtimeGateway, SocketThrottleService],
 })
 export class RealtimeModule {}

@@ -42,6 +42,14 @@ const ACCEPT_TIMEOUT_MS = 30_000;
 
 export function useWebRTC({ conversationId, isIncoming = false }: UseWebRTCArgs): UseWebRTCReturn {
   const socket = useSocket();
+  // Mirror `socket` into a ref so the PeerConnection callbacks (set once when
+  // the PC is built) always reach the CURRENT socket. Without this, an
+  // onicecandidate fired AFTER a socket.io reconnect would emit on the dead
+  // socket and the candidate would never reach the peer — call stalls.
+  const socketRef = useRef(socket);
+  useEffect(() => {
+    socketRef.current = socket;
+  }, [socket]);
 
   const pcRef = useRef<RTCPeerConnection | null>(null);
   const localStreamRef = useRef<MediaStream | null>(null);
@@ -85,8 +93,9 @@ export function useWebRTC({ conversationId, isIncoming = false }: UseWebRTCArgs)
     const pc = new RTCPeerConnection({ iceServers });
 
     pc.onicecandidate = (e) => {
-      if (e.candidate && socket) {
-        socket.emit(SocketEvents.CALL_ICE_CANDIDATE, {
+      const s = socketRef.current;
+      if (e.candidate && s) {
+        s.emit(SocketEvents.CALL_ICE_CANDIDATE, {
           conversationId,
           candidate: e.candidate.toJSON(),
         });
@@ -125,6 +134,11 @@ export function useWebRTC({ conversationId, isIncoming = false }: UseWebRTCArgs)
    */
   const startCall = useCallback(async () => {
     if (!socket) return;
+    // Guard against double-fire: if a PC already exists (e.g. the voice-call
+    // screen's auto-start effect re-ran on socket reconnect, or the user
+    // tapped twice), bail. Re-entering would orphan the first PC and emit a
+    // second CALL_INVITE, confusing the server's call state.
+    if (pcRef.current) return;
     setError(null);
     setCallState('DIALING');
     peerAcceptedRef.current = false;
@@ -162,6 +176,10 @@ export function useWebRTC({ conversationId, isIncoming = false }: UseWebRTCArgs)
    */
   const acceptCall = useCallback(async () => {
     if (!socket) return;
+    // Same double-fire guard as startCall: if the callee double-taps the
+    // accept button or the effect re-runs, the second invocation would
+    // create a second PC and emit a second CALL_ACCEPT.
+    if (pcRef.current) return;
     setError(null);
     setCallState('CONNECTING');
     try {

@@ -19,8 +19,17 @@ import { BlocksService } from '../blocks/blocks.service.js';
 import { ModerationService } from '../moderation/moderation.service.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { type AuthedSocket, convRoom } from '../realtime/types.js';
+import { SocketThrottleService } from '../realtime/socket-throttle.service.js';
 
 const MAX_BODY_LEN = 2000;
+// Per-user-per-event caps. Values are deliberately generous so a real
+// conversation never trips them; they exist to stop scripted spam.
+const SEND_LIMIT = 30;
+const SEND_WINDOW_MS = 10_000; // 30 messages / 10s = 3/sec average
+const TYPING_LIMIT = 60;
+const TYPING_WINDOW_MS = 10_000; // generous; client debounces to ~1/3s anyway
+const READ_LIMIT = 30;
+const READ_WINDOW_MS = 10_000;
 
 @WebSocketGateway({ cors: { credentials: true } })
 export class ChatGateway {
@@ -33,6 +42,7 @@ export class ChatGateway {
     private readonly blocks: BlocksService,
     private readonly moderation: ModerationService,
     private readonly prisma: PrismaService,
+    private readonly throttle: SocketThrottleService,
   ) {}
 
   // Lets a reconnected/refreshed client re-join its conversation room.
@@ -55,6 +65,16 @@ export class ChatGateway {
     if (!body || body.length > MAX_BODY_LEN) return { ok: false, error: 'Invalid body' };
 
     const user = socket.data.user;
+
+    if (!this.throttle.allow(user.userId, 'chat:send', SEND_LIMIT, SEND_WINDOW_MS)) {
+      return { ok: false, error: 'Slow down — sending too fast' };
+    }
+
+    // Membership check FIRST — without this, an attacker who knows a
+    // conversationId could send messages to a conversation they're not in.
+    // The block check below only verifies the peer hasn't blocked the
+    // attacker; it doesn't verify the attacker belongs in the room at all.
+    await this.conversations.assertParticipant(payload.conversationId, user.userId);
 
     // Block-check: refuse to deliver between users who blocked each other.
     const peer = await this.prisma.conversationParticipant.findFirst({
@@ -101,10 +121,12 @@ export class ChatGateway {
     @ConnectedSocket() socket: AuthedSocket,
     @MessageBody() payload: ChatTypingPayload,
   ) {
-    await this.conversations.assertParticipant(payload.conversationId, socket.data.user.userId);
+    const userId = socket.data.user.userId;
+    if (!this.throttle.allow(userId, 'chat:typing', TYPING_LIMIT, TYPING_WINDOW_MS)) return;
+    await this.conversations.assertParticipant(payload.conversationId, userId);
     socket.to(convRoom(payload.conversationId)).emit(SocketEvents.CHAT_TYPING_STATUS, {
       ...payload,
-      userId: socket.data.user.userId,
+      userId,
     });
   }
 
@@ -114,6 +136,7 @@ export class ChatGateway {
     @MessageBody() payload: ChatReadPayload,
   ) {
     const userId = socket.data.user.userId;
+    if (!this.throttle.allow(userId, 'chat:read', READ_LIMIT, READ_WINDOW_MS)) return;
     await this.conversations.assertParticipant(payload.conversationId, userId);
     await this.messages.markRead({ ...payload, userId });
     socket.to(convRoom(payload.conversationId)).emit(SocketEvents.CHAT_READ_STATUS, {

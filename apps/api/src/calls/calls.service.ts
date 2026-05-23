@@ -1,4 +1,4 @@
-import { ForbiddenException, Injectable } from '@nestjs/common';
+import { ForbiddenException, Injectable, Logger } from '@nestjs/common';
 import { ConversationsService } from '../conversations/conversations.service.js';
 import { BlocksService } from '../blocks/blocks.service.js';
 import { PrismaService } from '../prisma/prisma.service.js';
@@ -6,6 +6,8 @@ import { CallsRepository } from './calls.repository.js';
 
 @Injectable()
 export class CallsService {
+  private readonly logger = new Logger(CallsService.name);
+
   constructor(
     private readonly repo: CallsRepository,
     private readonly conversations: ConversationsService,
@@ -44,7 +46,25 @@ export class CallsService {
     return this.repo.end(active.id, reason);
   }
 
+  // Find the conversation's other participant — but only if the requester is
+  // actually a member. Without the membership check, a third party who knows a
+  // conversationId could inject SDP/ICE into someone else's call by emitting
+  // CALL_OFFER/ANSWER/ICE/HANGUP. We swallow the assertion failure here so the
+  // signaling handlers in calls.gateway.ts (which all branch on `if (peerId)`)
+  // become silent no-ops for unauthorized requests instead of crashing the
+  // socket with an unhandled exception.
   async findPeer(conversationId: string, userId: string) {
+    try {
+      await this.conversations.assertParticipant(conversationId, userId);
+    } catch (err) {
+      if (err instanceof ForbiddenException) {
+        this.logger.warn(
+          `findPeer: user ${userId} is not in conversation ${conversationId} — dropping signal`,
+        );
+        return null;
+      }
+      throw err;
+    }
     const peer = await this.prisma.conversationParticipant.findFirst({
       where: { conversationId, userId: { not: userId } },
       select: { userId: true },

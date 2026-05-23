@@ -14,7 +14,17 @@ import {
 } from '@vently/shared';
 import { RealtimeGateway } from '../realtime/realtime.gateway.js';
 import { type AuthedSocket } from '../realtime/types.js';
+import { SocketThrottleService } from '../realtime/socket-throttle.service.js';
 import { CallsService } from './calls.service.js';
+
+// Caps for the noisy signaling events. Invite is human-paced so 3/min is
+// plenty; the SDP/ICE flow is bursty (~30 candidates in the first second)
+// but bounded — 50 per 10s tolerates a chatty TURN relay without letting an
+// attacker DoS via candidate spam.
+const INVITE_LIMIT = 3;
+const INVITE_WINDOW_MS = 60_000;
+const SIGNAL_LIMIT = 50;
+const SIGNAL_WINDOW_MS = 10_000;
 
 @WebSocketGateway({ cors: { credentials: true } })
 export class CallsGateway {
@@ -23,6 +33,7 @@ export class CallsGateway {
   constructor(
     private readonly calls: CallsService,
     private readonly realtime: RealtimeGateway,
+    private readonly throttle: SocketThrottleService,
   ) {}
 
   // Caller offers a call → wake the callee.
@@ -32,6 +43,9 @@ export class CallsGateway {
     @MessageBody() payload: CallInvitePayload,
   ) {
     const caller = socket.data.user;
+    if (!this.throttle.allow(caller.userId, 'call:invite', INVITE_LIMIT, INVITE_WINDOW_MS)) {
+      return { ok: false, error: 'Too many call attempts — wait a minute' };
+    }
     const session = await this.calls.ensureActive({
       conversationId: payload.conversationId,
       callerId: caller.userId,
@@ -79,13 +93,17 @@ export class CallsGateway {
 
   @SubscribeMessage(SocketEvents.CALL_OFFER)
   async onOffer(@ConnectedSocket() socket: AuthedSocket, @MessageBody() payload: CallSdpPayload) {
-    const peerId = await this.calls.findPeer(payload.conversationId, socket.data.user.userId);
+    const userId = socket.data.user.userId;
+    if (!this.throttle.allow(userId, 'call:offer', SIGNAL_LIMIT, SIGNAL_WINDOW_MS)) return;
+    const peerId = await this.calls.findPeer(payload.conversationId, userId);
     if (peerId) this.realtime.emitToUser(peerId, SocketEvents.CALL_OFFER, payload);
   }
 
   @SubscribeMessage(SocketEvents.CALL_ANSWER)
   async onAnswer(@ConnectedSocket() socket: AuthedSocket, @MessageBody() payload: CallSdpPayload) {
-    const peerId = await this.calls.findPeer(payload.conversationId, socket.data.user.userId);
+    const userId = socket.data.user.userId;
+    if (!this.throttle.allow(userId, 'call:answer', SIGNAL_LIMIT, SIGNAL_WINDOW_MS)) return;
+    const peerId = await this.calls.findPeer(payload.conversationId, userId);
     if (peerId) this.realtime.emitToUser(peerId, SocketEvents.CALL_ANSWER, payload);
   }
 
@@ -94,7 +112,9 @@ export class CallsGateway {
     @ConnectedSocket() socket: AuthedSocket,
     @MessageBody() payload: CallIceCandidatePayload,
   ) {
-    const peerId = await this.calls.findPeer(payload.conversationId, socket.data.user.userId);
+    const userId = socket.data.user.userId;
+    if (!this.throttle.allow(userId, 'call:ice', SIGNAL_LIMIT, SIGNAL_WINDOW_MS)) return;
+    const peerId = await this.calls.findPeer(payload.conversationId, userId);
     if (peerId) this.realtime.emitToUser(peerId, SocketEvents.CALL_ICE_CANDIDATE, payload);
   }
 

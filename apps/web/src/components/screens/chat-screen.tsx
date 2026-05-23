@@ -197,12 +197,16 @@ export function ChatScreen({ conversationId }: { conversationId: string }) {
 
   // Mark the latest message read whenever a new peer message lands — keeps
   // the unread badge accurate without needing a per-bubble IntersectionObserver.
-  // Only fires when the chat is visible; if the user is on another tab/window
-  // the messages just sit unread until they come back.
+  // We track lastReadIdRef so a burst of N rapid messages emits CHAT_READ
+  // exactly ONCE (against the newest id) instead of N times, which would
+  // both waste bandwidth and cause the unread-count badge to flicker.
+  const lastReadIdRef = useRef<string | null>(null);
   useEffect(() => {
     if (!socket || messages.length === 0) return;
     const last = messages[messages.length - 1];
     if (!last || last.senderId === me?.id || last.pending) return;
+    if (lastReadIdRef.current === last.id) return;
+    lastReadIdRef.current = last.id;
     socket.emit(SocketEvents.CHAT_READ, { conversationId, lastMessageId: last.id });
     void qc.invalidateQueries({ queryKey: ['conversations', 'unread-count'] });
   }, [socket, messages, me?.id, conversationId, qc]);

@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import type { FriendReqStatus } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service.js';
 
@@ -10,6 +10,8 @@ export function pairKey(a: string, b: string) {
 
 @Injectable()
 export class FriendsRepository {
+  private readonly logger = new Logger(FriendsRepository.name);
+
   constructor(private readonly prisma: PrismaService) {}
 
   // ─── Friend requests ──────────────────────────────────────────────────
@@ -58,9 +60,19 @@ export class FriendsRepository {
     return this.prisma.friendship.create({ data: { userAId, userBId } });
   }
 
-  deleteFriendship(a: string, b: string) {
+  async deleteFriendship(a: string, b: string) {
     const key = pairKey(a, b);
-    return this.prisma.friendship.delete({ where: { userAId_userBId: key } }).catch(() => undefined);
+    try {
+      return await this.prisma.friendship.delete({ where: { userAId_userBId: key } });
+    } catch (err) {
+      // P2025 = no friendship to delete (idempotent unfriend). Log anything
+      // else so DB connection failures don't disappear into the void.
+      const code = (err as { code?: string }).code;
+      if (code !== 'P2025') {
+        this.logger.warn(`friendship.delete(${a},${b}) failed: ${(err as Error).message}`);
+      }
+      return undefined;
+    }
   }
 
   findFriendship(a: string, b: string) {
