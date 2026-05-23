@@ -20,9 +20,23 @@ const REFRESH_INTERVAL_MS = (15 * 60 - 30) * 1000;
 // pages stay readable anonymously.
 const PUBLIC_PREFIXES = ['/', '/welcome', '/home', '/login', '/register', '/forgot-password'];
 
+// Routes inside the (app) group that do NOT require a Profile to be present.
+// /onboarding is itself the place where you create the profile. /profile lets
+// you edit it. The rest (mood, matching, chat, call, connections) ALL need a
+// profile — without one the socket gateway rejects the connection so the user
+// would otherwise sit stuck on "Looking for someone…" forever.
+const NO_PROFILE_REQUIRED_PREFIXES = ['/onboarding', '/profile'];
+
 function isPublic(pathname: string) {
   return PUBLIC_PREFIXES.some((p) =>
     p === '/' ? pathname === '/' : pathname === p || pathname.startsWith(`${p}/`),
+  );
+}
+
+function requiresProfile(pathname: string) {
+  if (isPublic(pathname)) return false;
+  return !NO_PROFILE_REQUIRED_PREFIXES.some(
+    (p) => pathname === p || pathname.startsWith(`${p}/`),
   );
 }
 
@@ -46,6 +60,13 @@ export function useAuthBootstrap() {
         const token = useAuthStore.getState().accessToken;
         if (token) {
           setAuth({ accessToken: token, user: me.user, profile: me.profile });
+          // If the user is authenticated but has NO profile yet, force them
+          // into onboarding. Without this they can land on /matching, the
+          // socket fails auth with "Profile required", and they sit stuck
+          // forever — exactly the bug the api logs surfaced.
+          if (!me.profile && pathname && requiresProfile(pathname)) {
+            router.replace('/onboarding');
+          }
         } else {
           clear();
         }

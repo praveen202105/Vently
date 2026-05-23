@@ -1,29 +1,71 @@
 'use client';
 
-import { useCallback, useEffect, useRef } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { motion } from 'motion/react';
 import { Sparkles, X } from 'lucide-react';
 import { SocketEvents, type MatchFoundPayload } from '@vently/shared';
 import { AnimatedBackground, Button, GlassCard } from '@vently/ui';
+import { useAuthStore } from '@/stores/auth-store';
 import { useMatchStore } from '@/stores/match-store';
 import { useSocket } from '@/lib/socket/use-socket';
 import { useSocketEvent } from '@/lib/socket/use-socket-event';
 
 const TIMEOUT_MS = 60_000;
+// If we can't open a socket in this long, something is wrong (no token, no
+// profile, network blocking WSS+polling, etc.). Show an error instead of
+// staring at "Looking for someone…" indefinitely.
+const SOCKET_CONNECT_TIMEOUT_MS = 8_000;
 
 export function MatchingScreen() {
   const router = useRouter();
   const socket = useSocket();
+  const profile = useAuthStore((s) => s.profile);
+  const hydrated = useAuthStore((s) => s.hydrated);
   const { mood, status, setQueued, setMatched, setTimeout: markTimeout, reset } = useMatchStore();
   const timeoutRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const socketWatchRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const hasJoinedRef = useRef(false);
+  const [socketError, setSocketError] = useState<string | null>(null);
 
   const cancel = useCallback(() => {
     socket?.emit(SocketEvents.MATCH_CANCEL);
     reset();
     router.push('/mood');
   }, [socket, reset, router]);
+
+  // If auth has settled and the user has no profile, send them to /onboarding.
+  // Without a profile the realtime gateway rejects the socket and the user
+  // would otherwise sit on "Looking for someone…" forever.
+  useEffect(() => {
+    if (hydrated && !profile) router.replace('/onboarding');
+  }, [hydrated, profile, router]);
+
+  // No mood picked? go back to /mood.
+  useEffect(() => {
+    if (!mood) router.replace('/mood');
+  }, [mood, router]);
+
+  // Watch the socket and show an error if it never connects. This catches
+  // every "stuck on matching" case: failed auth, blocked WSS+polling, missing
+  // profile (caught above too but defensive), api down, etc.
+  useEffect(() => {
+    if (!hydrated || !profile || !mood) return;
+    if (socket && socket.connected) {
+      setSocketError(null);
+      return;
+    }
+    socketWatchRef.current = setTimeout(() => {
+      if (!socket || !socket.connected) {
+        setSocketError(
+          'Could not connect to the matchmaking server. Check your network and try again.',
+        );
+      }
+    }, SOCKET_CONNECT_TIMEOUT_MS);
+    return () => {
+      if (socketWatchRef.current) clearTimeout(socketWatchRef.current);
+    };
+  }, [socket, hydrated, profile, mood]);
 
   // Emit match:join once when the socket + mood are ready.
   useEffect(() => {
@@ -42,11 +84,6 @@ export function MatchingScreen() {
       if (timeoutRef.current) clearTimeout(timeoutRef.current);
     };
   }, [socket, mood, setQueued, markTimeout]);
-
-  // No mood picked? go back to /mood.
-  useEffect(() => {
-    if (!mood) router.replace('/mood');
-  }, [mood, router]);
 
   // Listen for the matchmaking server's reply.
   useSocketEvent(
@@ -102,6 +139,19 @@ export function MatchingScreen() {
               </h1>
               <p className="text-muted-foreground">Taking you to the chat…</p>
             </motion.div>
+          ) : socketError ? (
+            <GlassCard className="p-6">
+              <h2 className="text-xl mb-2">Connection problem</h2>
+              <p className="text-muted-foreground text-sm mb-4">{socketError}</p>
+              <Button
+                variant="gradient"
+                size="md"
+                className="w-full"
+                onClick={() => window.location.reload()}
+              >
+                Retry
+              </Button>
+            </GlassCard>
           ) : status === 'timeout' ? (
             <GlassCard className="p-6">
               <h2 className="text-xl mb-2">No one&apos;s around right now</h2>
