@@ -27,7 +27,12 @@ export class AuthController {
 
   @Public()
   @Post('register')
-  @Throttle({ medium: { limit: 10, ttl: 60_000 } })
+  @Throttle({
+    medium: {
+      limit: process.env.NODE_ENV === 'production' ? 10 : 1000,
+      ttl: 60_000,
+    },
+  })
   @HttpCode(HttpStatus.CREATED)
   async register(@Body() dto: RegisterDto, @Res({ passthrough: true }) res: Response) {
     const { user, tokens } = await this.auth.register(dto.email, dto.password);
@@ -37,7 +42,12 @@ export class AuthController {
 
   @Public()
   @Post('login')
-  @Throttle({ medium: { limit: 10, ttl: 60_000 } })
+  @Throttle({
+    medium: {
+      limit: process.env.NODE_ENV === 'production' ? 10 : 1000,
+      ttl: 60_000,
+    },
+  })
   @HttpCode(HttpStatus.OK)
   async login(@Body() dto: LoginDto, @Res({ passthrough: true }) res: Response) {
     const { user, tokens } = await this.auth.login(dto.email, dto.password);

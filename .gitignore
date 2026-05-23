@@ -1,6 +1,12 @@
 # Claude Code runtime
 .claude/
 
+# Playwright
+playwright-report/
+test-results/
+blob-report/
+playwright/.cache/
+
 # Dependencies
 node_modules/
 .pnpm-store/

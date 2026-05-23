@@ -44,7 +44,12 @@ import { NotificationsModule } from './notifications/notifications.module.js';
     }),
     ThrottlerModule.forRoot([
       { name: 'short', ttl: 1000, limit: 10 },
-      { name: 'medium', ttl: 60_000, limit: 100 },
+      // E2E suite hammers /auth/register; loosen in dev/test, tighten in prod.
+      {
+        name: 'medium',
+        ttl: 60_000,
+        limit: process.env.NODE_ENV === 'production' ? 100 : 1000,
+      },
     ]),
     PrismaModule,
     RedisModule,

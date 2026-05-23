@@ -1,14 +1,12 @@
 import type { Metadata, Viewport } from 'next';
-import { Inter } from 'next/font/google';
 import { Toaster } from 'sonner';
 import { QueryProvider } from '@/providers/query-provider';
 import '@/styles/globals.css';
 
-const inter = Inter({
-  subsets: ['latin'],
-  display: 'swap',
-  variable: '--font-inter',
-});
+// next/font/google was flaking the dev SSR with intermittent JSON parse
+// errors when Google Fonts returned slowly. System stack works everywhere,
+// matches the visual contract well enough, and can be swapped for a local
+// font (next/font/local) later if needed.
 
 export const metadata: Metadata = {
   title: {
@@ -28,7 +26,7 @@ export const viewport: Viewport = {
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en" className={`dark ${inter.variable}`}>
+    <html lang="en" className="dark">
       <body>
         <QueryProvider>{children}</QueryProvider>
         <Toaster theme="dark" position="top-center" richColors />

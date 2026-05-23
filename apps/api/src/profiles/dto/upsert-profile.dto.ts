@@ -1,4 +1,6 @@
 import {
+  Equals,
+  IsBoolean,
   IsEnum,
   IsOptional,
   IsString,
@@ -26,6 +28,13 @@ export class UpsertProfileDto {
   @IsOptional()
   @IsEnum(MoodIntent)
   mood?: MoodIntent;
+
+  // Required 18+ disclaimer. Sent from the OnboardingForm. The form already
+  // gates this client-side; we re-validate so old clients (or direct API
+  // callers) can't bypass the acknowledgement.
+  @IsBoolean()
+  @Equals(true, { message: 'You must confirm you are 18+' })
+  ageConfirmed!: boolean;
 }
 
 export class UpdateProfileDto {
