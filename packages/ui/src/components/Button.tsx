@@ -2,7 +2,7 @@
 
 import { motion } from 'motion/react';
 import type { ReactNode } from 'react';
-import { cn } from '../lib/cn.js';
+import { cn } from '../lib/cn';
 
 type Variant = 'primary' | 'secondary' | 'outline' | 'ghost' | 'gradient';
 type Size = 'sm' | 'md' | 'lg';

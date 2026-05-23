@@ -1,4 +1,4 @@
-export { cn } from './lib/cn.js';
-export { Button } from './components/Button.js';
-export { GlassCard } from './components/GlassCard.js';
-export { AnimatedBackground } from './components/AnimatedBackground.js';
+export { cn } from './lib/cn';
+export { Button } from './components/Button';
+export { GlassCard } from './components/GlassCard';
+export { AnimatedBackground } from './components/AnimatedBackground';
