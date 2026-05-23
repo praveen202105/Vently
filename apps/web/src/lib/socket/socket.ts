@@ -42,7 +42,12 @@ function buildSocket(token: string): VentlySocket {
 /**
  * Returns the live socket. Lazily creates one the first time it's called with
  * a valid auth token. If the token has rotated (silent refresh), tears down the
- * old socket and reconnects with the new token.
+ * old socket and reconnects with the new token. Also rebuilds the socket if
+ * the previous instance is dead — socket.io middleware rejections (e.g. our
+ * gateway's "Profile required") leave the socket in a disconnected + inactive
+ * state with NO automatic retry, so without this check a brand-new user who
+ * landed on the app shell before completing /onboarding would hold onto a
+ * dead socket forever.
  */
 export function getSocket(): VentlySocket | null {
   const token = useAuthStore.getState().accessToken;
@@ -65,7 +70,34 @@ export function getSocket(): VentlySocket | null {
     socket.disconnect();
     socket = buildSocket(token);
     lastTokenUsed = token;
+    return socket;
   }
+
+  // Socket exists but middleware rejected us (no profile yet, expired JWT, etc).
+  // `disconnected && !active` means "gave up and won't retry on its own" —
+  // rebuild a fresh one so the caller can connect now that conditions changed.
+  if (socket.disconnected && !socket.active) {
+    socket = buildSocket(token);
+    lastTokenUsed = token;
+  }
+  return socket;
+}
+
+/**
+ * Force-rebuild the socket. Call this when an upstream condition that blocks
+ * gateway auth has just been resolved (notably: profile creation in
+ * /onboarding). The existing socket is already dead from the prior rejection
+ * and won't retry on its own, so we drop it and start fresh.
+ */
+export function reconnectSocket(): VentlySocket | null {
+  const token = useAuthStore.getState().accessToken;
+  if (!token) return null;
+  if (socket) {
+    socket.disconnect();
+    socket = null;
+  }
+  socket = buildSocket(token);
+  lastTokenUsed = token;
   return socket;
 }
 

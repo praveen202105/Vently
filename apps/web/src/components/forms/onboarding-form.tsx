@@ -12,6 +12,7 @@ import { onboardingSchema, type OnboardingInput } from '@vently/shared';
 import { useAuthStore } from '@/stores/auth-store';
 import { upsertProfile } from '@/lib/api/auth';
 import { ApiError } from '@/lib/api/client';
+import { reconnectSocket } from '@/lib/socket/socket';
 
 export function OnboardingForm() {
   const router = useRouter();
@@ -37,6 +38,13 @@ export function OnboardingForm() {
     try {
       const profile = await upsertProfile(data);
       setProfile(profile);
+      // The (app) layout already opened a socket with our JWT — but the
+      // gateway rejected it because we hadn't created a profile yet. That
+      // rejected socket won't auto-reconnect (socket.io middleware errors
+      // are terminal). Force a rebuild now so /mood + /matching see a live
+      // socket. Without this, the user stares at "Connection problem" on
+      // /matching even though they just finished signing up.
+      reconnectSocket();
       router.replace('/mood');
     } catch (err) {
       const msg = err instanceof ApiError ? err.message : 'Could not save profile';
