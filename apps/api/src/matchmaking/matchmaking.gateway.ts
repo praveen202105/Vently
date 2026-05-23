@@ -50,6 +50,8 @@ export class MatchmakingGateway {
     }
 
     const conversationId = result.conversationId!;
+    // Both sides queue under the same (mood, gender) — they pop from the same
+    // queue, so payload.mood is authoritative for the pair.
     const peerForUser = {
       conversationId,
       peer: {
@@ -58,6 +60,7 @@ export class MatchmakingGateway {
         gender: peer.gender,
         avatarSeed: peer.avatarSeed,
       },
+      mood: payload.mood,
     };
     const peerForPeer = {
       conversationId,
@@ -67,6 +70,7 @@ export class MatchmakingGateway {
         gender: user.gender,
         avatarSeed: '',
       },
+      mood: payload.mood,
     };
 
     // Tell both sides. We also pre-join both sockets to the conversation room

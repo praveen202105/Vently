@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { motion, useReducedMotion } from 'motion/react';
-import { Sparkles, X } from 'lucide-react';
+import { AudioLines, Sparkles, X } from 'lucide-react';
 import { SocketEvents, type MatchFoundPayload } from '@vently/shared';
 import { AnimatedBackground, Button, GlassCard } from '@vently/ui';
 import { useAuthStore } from '@/stores/auth-store';
@@ -118,12 +118,20 @@ export function MatchingScreen() {
     };
   }, [socket, mood, setQueued, markTimeout]);
 
+  // The mood the SERVER paired us under. Authoritative for routing — the
+  // local match-store mood comes from what the user picked, which should
+  // match, but trusting the payload protects against any future desync.
+  // Persisted in a ref so the navigation effect (which only depends on
+  // status) can read it after the celebration delay.
+  const matchedMoodRef = useRef<typeof mood>(null);
+
   // Listen for the matchmaking server's reply.
   useSocketEvent(
     SocketEvents.MATCH_FOUND,
     useCallback(
       (payload: MatchFoundPayload) => {
         if (timeoutRef.current) clearTimeout(timeoutRef.current);
+        matchedMoodRef.current = payload.mood ?? null;
         setMatched({ conversationId: payload.conversationId, peer: payload.peer });
       },
       [setMatched],
@@ -131,14 +139,24 @@ export function MatchingScreen() {
   );
 
   // Navigate as soon as we transition to matched (small delay for the "found!"
-  // celebration to be visible).
+  // celebration to be visible). VOICE_ONLY matches skip the chat screen and
+  // go straight to /call/[id] with a flag the call screen reads to pick its
+  // caller/callee role and suppress the ringer.
   useEffect(() => {
     if (status !== 'matched') return;
     const { conversationId } = useMatchStore.getState();
     if (!conversationId) return;
-    const timer = setTimeout(() => router.push(`/chat/${conversationId}`), 800);
+    // Fall back to the user-picked mood if the server payload was missing
+    // (shouldn't happen post-deploy, but keeps the path backwards-compatible
+    // with any in-flight clients).
+    const effectiveMood = matchedMoodRef.current ?? mood;
+    const dest =
+      effectiveMood === 'VOICE_ONLY'
+        ? `/call/${conversationId}?voice-only=1`
+        : `/chat/${conversationId}`;
+    const timer = setTimeout(() => router.push(dest), 800);
     return () => clearTimeout(timer);
-  }, [status, router]);
+  }, [status, router, mood]);
 
   return (
     <div className="min-h-screen relative overflow-hidden flex flex-col items-center justify-center p-6">
@@ -160,9 +178,17 @@ export function MatchingScreen() {
                 ? { duration: 0.6 }
                 : { duration: 2, repeat: Infinity, ease: 'linear' }
           }
-          className="w-32 h-32 rounded-full bg-gradient-to-br from-purple-600 via-pink-600 to-blue-600 flex items-center justify-center shadow-2xl"
+          className={`w-32 h-32 rounded-full flex items-center justify-center shadow-2xl ${
+            mood === 'VOICE_ONLY'
+              ? 'bg-gradient-to-br from-sky-500 via-blue-500 to-indigo-600'
+              : 'bg-gradient-to-br from-purple-600 via-pink-600 to-blue-600'
+          }`}
         >
-          <Sparkles className="w-14 h-14 text-white" />
+          {mood === 'VOICE_ONLY' ? (
+            <AudioLines className="w-14 h-14 text-white" />
+          ) : (
+            <Sparkles className="w-14 h-14 text-white" />
+          )}
         </motion.div>
 
         <div className="text-center max-w-sm">
@@ -174,7 +200,9 @@ export function MatchingScreen() {
               <h1 className="text-3xl mb-2 bg-gradient-to-r from-purple-400 via-pink-400 to-blue-400 bg-clip-text text-transparent">
                 Match found!
               </h1>
-              <p className="text-muted-foreground">Taking you to the chat…</p>
+              <p className="text-muted-foreground">
+                {mood === 'VOICE_ONLY' ? 'Connecting your call…' : 'Taking you to the chat…'}
+              </p>
             </motion.div>
           ) : socketError ? (
             <GlassCard className="p-6">
@@ -201,9 +229,15 @@ export function MatchingScreen() {
             </GlassCard>
           ) : (
             <>
-              <h1 className="text-2xl mb-1">Looking for someone…</h1>
+              <h1 className="text-2xl mb-1">
+                {mood === 'VOICE_ONLY'
+                  ? 'Finding someone to talk to…'
+                  : 'Looking for someone…'}
+              </h1>
               <p className="text-muted-foreground text-sm">
-                Hang tight — usually under 10 seconds.
+                {mood === 'VOICE_ONLY'
+                  ? 'Get your mic ready — you’ll be connected the moment we find a match.'
+                  : 'Hang tight — usually under 10 seconds.'}
               </p>
             </>
           )}

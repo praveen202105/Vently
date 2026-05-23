@@ -64,6 +64,11 @@ export interface MatchFoundPayload {
     gender: Gender;
     avatarSeed: string;
   };
+  // The mood both users queued under. Identical for both sides of the pair
+  // because the matchmaking queue is keyed by (mood, gender). The client
+  // uses this to branch routing — VOICE_ONLY goes straight to /call/[id],
+  // every other mood goes to /chat/[id].
+  mood: MoodIntent;
 }
 
 export interface ChatSendPayload {

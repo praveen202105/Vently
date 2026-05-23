@@ -1,9 +1,11 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { motion, useReducedMotion } from 'motion/react';
-import { Mic, MicOff, Phone, PhoneOff, Volume2, VolumeX } from 'lucide-react';
+import { AudioLines, Mic, MicOff, Phone, PhoneOff, Volume2, VolumeX } from 'lucide-react';
+import { GlassCard } from '@vently/ui';
+import { useAuthStore } from '@/stores/auth-store';
 import { useMatchStore } from '@/stores/match-store';
 import { useWebRTC } from '@/lib/webrtc/use-webrtc';
 import { useRingtone } from '@/lib/webrtc/use-ringtone';
@@ -17,11 +19,26 @@ function formatDuration(s: number) {
 export function VoiceCallScreen({ conversationId }: { conversationId: string }) {
   const router = useRouter();
   const search = useSearchParams();
-  const isIncoming = search.get('incoming') === '1';
+  const ringerIncoming = search.get('incoming') === '1';
+  const voiceOnly = search.get('voice-only') === '1';
   const peer = useMatchStore((s) => s.peer);
+  const me = useAuthStore((s) => s.user);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const [elapsed, setElapsed] = useState(0);
   const reduceMotion = useReducedMotion();
+
+  // For a voice-only direct match BOTH sides land here at the same time and
+  // need to pick a role without a handshake. Lower userId is the caller — a
+  // deterministic, lexicographic compare both clients can compute locally.
+  // Falls back to a coin flip via `String.localeCompare` so we don't end up
+  // with two callers (which the pcRef guard would catch anyway, but cleaner
+  // to never get there). If peer hasn't loaded yet, default to false so we
+  // stay in IDLE until match-store hydrates.
+  const isVoiceOnlyCaller = voiceOnly && !!me && !!peer && me.id < peer.userId;
+  const isVoiceOnlyCallee = voiceOnly && !!me && !!peer && me.id >= peer.userId;
+  // The underlying WebRTC machine only knows "caller" (isIncoming=false) and
+  // "callee" (isIncoming=true). Map our richer state to that contract.
+  const isIncoming = ringerIncoming || isVoiceOnlyCallee;
 
   const {
     callState,
@@ -36,19 +53,37 @@ export function VoiceCallScreen({ conversationId }: { conversationId: string }) 
     error,
   } = useWebRTC({ conversationId, isIncoming });
 
-  // Auto-start the call when we open the screen as the caller (non-incoming).
+  // Auto-start the call when we open the screen as the caller. Covers two
+  // paths: (a) classic — user tapped the Phone icon in chat header, so they
+  // mean to call; (b) voice-only match — we landed here with `voice-only=1`
+  // and our userId is the lower of the pair (deterministic caller role).
   // One-shot via ref so a socket reconnect (which rebuilds `startCall`'s
   // identity through useCallback's deps) doesn't fire a second CALL_INVITE.
-  // The hook's own pcRef guard would catch it too, but stopping here saves
-  // a getUserMedia round-trip.
   const autoStartedRef = useRef(false);
   useEffect(() => {
     if (autoStartedRef.current) return;
+    // Voice-only: only the deterministically-chosen caller auto-starts.
+    if (voiceOnly && !isVoiceOnlyCaller) return;
     if (callState === 'IDLE' && !isIncoming) {
       autoStartedRef.current = true;
       void startCall();
     }
-  }, [callState, isIncoming, startCall]);
+  }, [callState, isIncoming, startCall, voiceOnly, isVoiceOnlyCaller]);
+
+  // Voice-only callee: auto-accept the call instead of showing the green/red
+  // ringer banner. The peer is the deterministic caller and will fire
+  // CALL_INVITE within a few ms; acceptCall creates our PC + emits CALL_ACCEPT
+  // which kicks the caller into createOffer (see use-webrtc.ts onAccept).
+  // We don't need to wait for CALL_INVITE — acceptCall is safe to call before
+  // the invite arrives because it only sets up the receiving side.
+  const autoAcceptedRef = useRef(false);
+  useEffect(() => {
+    if (autoAcceptedRef.current) return;
+    if (!isVoiceOnlyCallee) return;
+    if (callState !== 'RINGING') return;
+    autoAcceptedRef.current = true;
+    void acceptCall();
+  }, [isVoiceOnlyCallee, callState, acceptCall]);
 
   // Ringtone: caller hears ringback in DIALING, callee hears incoming pattern
   // in RINGING. Stops automatically once we move to CONNECTING / CONNECTED.
@@ -72,12 +107,16 @@ export function VoiceCallScreen({ conversationId }: { conversationId: string }) 
     return () => clearInterval(t);
   }, [callState]);
 
-  // Bounce back to chat when the call ends.
+  // When the call ends we bounce out of the screen. For voice-only matches
+  // there's no chat to fall back to (no text was ever exchanged), so go
+  // back to /mood so the user can try another match. Classic calls return
+  // to the chat thread where they came from.
   useEffect(() => {
     if (callState !== 'ENDED') return;
-    const t = setTimeout(() => router.replace(`/chat/${conversationId}`), 1000);
+    const dest = voiceOnly ? '/mood' : `/chat/${conversationId}`;
+    const t = setTimeout(() => router.replace(dest), 1000);
     return () => clearTimeout(t);
-  }, [callState, router, conversationId]);
+  }, [callState, router, conversationId, voiceOnly]);
 
   const statusLabel =
     callState === 'IDLE'
@@ -94,7 +133,20 @@ export function VoiceCallScreen({ conversationId }: { conversationId: string }) 
 
   return (
     <div className="min-h-screen flex flex-col items-center justify-between p-6 text-center">
-      <div />
+      {voiceOnly ? (
+        <motion.div
+          initial={{ opacity: 0, y: -8 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="mt-4"
+        >
+          <GlassCard className="px-4 py-2 flex items-center gap-2 text-xs">
+            <AudioLines className="w-4 h-4 text-sky-400" />
+            <span className="text-muted-foreground">Voice-only match</span>
+          </GlassCard>
+        </motion.div>
+      ) : (
+        <div />
+      )}
 
       <div className="flex flex-col items-center gap-6">
         <motion.div

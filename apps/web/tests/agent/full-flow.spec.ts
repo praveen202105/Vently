@@ -23,10 +23,12 @@ import {
  * report opens automatically if anything fails (browse screenshots there).
  */
 
-// Pick a less-popular mood so we're less likely to match with real strangers
-// when running against production.
-const TEST_MOOD = 'VOICE_ONLY';
-const TEST_MOOD_LABEL = /voice only/i;
+// Pick a less-popular text mood for the chat-flow tests so we're less likely
+// to match with real strangers when running against production. (Used to be
+// VOICE_ONLY for the same reason, but VOICE_ONLY now bypasses /chat and goes
+// straight to /call, which has its own dedicated test below.)
+const TEST_MOOD = 'FRIENDSHIP';
+const TEST_MOOD_LABEL = /^friendship$/i;
 
 let alice: AgentUser;
 let bob: AgentUser;
@@ -292,6 +294,58 @@ test.describe('🤖 Vently Testing Agent', () => {
     expect(body.status).toBe('ok');
     expect(body.checks.postgres).toBe('ok');
     expect(body.checks.redis).toBe('ok');
+  });
+
+  // ────────────────────────────────────────────────────────────────────────
+  // Phase 9 — Voice-only direct match
+  // Verifies that picking VOICE_ONLY skips the chat surface entirely and
+  // takes both sides straight to /call/[id]?voice-only=1. We can't validate
+  // audio in headless Chromium but proving the route + URL flag is enough
+  // — the WebRTC handshake itself is exercised by the route-loading code.
+  // ────────────────────────────────────────────────────────────────────────
+
+  test('12. VOICE_ONLY match takes both sides directly to /call', async () => {
+    // Grant mic permission so getUserMedia doesn't block the navigation.
+    await aliceCtx.grantPermissions(['microphone'], { origin: WEB_HOST });
+    await bobCtx.grantPermissions(['microphone'], { origin: WEB_HOST });
+
+    step('Bob queues VOICE_ONLY first');
+    await bobPage.goto('/mood', { waitUntil: 'networkidle' });
+    await bobPage.getByRole('button', { name: /voice only/i }).click();
+    await bobPage.waitForURL(/\/matching/);
+
+    step('Alice queues VOICE_ONLY 2s later');
+    await alicePage.waitForTimeout(2_000);
+    await alicePage.goto('/mood', { waitUntil: 'networkidle' });
+    await alicePage.getByRole('button', { name: /voice only/i }).click();
+
+    step('Both should redirect to /call/[id]?voice-only=1, NOT /chat/');
+    await Promise.all([
+      alicePage.waitForURL(/\/call\/.*voice-only=1/, { timeout: 30_000 }),
+      bobPage.waitForURL(/\/call\/.*voice-only=1/, { timeout: 30_000 }),
+    ]);
+
+    const aliceConv = alicePage.url().match(/\/call\/([^?]+)/)?.[1];
+    const bobConv = bobPage.url().match(/\/call\/([^?]+)/)?.[1];
+
+    if (aliceConv !== bobConv) {
+      // eslint-disable-next-line no-console
+      console.warn(
+        `   ⚠️ Alice ↔ Bob matched with strangers on VOICE_ONLY (alice=${aliceConv}, bob=${bobConv}). ` +
+          `Route flag still verified.`,
+      );
+    } else {
+      // eslint-disable-next-line no-console
+      console.log(`   ✓ Alice ↔ Bob paired on voice-only conversation ${aliceConv}`);
+    }
+
+    step('Voice-only match pill should appear on the call screen');
+    // Either side should show the "Voice-only match" pill within a few seconds.
+    await expect(alicePage.getByText(/voice-only match/i)).toBeVisible({ timeout: 5_000 });
+    await expect(bobPage.getByText(/voice-only match/i)).toBeVisible({ timeout: 5_000 });
+
+    await alicePage.screenshot({ path: 'agent-results/12-alice-voice-call.png', fullPage: true });
+    await bobPage.screenshot({ path: 'agent-results/12-bob-voice-call.png', fullPage: true });
   });
 });
 
