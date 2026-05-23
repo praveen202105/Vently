@@ -401,7 +401,10 @@ test.describe('🤖 Vently Testing Agent', () => {
     });
 
     step('The End button should be labelled "Back" for a FRIEND chat, not "End"');
-    await expect(alicePage.getByRole('button', { name: /^back$/i })).toBeVisible();
+    // Disambiguate from the chat header's back-arrow button (also has
+    // accessible name "Back" via aria-label). Match the VISIBLE TEXT only,
+    // which the arrow button doesn't have.
+    await expect(alicePage.getByText('Back', { exact: true })).toBeVisible();
 
     step('Alice sends a fresh message; Bob receives it in real time');
     const reconnectMsg = `agent-reconnect ${Date.now()}`;
@@ -413,7 +416,9 @@ test.describe('🤖 Vently Testing Agent', () => {
     await expect(bobPage.getByText(reconnectMsg)).toBeVisible({ timeout: 10_000 });
 
     step('Tapping "Back" returns Alice to /connections without ending the chat');
-    await alicePage.getByRole('button', { name: /^back$/i }).click();
+    // Same disambiguation as the visibility check above — match the text-only
+    // Back button (not the chat header's back-arrow button).
+    await alicePage.getByText('Back', { exact: true }).click();
     await alicePage.waitForURL(/\/connections/, { timeout: 5_000 });
 
     step('Conversation is STILL not ended after the Back press');
