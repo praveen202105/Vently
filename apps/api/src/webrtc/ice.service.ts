@@ -12,6 +12,28 @@ const PUBLIC_STUN: IceServerConfig[] = [
   { urls: 'stun:stun1.l.google.com:19302' },
 ];
 
+// Free public TURN by Metered's Open Relay Project (no signup, no card).
+// Rate-limited so not high-traffic-production grade, but works for demos +
+// early users where calls need to traverse NATs. Paid TURN takes precedence
+// whenever TURN_PROVIDER is set.
+const OPEN_RELAY_TURN: IceServerConfig[] = [
+  {
+    urls: 'turn:openrelay.metered.ca:80',
+    username: 'openrelayproject',
+    credential: 'openrelayproject',
+  },
+  {
+    urls: 'turn:openrelay.metered.ca:443',
+    username: 'openrelayproject',
+    credential: 'openrelayproject',
+  },
+  {
+    urls: 'turn:openrelay.metered.ca:443?transport=tcp',
+    username: 'openrelayproject',
+    credential: 'openrelayproject',
+  },
+];
+
 @Injectable()
 export class IceService {
   private readonly logger = new Logger(IceService.name);
@@ -21,9 +43,9 @@ export class IceService {
   /**
    * Returns a list of ICE servers for the client to use. In production this
    * mints short-lived TURN credentials from the configured provider
-   * (Cloudflare Calls or Metered.ca). In dev without provider config, falls
-   * back to public STUN — works on the same network but will fail across
-   * NATs without TURN.
+   * (Cloudflare Calls or Metered.ca). Without provider config, falls back to
+   * public STUN + the Open Relay free TURN — enough to land calls across
+   * NATs while staying free.
    */
   async getIceServers(): Promise<IceServerConfig[]> {
     const provider = this.config.get<string>('TURN_PROVIDER');
@@ -31,8 +53,8 @@ export class IceService {
     const appId = this.config.get<string>('TURN_APP_ID');
 
     if (!provider || !apiKey) {
-      this.logger.warn('No TURN provider configured — falling back to public STUN only');
-      return PUBLIC_STUN;
+      this.logger.log('Using Open Relay public TURN (no provider configured)');
+      return [...PUBLIC_STUN, ...OPEN_RELAY_TURN];
     }
 
     try {
@@ -62,9 +84,9 @@ export class IceService {
         return [...PUBLIC_STUN, ...(Array.isArray(data.iceServers) ? data.iceServers : [data.iceServers])];
       }
     } catch (err) {
-      this.logger.error('Failed to fetch TURN credentials', err);
+      this.logger.error('Failed to fetch TURN credentials, falling back to Open Relay', err);
     }
 
-    return PUBLIC_STUN;
+    return [...PUBLIC_STUN, ...OPEN_RELAY_TURN];
   }
 }

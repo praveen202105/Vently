@@ -17,10 +17,12 @@ test.describe('Phase 4 — WebRTC', () => {
     const body = (await res.json()) as { iceServers: { urls: string | string[] }[] };
     expect(Array.isArray(body.iceServers)).toBe(true);
     expect(body.iceServers.length).toBeGreaterThan(0);
-    // At least one STUN url (the public fallback) should be present in dev.
+    // STUN is the public fallback; TURN comes from Open Relay (free) when no
+    // paid provider is configured, or from Cloudflare/Metered when one is.
     const flat = body.iceServers.flatMap((s) =>
       Array.isArray(s.urls) ? s.urls : [s.urls],
     );
     expect(flat.some((u) => u.startsWith('stun:'))).toBe(true);
+    expect(flat.some((u) => u.startsWith('turn:'))).toBe(true);
   });
 });
