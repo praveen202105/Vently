@@ -9,6 +9,12 @@ import { HealthModule } from './health/health.module.js';
 import { AuthModule } from './auth/auth.module.js';
 import { UsersModule } from './users/users.module.js';
 import { ProfilesModule } from './profiles/profiles.module.js';
+import { ConversationsModule } from './conversations/conversations.module.js';
+import { MessagesModule } from './messages/messages.module.js';
+import { PresenceModule } from './presence/presence.module.js';
+import { MatchmakingModule } from './matchmaking/matchmaking.module.js';
+import { ChatModule } from './chat/chat.module.js';
+import { RealtimeModule } from './realtime/realtime.module.js';
 
 @Module({
   imports: [
@@ -39,10 +45,16 @@ import { ProfilesModule } from './profiles/profiles.module.js';
     AuthModule,
     UsersModule,
     ProfilesModule,
+    ConversationsModule,
+    MessagesModule,
+    PresenceModule,
+    MatchmakingModule,
+    ChatModule,
+    RealtimeModule,
     // Feature modules wired in later phases (see VENTLY_PLAN.md §3.1):
-    //   MatchmakingModule, ChatModule, FriendsModule,
-    //   CallsModule, WebrtcModule, ReportsModule, BlocksModule,
-    //   NotificationsModule, ModerationModule, PresenceModule, RealtimeModule
+    //   FriendsModule, BlocksModule,
+    //   CallsModule, WebrtcModule,
+    //   ReportsModule, ModerationModule, NotificationsModule
   ],
   providers: [
     {

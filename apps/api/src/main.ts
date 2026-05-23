@@ -6,6 +6,7 @@ import helmet from 'helmet';
 import cookieParser from 'cookie-parser';
 import { AppModule } from './app.module.js';
 import { HttpExceptionFilter } from './common/filters/http-exception.filter.js';
+import { RedisIoAdapter } from './realtime/redis-io.adapter.js';
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule, {
@@ -35,6 +36,11 @@ async function bootstrap() {
   app.useGlobalFilters(new HttpExceptionFilter());
 
   app.setGlobalPrefix('api', { exclude: ['health'] });
+
+  // Wire the Socket.io Redis adapter so multiple api replicas share state.
+  const redisAdapter = new RedisIoAdapter(app);
+  await redisAdapter.connect();
+  app.useWebSocketAdapter(redisAdapter);
 
   await app.listen(port);
   Logger.log(`Vently API listening on :${port}`, 'Bootstrap');

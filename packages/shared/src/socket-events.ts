@@ -18,6 +18,7 @@ export const SocketEvents = {
   MATCH_TIMEOUT: 'match:timeout',
 
   // Chat
+  CHAT_JOIN: 'chat:join',
   CHAT_SEND: 'chat:send',
   CHAT_MESSAGE: 'chat:message',
   CHAT_ACK: 'chat:ack',
@@ -138,6 +139,7 @@ export interface ClientToServerEvents {
   [SocketEvents.PRESENCE_HEARTBEAT]: () => void;
   [SocketEvents.MATCH_JOIN]: (payload: MatchJoinPayload) => void;
   [SocketEvents.MATCH_CANCEL]: () => void;
+  [SocketEvents.CHAT_JOIN]: (payload: { conversationId: string }) => void;
   [SocketEvents.CHAT_SEND]: (payload: ChatSendPayload) => void;
   [SocketEvents.CHAT_TYPING]: (payload: ChatTypingPayload) => void;
   [SocketEvents.CHAT_READ]: (payload: ChatReadPayload) => void;
