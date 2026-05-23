@@ -16,6 +16,7 @@ import {
 import { ConversationsService } from '../conversations/conversations.service.js';
 import { MessagesService } from '../messages/messages.service.js';
 import { BlocksService } from '../blocks/blocks.service.js';
+import { ModerationService } from '../moderation/moderation.service.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { type AuthedSocket, convRoom } from '../realtime/types.js';
 
@@ -30,6 +31,7 @@ export class ChatGateway {
     private readonly conversations: ConversationsService,
     private readonly messages: MessagesService,
     private readonly blocks: BlocksService,
+    private readonly moderation: ModerationService,
     private readonly prisma: PrismaService,
   ) {}
 
@@ -64,6 +66,14 @@ export class ChatGateway {
       if (blocked) return { ok: false, error: 'Cannot send to this user' };
     }
 
+    // Profanity check — severe terms are rejected outright; mild get flagged
+    // after persist.
+    const profanity = this.moderation.inspectMessage(body);
+    if (profanity.severity === 'SEVERE') {
+      await this.moderation.logRejection(user.userId, body, profanity);
+      return { ok: false, error: 'Message violates content policy' };
+    }
+
     const msg = await this.messages.send({
       conversationId: payload.conversationId,
       senderId: user.userId,
@@ -72,6 +82,10 @@ export class ChatGateway {
 
     // Acknowledge the sender (optimistic UI swaps client message with server one).
     socket.emit(SocketEvents.CHAT_ACK, { clientId: payload.clientId, messageId: msg.id });
+
+    if (profanity.severity === 'MILD') {
+      void this.moderation.flagMessage(msg.id, profanity, 'allowed');
+    }
 
     // Fan out to other room members.
     socket.to(convRoom(payload.conversationId)).emit(SocketEvents.CHAT_MESSAGE, msg);

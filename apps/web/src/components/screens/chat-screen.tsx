@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useQuery } from '@tanstack/react-query';
 import { motion, AnimatePresence } from 'motion/react';
-import { ArrowLeft, Phone, Send, UserPlus, Shield } from 'lucide-react';
+import { ArrowLeft, Phone, Send, UserPlus, Shield, Flag } from 'lucide-react';
 import { toast } from 'sonner';
 import {
   SocketEvents,
@@ -21,6 +21,7 @@ import { listMessages, leaveConversation } from '@/lib/api/conversations';
 import { sendFriendRequest } from '@/lib/api/friends';
 import { blockUser } from '@/lib/api/blocks';
 import { ApiError } from '@/lib/api/client';
+import { ReportDialog } from '@/components/safety/report-dialog';
 
 interface PendingMessage extends MessagePublic {
   pending?: true;
@@ -43,6 +44,7 @@ export function ChatScreen({ conversationId }: { conversationId: string }) {
   const [messages, setMessages] = useState<PendingMessage[]>([]);
   const [draft, setDraft] = useState('');
   const [peerTyping, setPeerTyping] = useState(false);
+  const [reportOpen, setReportOpen] = useState(false);
 
   const typingTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const lastTypingEmitRef = useRef(0);
@@ -225,6 +227,16 @@ export function ChatScreen({ conversationId }: { conversationId: string }) {
         </button>
         <button
           type="button"
+          onClick={() => setReportOpen(true)}
+          disabled={!peer}
+          className="p-2 rounded-lg hover:bg-destructive/20 transition text-destructive disabled:opacity-50"
+          aria-label="Report user"
+          title="Report"
+        >
+          <Flag className="w-5 h-5" />
+        </button>
+        <button
+          type="button"
           onClick={block}
           disabled={!peer}
           className="p-2 rounded-lg hover:bg-destructive/20 transition text-destructive disabled:opacity-50"
@@ -329,6 +341,15 @@ export function ChatScreen({ conversationId }: { conversationId: string }) {
           <Send className="w-5 h-5" />
         </motion.button>
       </form>
+
+      {peer && (
+        <ReportDialog
+          open={reportOpen}
+          onClose={() => setReportOpen(false)}
+          reportedUserId={peer.userId}
+          conversationId={conversationId}
+        />
+      )}
     </div>
   );
 }

@@ -16,6 +16,7 @@ import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard.js';
 import { RealtimeGateway } from '../realtime/realtime.gateway.js';
 import { FriendsService } from './friends.service.js';
 import { PrismaService } from '../prisma/prisma.service.js';
+import { NotificationsService } from '../notifications/notifications.service.js';
 import { CreateFriendRequestDto, RespondFriendRequestDto } from './dto/friend-request.dto.js';
 
 @Controller('friends')
@@ -25,6 +26,7 @@ export class FriendsController {
     private readonly friends: FriendsService,
     private readonly prisma: PrismaService,
     private readonly realtime: RealtimeGateway,
+    private readonly notifications: NotificationsService,
   ) {}
 
   @Get()
@@ -51,10 +53,19 @@ export class FriendsController {
         fromUserId: user.userId,
         fromNickname: profile?.nickname ?? '',
       });
+      await this.notifications.push(dto.toUserId, 'FRIEND_REQUEST', {
+        requestId: result.request.id,
+        fromUserId: user.userId,
+        fromNickname: profile?.nickname ?? '',
+      });
     } else if (result.kind === 'accepted') {
       this.realtime.emitToUser(result.request.fromUserId, SocketEvents.FRIEND_RESPOND, {
         requestId: result.request.id,
         accepted: true,
+        byUserId: user.userId,
+      });
+      await this.notifications.push(result.request.fromUserId, 'FRIEND_ACCEPTED', {
+        requestId: result.request.id,
         byUserId: user.userId,
       });
     }
@@ -74,6 +85,12 @@ export class FriendsController {
       accepted: result.kind === 'accepted',
       byUserId: user.userId,
     });
+    if (result.kind === 'accepted') {
+      await this.notifications.push(result.request.fromUserId, 'FRIEND_ACCEPTED', {
+        requestId: result.request.id,
+        byUserId: user.userId,
+      });
+    }
     if (result.kind === 'accepted' && result.conversationId) {
       // Push the SYSTEM message live into the chat room.
       const msg = await this.prisma.message.findFirst({
