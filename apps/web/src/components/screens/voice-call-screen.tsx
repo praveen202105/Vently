@@ -6,6 +6,7 @@ import { motion } from 'motion/react';
 import { Mic, MicOff, PhoneOff, Volume2, VolumeX } from 'lucide-react';
 import { useMatchStore } from '@/stores/match-store';
 import { useWebRTC } from '@/lib/webrtc/use-webrtc';
+import { useRingtone } from '@/lib/webrtc/use-ringtone';
 
 function formatDuration(s: number) {
   const m = Math.floor(s / 60);
@@ -40,6 +41,11 @@ export function VoiceCallScreen({ conversationId }: { conversationId: string }) 
       void startCall();
     }
   }, [callState, isIncoming, startCall]);
+
+  // Ringtone: caller hears ringback in DIALING, callee hears incoming pattern
+  // in RINGING. Stops automatically once we move to CONNECTING / CONNECTED.
+  useRingtone(callState === 'DIALING', 'outgoing');
+  useRingtone(callState === 'RINGING', 'incoming');
 
   // Bind the remote stream to the <audio> element when it arrives.
   useEffect(() => {

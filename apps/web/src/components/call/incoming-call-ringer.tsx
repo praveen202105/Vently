@@ -5,7 +5,9 @@ import { usePathname, useRouter } from 'next/navigation';
 import { motion, AnimatePresence } from 'motion/react';
 import { Phone, PhoneOff } from 'lucide-react';
 import { SocketEvents, type CallInvitePayload } from '@vently/shared';
+import { useSocket } from '@/lib/socket/use-socket';
 import { useSocketEvent } from '@/lib/socket/use-socket-event';
+import { useRingtone } from '@/lib/webrtc/use-ringtone';
 
 interface IncomingCall {
   conversationId: string;
@@ -15,7 +17,11 @@ interface IncomingCall {
 export function IncomingCallRinger() {
   const router = useRouter();
   const pathname = usePathname();
+  const socket = useSocket();
   const [incoming, setIncoming] = useState<IncomingCall | null>(null);
+
+  // Play the incoming-call ringtone whenever this banner is visible.
+  useRingtone(!!incoming, 'incoming');
 
   useSocketEvent(
     SocketEvents.CALL_INVITE,
@@ -44,10 +50,14 @@ export function IncomingCallRinger() {
   };
 
   const reject = () => {
+    if (!incoming) return;
+    // Notify the caller so their screen doesn't sit in "Calling…" until the
+    // 30s timeout. The caller's onReject handler tears down the PC.
+    socket?.emit(SocketEvents.CALL_REJECT, {
+      conversationId: incoming.conversationId,
+      fromUserId: '',
+    });
     setIncoming(null);
-    // useWebRTC isn't mounted here, so we don't have a socket emit — let the
-    // call screen on the caller side time out, or rely on the ringer below
-    // doing the explicit reject when the user lands on the screen.
   };
 
   return (
@@ -62,9 +72,13 @@ export function IncomingCallRinger() {
           aria-live="assertive"
         >
           <div className="flex items-center gap-3">
-            <div className="w-11 h-11 rounded-full bg-gradient-to-br from-purple-600 to-pink-600 flex items-center justify-center text-white">
-              ?
-            </div>
+            <motion.div
+              animate={{ scale: [1, 1.08, 1] }}
+              transition={{ duration: 1.2, repeat: Infinity }}
+              className="w-11 h-11 rounded-full bg-gradient-to-br from-purple-600 to-pink-600 flex items-center justify-center text-white"
+            >
+              <Phone className="w-5 h-5" />
+            </motion.div>
             <div className="flex-1 min-w-0">
               <p className="truncate text-sm">Incoming call</p>
               <p className="text-xs text-muted-foreground">Tap to answer</p>
