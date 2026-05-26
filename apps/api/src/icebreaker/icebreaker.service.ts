@@ -103,30 +103,6 @@ export class IcebreakerService implements OnModuleInit {
       return;
     }
 
-    // Guard: conversation may have ended (block/leave race) while streaming.
-    const conv = await this.prisma.conversation.findUnique({
-      where: { id: conversationId },
-      select: { endedAt: true },
-    });
-    if (conv?.endedAt) return;
-
-    const saved = await this.prisma.message.create({
-      data: { conversationId, senderId: userAId, body: accumulated, type: 'SYSTEM' },
-    });
-
-    // Deliver the persisted message to the room so reconnected clients and
-    // the existing CHAT_MESSAGE handler both receive it without a page reload.
-    socketServer.to(room).emit(SocketEvents.CHAT_MESSAGE, {
-      id: saved.id,
-      conversationId: saved.conversationId,
-      senderId: saved.senderId,
-      body: saved.body,
-      type: saved.type,
-      createdAt: saved.createdAt.toISOString(),
-      deletedAt: null,
-      reactions: [],
-    });
-
     socketServer.to(room).emit(SocketEvents.CHAT_ICEBREAKER_DONE, { conversationId });
 
     // Fire opening suggestions for both users — forUserId:null means the

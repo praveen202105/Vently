@@ -583,8 +583,8 @@ export function ChatScreen({ conversationId }: { conversationId: string }) {
     ackTimersRef.current.set(clientId, timer);
   }, []);
 
-  const sendMessage = () => {
-    const body = draft.trim();
+  const sendMessage = (overrideBody?: string) => {
+    const body = (overrideBody ?? draft).trim();
     if (!body || !socket || !me) return;
 
     const clientId = genClientId();
@@ -601,7 +601,7 @@ export function ChatScreen({ conversationId }: { conversationId: string }) {
       clientId,
     };
     setMessages((prev) => [...prev, optimistic]);
-    setDraft('');
+    if (!overrideBody) setDraft('');
     setSuggestions([]);
     socket.emit(SocketEvents.CHAT_SEND, { conversationId, body, clientId });
     armAckTimeout(clientId);
@@ -971,10 +971,7 @@ export function ChatScreen({ conversationId }: { conversationId: string }) {
       <div className="sticky bottom-0 border-t border-glass-border bg-glass-bg backdrop-blur-xl">
         <SuggestionChips
           suggestions={suggestions}
-          onSelect={(text) => {
-            setDraft(text);
-            setSuggestions([]);
-          }}
+          onSelect={(text) => sendMessage(text)}
         />
         <form
           onSubmit={(e) => {
