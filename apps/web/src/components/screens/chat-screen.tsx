@@ -13,6 +13,7 @@ import {
   type ChatIcebreakerDonePayload,
   type ChatMessagePayload,
   type ChatReactionPayload,
+  type ChatSuggestionsPayload,
   type ChatTypingPayload,
   type FriendRequestEventPayload,
   type FriendRespondEventPayload,
@@ -35,6 +36,7 @@ import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { ReactionPicker } from '@/components/chat/reaction-picker';
 import { ReactionPills } from '@/components/chat/reaction-pills';
 import { IcebreakerBubble } from '@/components/chat/icebreaker-bubble';
+import { SuggestionChips } from '@/components/chat/suggestion-chips';
 import { formatChatTime, shouldShowTimestamp } from '@/lib/utils/time';
 
 interface PendingMessage extends MessagePublic {
@@ -93,6 +95,10 @@ export function ChatScreen({ conversationId }: { conversationId: string }) {
   // persisted CHAT_MESSAGE system message lands in the list.
   const [icebreakerChunks, setIcebreakerChunks] = useState<string[]>([]);
   const [icebreakerDone, setIcebreakerDone] = useState(false);
+
+  // AI smart reply suggestions — populated by CHAT_SUGGESTIONS events,
+  // cleared whenever the user starts typing or sends a message.
+  const [suggestions, setSuggestions] = useState<string[]>([]);
 
   const typingTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const lastTypingEmitRef = useRef(0);
@@ -239,6 +245,19 @@ export function ChatScreen({ conversationId }: { conversationId: string }) {
         setTimeout(() => setIcebreakerDone(true), 1_200);
       },
       [conversationId],
+    ),
+  );
+
+  useSocketEvent(
+    SocketEvents.CHAT_SUGGESTIONS,
+    useCallback(
+      ({ conversationId: cid, suggestions: chips, forUserId }: ChatSuggestionsPayload) => {
+        if (cid !== conversationId) return;
+        // Show only if addressed to this user or broadcast to the whole room.
+        if (forUserId !== null && forUserId !== me?.id) return;
+        setSuggestions(chips);
+      },
+      [conversationId, me?.id],
     ),
   );
 
@@ -583,6 +602,7 @@ export function ChatScreen({ conversationId }: { conversationId: string }) {
     };
     setMessages((prev) => [...prev, optimistic]);
     setDraft('');
+    setSuggestions([]);
     socket.emit(SocketEvents.CHAT_SEND, { conversationId, body, clientId });
     armAckTimeout(clientId);
 
@@ -612,6 +632,7 @@ export function ChatScreen({ conversationId }: { conversationId: string }) {
 
   const onInputChange = (next: string) => {
     setDraft(next);
+    if (next && suggestions.length > 0) setSuggestions([]);
     if (!socket) return;
     const now = Date.now();
     if (now - lastTypingEmitRef.current > TYPING_DEBOUNCE_MS) {
@@ -947,13 +968,21 @@ export function ChatScreen({ conversationId }: { conversationId: string }) {
         )}
       </div>
 
-      <form
-        onSubmit={(e) => {
-          e.preventDefault();
-          sendMessage();
-        }}
-        className="p-3 border-t border-glass-border bg-glass-bg backdrop-blur-xl flex items-end gap-2 sticky bottom-0"
-      >
+      <div className="sticky bottom-0 border-t border-glass-border bg-glass-bg backdrop-blur-xl">
+        <SuggestionChips
+          suggestions={suggestions}
+          onSelect={(text) => {
+            setDraft(text);
+            setSuggestions([]);
+          }}
+        />
+        <form
+          onSubmit={(e) => {
+            e.preventDefault();
+            sendMessage();
+          }}
+          className="p-3 flex items-end gap-2"
+        >
         <textarea
           value={draft}
           onChange={(e) => onInputChange(e.target.value)}
@@ -976,7 +1005,8 @@ export function ChatScreen({ conversationId }: { conversationId: string }) {
         >
           <Send className="w-5 h-5" />
         </motion.button>
-      </form>
+        </form>
+      </div>
 
       {peer && (
         <ReportDialog

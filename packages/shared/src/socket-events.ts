@@ -53,6 +53,9 @@ export const SocketEvents = {
   // AI ice-breaker (streaming)
   CHAT_ICEBREAKER_CHUNK: 'chat:icebreaker:chunk',
   CHAT_ICEBREAKER_DONE: 'chat:icebreaker:done',
+
+  // AI smart reply suggestions
+  CHAT_SUGGESTIONS: 'chat:suggestions',
 } as const;
 
 export type SocketEventName = (typeof SocketEvents)[keyof typeof SocketEvents];
@@ -172,6 +175,14 @@ export interface ChatIcebreakerDonePayload {
   conversationId: string;
 }
 
+export interface ChatSuggestionsPayload {
+  conversationId: string;
+  suggestions: string[];
+  // null = show to all room members (used after ice-breaker);
+  // a userId = show only to that recipient (used after a peer message).
+  forUserId: string | null;
+}
+
 export interface NotificationPayload {
   id: string;
   type: string;
@@ -224,4 +235,5 @@ export interface ServerToClientEvents {
   [SocketEvents.NOTIFICATION_NEW]: (payload: NotificationPayload) => void;
   [SocketEvents.CHAT_ICEBREAKER_CHUNK]: (payload: ChatIcebreakerChunkPayload) => void;
   [SocketEvents.CHAT_ICEBREAKER_DONE]: (payload: ChatIcebreakerDonePayload) => void;
+  [SocketEvents.CHAT_SUGGESTIONS]: (payload: ChatSuggestionsPayload) => void;
 }

@@ -24,6 +24,7 @@ import { ReportsModule } from './reports/reports.module.js';
 import { NotificationsModule } from './notifications/notifications.module.js';
 import { PushModule } from './push/push.module.js';
 import { IcebreakerModule } from './icebreaker/icebreaker.module.js';
+import { SuggestionsModule } from './suggestions/suggestions.module.js';
 
 @Module({
   imports: [
@@ -74,6 +75,7 @@ import { IcebreakerModule } from './icebreaker/icebreaker.module.js';
     PushModule,
     ReportsModule,
     IcebreakerModule,
+    SuggestionsModule,
   ],
   providers: [
     {

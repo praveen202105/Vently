@@ -6,6 +6,7 @@ import type { MoodIntent } from '@prisma/client';
 import { SocketEvents } from '@vently/shared';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { ModerationService } from '../moderation/moderation.service.js';
+import { SuggestionsService } from '../suggestions/suggestions.service.js';
 import { buildPrompt } from './icebreaker.prompt.js';
 
 export interface IcebreakerParams {
@@ -25,6 +26,7 @@ export class IcebreakerService implements OnModuleInit {
     private readonly config: ConfigService,
     private readonly prisma: PrismaService,
     private readonly moderation: ModerationService,
+    private readonly suggestions: SuggestionsService,
   ) {}
 
   onModuleInit() {
@@ -126,6 +128,16 @@ export class IcebreakerService implements OnModuleInit {
     });
 
     socketServer.to(room).emit(SocketEvents.CHAT_ICEBREAKER_DONE, { conversationId });
+
+    // Fire opening suggestions for both users — forUserId:null means the
+    // frontend shows chips to whichever user receives the event.
+    void this.suggestions.generate({
+      conversationId,
+      lastMessage: accumulated,
+      mood,
+      forUserId: null,
+      socketServer,
+    });
 
     this.logger.log({
       event: 'icebreaker.generated',
