@@ -23,6 +23,7 @@ import { ModerationModule } from './moderation/moderation.module.js';
 import { ReportsModule } from './reports/reports.module.js';
 import { NotificationsModule } from './notifications/notifications.module.js';
 import { PushModule } from './push/push.module.js';
+import { IcebreakerModule } from './icebreaker/icebreaker.module.js';
 
 @Module({
   imports: [
@@ -72,6 +73,7 @@ import { PushModule } from './push/push.module.js';
     NotificationsModule,
     PushModule,
     ReportsModule,
+    IcebreakerModule,
   ],
   providers: [
     {

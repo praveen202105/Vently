@@ -10,7 +10,8 @@
         "NEXT_PUBLIC_API_URL",
         "NEXT_PUBLIC_SOCKET_URL",
         "DATABASE_URL",
-        "REDIS_URL"
+        "REDIS_URL",
+        "GROQ_API_KEY"
       ]
     },
     "dev": {

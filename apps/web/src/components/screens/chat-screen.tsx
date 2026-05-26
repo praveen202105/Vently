@@ -9,6 +9,8 @@ import { toast } from 'sonner';
 import {
   SocketEvents,
   type ChatConversationEndedPayload,
+  type ChatIcebreakerChunkPayload,
+  type ChatIcebreakerDonePayload,
   type ChatMessagePayload,
   type ChatReactionPayload,
   type ChatTypingPayload,
@@ -32,6 +34,7 @@ import { MessageSkeleton } from '@/components/skeletons/message-skeleton';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { ReactionPicker } from '@/components/chat/reaction-picker';
 import { ReactionPills } from '@/components/chat/reaction-pills';
+import { IcebreakerBubble } from '@/components/chat/icebreaker-bubble';
 import { formatChatTime, shouldShowTimestamp } from '@/lib/utils/time';
 
 interface PendingMessage extends MessagePublic {
@@ -84,6 +87,12 @@ export function ChatScreen({ conversationId }: { conversationId: string }) {
   // peer in this session. Switches the "Save as friend" button to a
   // "Request sent" affordance so the user doesn't double-tap and re-fire.
   const [requestSent, setRequestSent] = useState(false);
+
+  // AI ice-breaker streaming state — chunks accumulate token-by-token until
+  // CHAT_ICEBREAKER_DONE fires, at which point the bubble fades out and the
+  // persisted CHAT_MESSAGE system message lands in the list.
+  const [icebreakerChunks, setIcebreakerChunks] = useState<string[]>([]);
+  const [icebreakerDone, setIcebreakerDone] = useState(false);
 
   const typingTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const lastTypingEmitRef = useRef(0);
@@ -209,6 +218,30 @@ export function ChatScreen({ conversationId }: { conversationId: string }) {
     };
   }, [socket, conversationId]);
 
+  // AI ice-breaker socket handlers.
+  useSocketEvent(
+    SocketEvents.CHAT_ICEBREAKER_CHUNK,
+    useCallback(
+      ({ conversationId: cid, chunk }: ChatIcebreakerChunkPayload) => {
+        if (cid !== conversationId) return;
+        setIcebreakerChunks((prev) => [...prev, chunk]);
+      },
+      [conversationId],
+    ),
+  );
+
+  useSocketEvent(
+    SocketEvents.CHAT_ICEBREAKER_DONE,
+    useCallback(
+      ({ conversationId: cid }: ChatIcebreakerDonePayload) => {
+        if (cid !== conversationId) return;
+        // Small delay so users can finish reading the bubble before it exits.
+        setTimeout(() => setIcebreakerDone(true), 1_200);
+      },
+      [conversationId],
+    ),
+  );
+
   // Live message handler.
   useSocketEvent(
     SocketEvents.CHAT_MESSAGE,
@@ -216,12 +249,9 @@ export function ChatScreen({ conversationId }: { conversationId: string }) {
       (msg: ChatMessagePayload) => {
         if (msg.conversationId !== conversationId) return;
         setMessages((prev) => {
-          // Replace optimistic message if its clientId matches via chat:ack flow.
           if (prev.some((m) => m.id === msg.id)) return prev;
-          return [...prev, { ...msg, type: 'TEXT', deletedAt: null, reactions: [] }];
+          return [...prev, { ...msg }];
         });
-        // Peer's incoming message bumps the global unread count — refresh the
-        // nav badge so the user sees it light up in other tabs/sections.
         if (msg.senderId !== me?.id) {
           void qc.invalidateQueries({ queryKey: ['conversations', 'unread-count'] });
         }
@@ -798,9 +828,13 @@ export function ChatScreen({ conversationId }: { conversationId: string }) {
             Say hi to start the conversation.
           </p>
         ) : (
+          <>
+          <IcebreakerBubble chunks={icebreakerChunks} done={icebreakerDone} />
+
           <AnimatePresence initial={false}>
             {sortedMessages.map((msg, idx) => {
-              const mine = msg.senderId === me?.id;
+              const isSystem = msg.type === 'SYSTEM';
+              const mine = !isSystem && msg.senderId === me?.id;
               const prev = idx > 0 ? sortedMessages[idx - 1] : null;
               const showTimestamp = shouldShowTimestamp(
                 prev?.createdAt ?? null,
@@ -808,6 +842,24 @@ export function ChatScreen({ conversationId }: { conversationId: string }) {
                 prev?.senderId ?? null,
                 msg.senderId,
               );
+
+              // System messages (ice-breaker, "You're now friends!") render
+              // centred and muted — they're not from either participant.
+              if (isSystem) {
+                return (
+                  <motion.div
+                    key={msg.id}
+                    initial={{ opacity: 0, y: 4 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    className="flex justify-center my-1"
+                  >
+                    <p className="text-xs text-muted-foreground bg-muted/40 rounded-full px-3 py-1 text-center max-w-xs">
+                      {msg.body}
+                    </p>
+                  </motion.div>
+                );
+              }
+
               return (
                 <motion.div
                   key={msg.id}
@@ -825,8 +877,6 @@ export function ChatScreen({ conversationId }: { conversationId: string }) {
                     )}
                     <div className="relative group">
                       <div
-                        // Hover (desktop) or onContextMenu (mobile long-press)
-                        // opens the reaction picker for this bubble.
                         onMouseEnter={() =>
                           window.matchMedia('(hover: hover)').matches && setPickerOpenForId(msg.id)
                         }
@@ -834,8 +884,6 @@ export function ChatScreen({ conversationId }: { conversationId: string }) {
                           window.matchMedia('(hover: hover)').matches && setPickerOpenForId(null)
                         }
                         onContextMenu={(e) => {
-                          // Long-press shows the OS context menu by default
-                          // on mobile; suppress it and open our picker.
                           e.preventDefault();
                           setPickerOpenForId((id) => (id === msg.id ? null : msg.id));
                         }}
@@ -878,6 +926,7 @@ export function ChatScreen({ conversationId }: { conversationId: string }) {
               );
             })}
           </AnimatePresence>
+          </>
         )}
 
         {peerTyping && (
