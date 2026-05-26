@@ -82,11 +82,17 @@ export class ChatGateway {
     // attacker; it doesn't verify the attacker belongs in the room at all.
     await this.conversations.assertParticipant(payload.conversationId, user.userId);
 
-    // Block-check: refuse to deliver between users who blocked each other.
-    const peer = await this.prisma.conversationParticipant.findFirst({
-      where: { conversationId: payload.conversationId, userId: { not: user.userId } },
-      select: { userId: true },
-    });
+    // Block-check + mood lookup — run in parallel, both are cheap PK queries.
+    const [peer, senderProfile] = await Promise.all([
+      this.prisma.conversationParticipant.findFirst({
+        where: { conversationId: payload.conversationId, userId: { not: user.userId } },
+        select: { userId: true },
+      }),
+      this.prisma.profile.findUnique({
+        where: { userId: user.userId },
+        select: { mood: true },
+      }),
+    ]);
     if (peer) {
       const blocked = await this.blocks.isBlocked(user.userId, peer.userId);
       if (blocked) return { ok: false, error: 'Cannot send to this user' };
@@ -124,7 +130,7 @@ export class ChatGateway {
       void this.suggestions.generate({
         conversationId: payload.conversationId,
         lastMessage: body,
-        mood: null,
+        mood: senderProfile?.mood ?? null,
         forUserId: peer.userId,
         socketServer: this.server,
       });

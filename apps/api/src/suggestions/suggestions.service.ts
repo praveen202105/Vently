@@ -5,6 +5,18 @@ import type { Server } from 'socket.io';
 import type { MoodIntent } from '@prisma/client';
 import { SocketEvents } from '@vently/shared';
 
+function moodInstruction(mood: MoodIntent | null): string {
+  switch (mood) {
+    case 'LONELY':       return 'warm, empathetic — create a sense of connection';
+    case 'NEED_TO_TALK': return 'open, supportive — invite them to share more';
+    case 'FRIENDSHIP':   return 'casual, fun — like chatting with a good friend';
+    case 'LATE_NIGHT':   return 'relaxed, thoughtful — cozy late-night vibes';
+    case 'ADVICE':       return 'engaged, thoughtful — show you are listening and care';
+    case 'FLIRTY':       return 'playful, light-hearted and flirty';
+    default:             return 'warm and natural';
+  }
+}
+
 export interface SuggestionsParams {
   conversationId: string;
   lastMessage: string;
@@ -31,8 +43,7 @@ export class SuggestionsService implements OnModuleInit {
 
     const { conversationId, lastMessage, mood, forUserId, socketServer } = params;
 
-    const moodLine = mood ? `Chat mood: ${mood}\n` : '';
-    const userContent = `${moodLine}Last message: "${lastMessage.slice(0, 300)}"\nGenerate 3 replies.`;
+    const userContent = `Last message: "${lastMessage.slice(0, 300)}"\nGenerate 3 replies.`;
 
     try {
       const response = await this.client.chat.completions.create({
@@ -45,7 +56,7 @@ export class SuggestionsService implements OnModuleInit {
             content:
               'You are a reply suggestion engine for a mood-based anonymous chat app. ' +
               'Output ONLY a valid JSON array of exactly 3 short reply strings. ' +
-              'Each reply must be under 10 words, warm, natural, and match the emotional tone. ' +
+              `Each reply must be under 10 words. Tone: ${moodInstruction(mood)}. ` +
               'No explanation. No markdown. Just the raw JSON array.',
           },
           { role: 'user', content: userContent },
