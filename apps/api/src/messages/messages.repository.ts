@@ -85,6 +85,19 @@ export class MessagesRepository {
     return msg?.conversationId ?? null;
   }
 
+  async search(conversationId: string, q: string) {
+    return this.prisma.message.findMany({
+      where: {
+        conversationId,
+        deletedAt: null,
+        body: { contains: q, mode: 'insensitive' },
+      },
+      orderBy: { createdAt: 'desc' },
+      take: 50,
+      include: { reactions: { select: { emoji: true, userId: true } } },
+    });
+  }
+
   async markRead(args: { conversationId: string; userId: string; lastMessageId: string }) {
     // Find the createdAt of the boundary message so we can mark everything
     // older than it as read for this user.

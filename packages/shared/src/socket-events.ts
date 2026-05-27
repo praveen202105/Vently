@@ -3,7 +3,7 @@
  * Adding an event? Add the constant + payload type here so both sides stay in sync.
  */
 
-import type { Gender, MoodIntent } from './types/enums.js';
+import type { Gender, MessageType, MoodIntent } from './types/enums.js';
 
 export const SocketEvents = {
   // Presence
@@ -49,6 +49,13 @@ export const SocketEvents = {
 
   // Notifications
   NOTIFICATION_NEW: 'notification:new',
+
+  // AI ice-breaker (streaming)
+  CHAT_ICEBREAKER_CHUNK: 'chat:icebreaker:chunk',
+  CHAT_ICEBREAKER_DONE: 'chat:icebreaker:done',
+
+  // AI smart reply suggestions
+  CHAT_SUGGESTIONS: 'chat:suggestions',
 } as const;
 
 export type SocketEventName = (typeof SocketEvents)[keyof typeof SocketEvents];
@@ -73,6 +80,7 @@ export interface MatchFoundPayload {
   // uses this to branch routing — VOICE_ONLY goes straight to /call/[id],
   // every other mood goes to /chat/[id].
   mood: MoodIntent;
+  lastMetAt?: string | null;
 }
 
 export interface ChatSendPayload {
@@ -86,7 +94,10 @@ export interface ChatMessagePayload {
   conversationId: string;
   senderId: string;
   body: string;
+  type: MessageType;
   createdAt: string;
+  deletedAt: string | null;
+  reactions: { emoji: string; userId: string }[];
 }
 
 export interface ChatAckPayload {
@@ -156,6 +167,23 @@ export interface CallHangupPayload {
   reason?: string;
 }
 
+export interface ChatIcebreakerChunkPayload {
+  conversationId: string;
+  chunk: string;
+}
+
+export interface ChatIcebreakerDonePayload {
+  conversationId: string;
+}
+
+export interface ChatSuggestionsPayload {
+  conversationId: string;
+  suggestions: string[];
+  // null = show to all room members (used after ice-breaker);
+  // a userId = show only to that recipient (used after a peer message).
+  forUserId: string | null;
+}
+
 export interface NotificationPayload {
   id: string;
   type: string;
@@ -206,4 +234,7 @@ export interface ServerToClientEvents {
   [SocketEvents.CALL_ICE_CANDIDATE]: (payload: CallIceCandidatePayload) => void;
   [SocketEvents.CALL_HANGUP]: (payload: CallHangupPayload) => void;
   [SocketEvents.NOTIFICATION_NEW]: (payload: NotificationPayload) => void;
+  [SocketEvents.CHAT_ICEBREAKER_CHUNK]: (payload: ChatIcebreakerChunkPayload) => void;
+  [SocketEvents.CHAT_ICEBREAKER_DONE]: (payload: ChatIcebreakerDonePayload) => void;
+  [SocketEvents.CHAT_SUGGESTIONS]: (payload: ChatSuggestionsPayload) => void;
 }

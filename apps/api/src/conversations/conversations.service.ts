@@ -106,6 +106,24 @@ export class ConversationsService {
           select: { userId: true, nickname: true, gender: true, avatarSeed: true, isOnline: true },
         })
       : null;
+
+    // Check if they met before (in a prior ended DIRECT conversation)
+    const pastConvo = peerPart
+      ? await this.prisma.conversation.findFirst({
+          where: {
+            id: { not: conversationId },
+            type: 'DIRECT',
+            endedAt: { not: null },
+            AND: [
+              { participants: { some: { userId } } },
+              { participants: { some: { userId: peerPart.userId } } },
+            ],
+          },
+          orderBy: { endedAt: 'desc' },
+          select: { endedAt: true },
+        })
+      : null;
+
     return {
       id: conv.id,
       type: conv.type,
@@ -120,6 +138,7 @@ export class ConversationsService {
             isOnline: peerProfile.isOnline,
           }
         : null,
+      lastMetAt: pastConvo?.endedAt?.toISOString() ?? null,
     };
   }
 

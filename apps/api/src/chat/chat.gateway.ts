@@ -22,6 +22,7 @@ import { type AuthedSocket, convRoom } from '../realtime/types.js';
 import { SocketThrottleService } from '../realtime/socket-throttle.service.js';
 import { FocusService } from '../realtime/focus.service.js';
 import { PushService } from '../push/push.service.js';
+import { SuggestionsService } from '../suggestions/suggestions.service.js';
 
 const MAX_BODY_LEN = 2000;
 // Per-user-per-event caps. Values are deliberately generous so a real
@@ -47,6 +48,7 @@ export class ChatGateway {
     private readonly throttle: SocketThrottleService,
     private readonly focus: FocusService,
     private readonly push: PushService,
+    private readonly suggestions: SuggestionsService,
   ) {}
 
   // Lets a reconnected/refreshed client re-join its conversation room.
@@ -80,11 +82,17 @@ export class ChatGateway {
     // attacker; it doesn't verify the attacker belongs in the room at all.
     await this.conversations.assertParticipant(payload.conversationId, user.userId);
 
-    // Block-check: refuse to deliver between users who blocked each other.
-    const peer = await this.prisma.conversationParticipant.findFirst({
-      where: { conversationId: payload.conversationId, userId: { not: user.userId } },
-      select: { userId: true },
-    });
+    // Block-check + mood lookup — run in parallel, both are cheap PK queries.
+    const [peer, senderProfile] = await Promise.all([
+      this.prisma.conversationParticipant.findFirst({
+        where: { conversationId: payload.conversationId, userId: { not: user.userId } },
+        select: { userId: true },
+      }),
+      this.prisma.profile.findUnique({
+        where: { userId: user.userId },
+        select: { mood: true },
+      }),
+    ]);
     if (peer) {
       const blocked = await this.blocks.isBlocked(user.userId, peer.userId);
       if (blocked) return { ok: false, error: 'Cannot send to this user' };
@@ -116,6 +124,17 @@ export class ChatGateway {
 
     // Also send to self so other open tabs of the sender see it.
     socket.emit(SocketEvents.CHAT_MESSAGE, msg);
+
+    // Smart reply suggestions — fire for the peer only, never block delivery.
+    if (peer) {
+      void this.suggestions.generate({
+        conversationId: payload.conversationId,
+        lastMessage: body,
+        mood: senderProfile?.mood ?? null,
+        forUserId: peer.userId,
+        socketServer: this.server,
+      });
+    }
 
     // Web push to the peer — only if they're NOT currently focused on this
     // conversation. The socket-level CHAT_MESSAGE above already handles the

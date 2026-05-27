@@ -7,6 +7,9 @@ import {
   Matches,
   MaxLength,
   MinLength,
+  IsInt,
+  Min,
+  Max,
 } from 'class-validator';
 import { Gender, MoodIntent } from '@prisma/client';
 
@@ -28,6 +31,18 @@ export class UpsertProfileDto {
   @IsOptional()
   @IsEnum(MoodIntent)
   mood?: MoodIntent;
+
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  @Max(23)
+  activeStartHour?: number;
+
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  @Max(24)
+  activeEndHour?: number;
 
   // Required 18+ disclaimer. Sent from the OnboardingForm. The form already
   // gates this client-side; we re-validate so old clients (or direct API
@@ -53,4 +68,16 @@ export class UpdateProfileDto {
   @IsOptional()
   @IsEnum(MoodIntent)
   mood?: MoodIntent | null;
+
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  @Max(23)
+  activeStartHour?: number;
+
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  @Max(24)
+  activeEndHour?: number;
 }

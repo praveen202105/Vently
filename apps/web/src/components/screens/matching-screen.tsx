@@ -132,7 +132,7 @@ export function MatchingScreen() {
       (payload: MatchFoundPayload) => {
         if (timeoutRef.current) clearTimeout(timeoutRef.current);
         matchedMoodRef.current = payload.mood ?? null;
-        setMatched({ conversationId: payload.conversationId, peer: payload.peer });
+        setMatched({ conversationId: payload.conversationId, peer: payload.peer, lastMetAt: payload.lastMetAt });
       },
       [setMatched],
     ),

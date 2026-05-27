@@ -4,13 +4,16 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 import { useRouter } from 'next/navigation';
 import { useInfiniteQuery, useQuery, useQueryClient } from '@tanstack/react-query';
 import { motion, AnimatePresence } from 'motion/react';
-import { AlertCircle, ArrowLeft, Check, Phone, RotateCw, Send, UserPlus, Shield, Flag, X } from 'lucide-react';
+import { AlertCircle, ArrowLeft, Check, Phone, RotateCw, Search, Send, UserPlus, Shield, Flag, X, Sparkles } from 'lucide-react';
 import { toast } from 'sonner';
 import {
   SocketEvents,
   type ChatConversationEndedPayload,
+  type ChatIcebreakerChunkPayload,
+  type ChatIcebreakerDonePayload,
   type ChatMessagePayload,
   type ChatReactionPayload,
+  type ChatSuggestionsPayload,
   type ChatTypingPayload,
   type FriendRequestEventPayload,
   type FriendRespondEventPayload,
@@ -22,7 +25,7 @@ import { useAuthStore } from '@/stores/auth-store';
 import { useMatchStore } from '@/stores/match-store';
 import { useSocket } from '@/lib/socket/use-socket';
 import { useSocketEvent } from '@/lib/socket/use-socket-event';
-import { getConversation, listMessages, leaveConversation } from '@/lib/api/conversations';
+import { getConversation, listMessages, leaveConversation, searchMessages } from '@/lib/api/conversations';
 import { respondToFriendRequest, sendFriendRequest } from '@/lib/api/friends';
 import { blockUser } from '@/lib/api/blocks';
 import { toggleReaction as apiToggleReaction } from '@/lib/api/messages';
@@ -32,7 +35,12 @@ import { MessageSkeleton } from '@/components/skeletons/message-skeleton';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { ReactionPicker } from '@/components/chat/reaction-picker';
 import { ReactionPills } from '@/components/chat/reaction-pills';
-import { formatChatTime, shouldShowTimestamp } from '@/lib/utils/time';
+import { IcebreakerBubble } from '@/components/chat/icebreaker-bubble';
+import { SuggestionChips } from '@/components/chat/suggestion-chips';
+import { TranslateButton } from '@/components/chat/translate-button';
+import { translateMessage, type TranslateResult } from '@/lib/api/translation';
+import { formatChatTime, shouldShowTimestamp, formatReunionRelative, formatDateTime } from '@/lib/utils/time';
+import { useUnreadTabBadge } from '@/lib/hooks/use-unread-tab-badge';
 
 interface PendingMessage extends MessagePublic {
   pending?: true;
@@ -61,7 +69,7 @@ export function ChatScreen({ conversationId }: { conversationId: string }) {
   const socket = useSocket();
   const qc = useQueryClient();
   const me = useAuthStore((s) => s.user);
-  const peer = useMatchStore((s) => s.peer);
+  const storePeer = useMatchStore((s) => s.peer);
 
   const [messages, setMessages] = useState<PendingMessage[]>([]);
   const [draft, setDraft] = useState('');
@@ -84,6 +92,41 @@ export function ChatScreen({ conversationId }: { conversationId: string }) {
   // peer in this session. Switches the "Save as friend" button to a
   // "Request sent" affordance so the user doesn't double-tap and re-fire.
   const [requestSent, setRequestSent] = useState(false);
+
+  // AI ice-breaker streaming state — chunks accumulate token-by-token until
+  // CHAT_ICEBREAKER_DONE fires, at which point the bubble fades out and the
+  // persisted CHAT_MESSAGE system message lands in the list.
+  const [icebreakerChunks, setIcebreakerChunks] = useState<string[]>([]);
+  const [icebreakerDone, setIcebreakerDone] = useState(false);
+
+  // AI smart reply suggestions — populated by CHAT_SUGGESTIONS events,
+  // cleared whenever the user starts typing or sends a message.
+  const [suggestions, setSuggestions] = useState<string[]>([]);
+
+  // Search state
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [searchResults, setSearchResults] = useState<MessagePublic[]>([]);
+  const [isSearching, setIsSearching] = useState(false);
+  const searchDebounceRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+
+  // Translation state — keyed by messageId.
+  // translatedMessages: holds the Groq result for each translated message.
+  // translatingIds: tracks which messages are currently being fetched.
+  // showTranslatedIds: tracks which messages are displaying the translation
+  //   (vs the original — allows toggling back).
+  const [translatedMessages, setTranslatedMessages] = useState<Map<string, TranslateResult>>(
+    new Map(),
+  );
+  const [translatingIds, setTranslatingIds] = useState<Set<string>>(new Set());
+  const [showTranslatedIds, setShowTranslatedIds] = useState<Set<string>>(new Set());
+
+  // Unread tab badge — only accumulates when the tab is backgrounded
+  const [tabUnread, setTabUnread] = useState(0);
+  const tabVisibleRef = useRef(true);
+
+  // Apply the unread tab badge hook
+  useUnreadTabBadge(tabUnread, 'Vently');
 
   const typingTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const lastTypingEmitRef = useRef(0);
@@ -113,6 +156,11 @@ export function ChatScreen({ conversationId }: { conversationId: string }) {
     staleTime: 60_000,
   });
   const isFriendConvo = conversation?.type === 'FRIEND';
+
+  const storeLastMetAt = useMatchStore((s) => s.lastMetAt);
+  const lastMetAt = conversation?.lastMetAt || storeLastMetAt;
+  const [showReunion, setShowReunion] = useState(true);
+  const peer = storePeer || conversation?.peer;
 
   // Message history with cursor pagination. listMessages returns the OLDEST
   // 30 of the requested cursor window in chronological order (items[0] is
@@ -209,6 +257,57 @@ export function ChatScreen({ conversationId }: { conversationId: string }) {
     };
   }, [socket, conversationId]);
 
+  // AI ice-breaker socket handlers.
+  useSocketEvent(
+    SocketEvents.CHAT_ICEBREAKER_CHUNK,
+    useCallback(
+      ({ conversationId: cid, chunk }: ChatIcebreakerChunkPayload) => {
+        if (cid !== conversationId) return;
+        setIcebreakerChunks((prev) => [...prev, chunk]);
+      },
+      [conversationId],
+    ),
+  );
+
+  useSocketEvent(
+    SocketEvents.CHAT_ICEBREAKER_DONE,
+    useCallback(
+      ({ conversationId: cid }: ChatIcebreakerDonePayload) => {
+        if (cid !== conversationId) return;
+        // Small delay so users can finish reading the bubble before it exits.
+        setTimeout(() => setIcebreakerDone(true), 1_200);
+      },
+      [conversationId],
+    ),
+  );
+
+  useSocketEvent(
+    SocketEvents.CHAT_SUGGESTIONS,
+    useCallback(
+      ({ conversationId: cid, suggestions: chips, forUserId }: ChatSuggestionsPayload) => {
+        if (cid !== conversationId) return;
+        // Show only if addressed to this user or broadcast to the whole room.
+        if (forUserId !== null && forUserId !== me?.id) return;
+        setSuggestions(chips);
+      },
+      [conversationId, me?.id],
+    ),
+  );
+
+  // Track tab visibility — reset unread count when user returns to tab
+  useEffect(() => {
+    const onVisibility = () => {
+      if (document.visibilityState === 'visible') {
+        tabVisibleRef.current = true;
+        setTabUnread(0);
+      } else {
+        tabVisibleRef.current = false;
+      }
+    };
+    document.addEventListener('visibilitychange', onVisibility);
+    return () => document.removeEventListener('visibilitychange', onVisibility);
+  }, []);
+
   // Live message handler.
   useSocketEvent(
     SocketEvents.CHAT_MESSAGE,
@@ -216,14 +315,15 @@ export function ChatScreen({ conversationId }: { conversationId: string }) {
       (msg: ChatMessagePayload) => {
         if (msg.conversationId !== conversationId) return;
         setMessages((prev) => {
-          // Replace optimistic message if its clientId matches via chat:ack flow.
           if (prev.some((m) => m.id === msg.id)) return prev;
-          return [...prev, { ...msg, type: 'TEXT', deletedAt: null, reactions: [] }];
+          return [...prev, { ...msg }];
         });
-        // Peer's incoming message bumps the global unread count — refresh the
-        // nav badge so the user sees it light up in other tabs/sections.
         if (msg.senderId !== me?.id) {
           void qc.invalidateQueries({ queryKey: ['conversations', 'unread-count'] });
+        }
+        // Bump the unread badge when the tab is backgrounded and it's a peer message
+        if (!tabVisibleRef.current && msg.senderId !== me?.id) {
+          setTabUnread((n) => n + 1);
         }
       },
       [conversationId, me?.id, qc],
@@ -534,8 +634,8 @@ export function ChatScreen({ conversationId }: { conversationId: string }) {
     ackTimersRef.current.set(clientId, timer);
   }, []);
 
-  const sendMessage = () => {
-    const body = draft.trim();
+  const sendMessage = (overrideBody?: string) => {
+    const body = (overrideBody ?? draft).trim();
     if (!body || !socket || !me) return;
 
     const clientId = genClientId();
@@ -552,7 +652,8 @@ export function ChatScreen({ conversationId }: { conversationId: string }) {
       clientId,
     };
     setMessages((prev) => [...prev, optimistic]);
-    setDraft('');
+    if (!overrideBody) setDraft('');
+    setSuggestions([]);
     socket.emit(SocketEvents.CHAT_SEND, { conversationId, body, clientId });
     armAckTimeout(clientId);
 
@@ -582,6 +683,7 @@ export function ChatScreen({ conversationId }: { conversationId: string }) {
 
   const onInputChange = (next: string) => {
     setDraft(next);
+    if (next && suggestions.length > 0) setSuggestions([]);
     if (!socket) return;
     const now = Date.now();
     if (now - lastTypingEmitRef.current > TYPING_DEBOUNCE_MS) {
@@ -611,6 +713,32 @@ export function ChatScreen({ conversationId }: { conversationId: string }) {
     router.push('/mood');
   };
 
+  const onSearchChange = (q: string) => {
+    setSearchQuery(q);
+    if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current);
+    if (!q || q.trim().length < 2) {
+      setSearchResults([]);
+      return;
+    }
+    setIsSearching(true);
+    searchDebounceRef.current = setTimeout(async () => {
+      try {
+        const res = await searchMessages(conversationId, q.trim());
+        setSearchResults(res.items);
+      } catch {
+        // silent
+      } finally {
+        setIsSearching(false);
+      }
+    }, 350);
+  };
+
+  const closeSearch = () => {
+    setSearchOpen(false);
+    setSearchQuery('');
+    setSearchResults([]);
+  };
+
   const addFriend = async () => {
     if (!peer || requestSent) return;
     try {
@@ -629,6 +757,50 @@ export function ChatScreen({ conversationId }: { conversationId: string }) {
       toast.error(msg);
     }
   };
+
+  // Detect the viewer's browser locale (e.g. "en", "hi", "es-MX").
+  // We pass the full BCP-47 tag to the API; Groq handles regional variants.
+  const viewerLocale =
+    typeof navigator !== 'undefined' ? navigator.language : 'en';
+
+  const handleTranslate = useCallback(
+    async (messageId: string) => {
+      if (translatingIds.has(messageId) || translatedMessages.has(messageId)) {
+        // Already fetched — just show it.
+        setShowTranslatedIds((prev) => new Set([...prev, messageId]));
+        return;
+      }
+      setTranslatingIds((prev) => new Set([...prev, messageId]));
+      try {
+        const result = await translateMessage(conversationId, messageId, viewerLocale);
+        setTranslatedMessages((prev) => new Map([...prev, [messageId, result]]));
+        setShowTranslatedIds((prev) => new Set([...prev, messageId]));
+        // Replace suggestion chips with localized ones if available.
+        if (result.chips.length > 0) setSuggestions(result.chips);
+      } catch {
+        toast.error('Could not translate message');
+      } finally {
+        setTranslatingIds((prev) => {
+          const next = new Set(prev);
+          next.delete(messageId);
+          return next;
+        });
+      }
+    },
+    [conversationId, translatingIds, translatedMessages, viewerLocale],
+  );
+
+  const handleToggleTranslation = useCallback((messageId: string) => {
+    setShowTranslatedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(messageId)) {
+        next.delete(messageId);
+      } else {
+        next.add(messageId);
+      }
+      return next;
+    });
+  }, []);
 
   const confirmBlock = async () => {
     if (!peer) return;
@@ -652,26 +824,44 @@ export function ChatScreen({ conversationId }: { conversationId: string }) {
   );
 
   return (
-    <div className="min-h-screen flex flex-col">
+    <div className="min-h-screen flex flex-col relative">
       <header className="flex items-center gap-3 p-4 border-b border-glass-border bg-glass-bg backdrop-blur-xl sticky top-0 z-10">
         <button
           type="button"
-          onClick={() => router.push('/connections')}
+          onClick={() => searchOpen ? closeSearch() : router.push('/connections')}
           className="p-2 rounded-lg hover:bg-muted transition"
-          aria-label="Back"
+          aria-label={searchOpen ? 'Close search' : 'Back'}
         >
-          <ArrowLeft className="w-5 h-5" />
+          {searchOpen ? <X className="w-5 h-5" /> : <ArrowLeft className="w-5 h-5" />}
         </button>
-        <div className="w-10 h-10 rounded-full bg-gradient-to-br from-purple-600 to-pink-600 flex items-center justify-center text-white">
-          {peer?.nickname[0]?.toUpperCase() ?? '?'}
-        </div>
-        <div className="flex-1 min-w-0">
-          <p className="truncate">{peer?.nickname ?? 'Stranger'}</p>
-          <p className="text-xs text-muted-foreground">
-            {peerTyping ? 'typing…' : peer ? 'online' : '—'}
-          </p>
-        </div>
-        {!isFriendConvo && (
+
+        {searchOpen ? (
+          <input
+            id="chat-search-input"
+            autoFocus
+            type="text"
+            value={searchQuery}
+            onChange={(e) => onSearchChange(e.target.value)}
+            placeholder="Search messages…"
+            className="flex-1 bg-input rounded-xl px-4 py-2 outline-none border border-glass-border focus:ring-2 focus:ring-primary/40 text-sm"
+          />
+        ) : (
+          <>
+            <div className="w-10 h-10 rounded-full bg-gradient-to-br from-purple-600 to-pink-600 flex items-center justify-center text-white">
+              {peer?.nickname[0]?.toUpperCase() ?? '?'}
+            </div>
+            <div className="flex-1 min-w-0">
+              <p className="truncate">{peer?.nickname ?? 'Stranger'}</p>
+              <p className="text-xs text-muted-foreground">
+                {peerTyping
+                  ? `${isFriendConvo ? (peer?.nickname ?? 'Peer') : 'Peer'} is typing…`
+                  : peer ? 'online' : '—'}
+              </p>
+            </div>
+          </>
+        )}
+
+        {!searchOpen && !isFriendConvo && (
           <button
             type="button"
             onClick={addFriend}
@@ -687,50 +877,161 @@ export function ChatScreen({ conversationId }: { conversationId: string }) {
             {requestSent ? <Check className="w-5 h-5" /> : <UserPlus className="w-5 h-5" />}
           </button>
         )}
+
+        {!searchOpen && (
+          <>
+            <button
+              type="button"
+              onClick={() => router.push(`/call/${conversationId}`)}
+              className="p-2 rounded-lg hover:bg-primary/20 transition text-primary"
+              aria-label="Start voice call"
+            >
+              <Phone className="w-5 h-5" />
+            </button>
+            <button
+              type="button"
+              onClick={() => setReportOpen(true)}
+              disabled={!peer}
+              className="p-2 rounded-lg hover:bg-destructive/20 transition text-destructive disabled:opacity-50"
+              aria-label="Report user"
+              title="Report"
+            >
+              <Flag className="w-5 h-5" />
+            </button>
+            <button
+              type="button"
+              onClick={() => setBlockOpen(true)}
+              disabled={!peer}
+              className="p-2 rounded-lg hover:bg-destructive/20 transition text-destructive disabled:opacity-50"
+              aria-label="Block user"
+              title="Block"
+            >
+              <Shield className="w-5 h-5" />
+            </button>
+            <button
+              type="button"
+              onClick={() => (isFriendConvo ? void leave() : setLeaveOpen(true))}
+              className={`text-xs px-3 py-1.5 rounded-lg transition ${
+                isFriendConvo
+                  ? 'hover:bg-muted text-muted-foreground'
+                  : 'hover:bg-destructive/10 text-destructive'
+              }`}
+            >
+              {isFriendConvo ? 'Back' : 'End'}
+            </button>
+          </>
+        )}
+
         <button
           type="button"
-          onClick={() => router.push(`/call/${conversationId}`)}
+          onClick={() => searchOpen ? closeSearch() : setSearchOpen(true)}
           className="p-2 rounded-lg hover:bg-primary/20 transition text-primary"
-          aria-label="Start voice call"
+          aria-label="Search messages"
+          title="Search"
         >
-          <Phone className="w-5 h-5" />
-        </button>
-        <button
-          type="button"
-          onClick={() => setReportOpen(true)}
-          disabled={!peer}
-          className="p-2 rounded-lg hover:bg-destructive/20 transition text-destructive disabled:opacity-50"
-          aria-label="Report user"
-          title="Report"
-        >
-          <Flag className="w-5 h-5" />
-        </button>
-        <button
-          type="button"
-          onClick={() => setBlockOpen(true)}
-          disabled={!peer}
-          className="p-2 rounded-lg hover:bg-destructive/20 transition text-destructive disabled:opacity-50"
-          aria-label="Block user"
-          title="Block"
-        >
-          <Shield className="w-5 h-5" />
-        </button>
-        <button
-          type="button"
-          // For FRIEND chats the button is a navigation, not a destructive
-          // action — skip the confirm dialog and just go back to /connections.
-          // For DIRECT chats it still pops the existing "End this chat?"
-          // confirm flow.
-          onClick={() => (isFriendConvo ? void leave() : setLeaveOpen(true))}
-          className={`text-xs px-3 py-1.5 rounded-lg transition ${
-            isFriendConvo
-              ? 'hover:bg-muted text-muted-foreground'
-              : 'hover:bg-destructive/10 text-destructive'
-          }`}
-        >
-          {isFriendConvo ? 'Back' : 'End'}
+          <Search className="w-5 h-5" />
         </button>
       </header>
+
+      {/* Search results overlay */}
+      <AnimatePresence>
+        {searchOpen && (
+          <motion.div
+            initial={{ opacity: 0, y: -8 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -8 }}
+            className="absolute top-[65px] left-0 right-0 bottom-0 z-20 bg-background/95 backdrop-blur-xl overflow-y-auto"
+          >
+            {isSearching ? (
+              <div className="flex items-center justify-center h-32">
+                <p className="text-sm text-muted-foreground">Searching…</p>
+              </div>
+            ) : searchQuery.trim().length < 2 ? (
+              <div className="flex flex-col items-center justify-center h-32 gap-2">
+                <Search className="w-8 h-8 text-muted-foreground/40" />
+                <p className="text-sm text-muted-foreground">Type at least 2 characters to search</p>
+              </div>
+            ) : searchResults.length === 0 ? (
+              <div className="flex flex-col items-center justify-center h-32 gap-2">
+                <p className="text-sm text-muted-foreground">No messages found for &ldquo;{searchQuery}&rdquo;</p>
+              </div>
+            ) : (
+              <div className="p-4 space-y-2">
+                <p className="text-xs text-muted-foreground mb-3">
+                  {searchResults.length} result{searchResults.length !== 1 ? 's' : ''} for &ldquo;{searchQuery}&rdquo;
+                </p>
+                {searchResults.map((msg) => {
+                  const mine = msg.senderId === me?.id;
+                  const qi = msg.body.toLowerCase().indexOf(searchQuery.toLowerCase());
+                  const highlighted = qi >= 0 ? (
+                    <span>
+                      {msg.body.slice(0, qi)}
+                      <mark className="bg-yellow-400/30 text-foreground rounded px-0.5">
+                        {msg.body.slice(qi, qi + searchQuery.length)}
+                      </mark>
+                      {msg.body.slice(qi + searchQuery.length)}
+                    </span>
+                  ) : msg.body;
+
+                  return (
+                    <motion.div
+                      key={msg.id}
+                      initial={{ opacity: 0, y: 4 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      className={`flex ${mine ? 'justify-end' : 'justify-start'}`}
+                    >
+                      <div className={`px-4 py-2.5 rounded-2xl max-w-[80%] ${
+                        mine
+                          ? 'bg-gradient-to-br from-purple-600 via-pink-600 to-blue-600 text-white rounded-br-sm'
+                          : 'bg-glass-bg border border-glass-border rounded-bl-sm'
+                      }`}>
+                        <p className="text-sm break-words">{highlighted}</p>
+                        <p className="text-[10px] mt-1 opacity-60">{new Date(msg.createdAt).toLocaleString()}</p>
+                      </div>
+                    </motion.div>
+                  );
+                })}
+              </div>
+            )}
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Reunion Banner */}
+      <AnimatePresence>
+        {lastMetAt && showReunion && peer && (
+          <motion.div
+            initial={{ opacity: 0, y: -8, height: 0 }}
+            animate={{ opacity: 1, y: 0, height: 'auto' }}
+            exit={{ opacity: 0, y: -8, height: 0 }}
+            className="border-b border-glass-border bg-glass-bg/50 backdrop-blur-xl"
+          >
+            <div className="flex items-center justify-between gap-3 px-4 py-3 max-w-xl mx-auto">
+              <div className="flex items-center gap-3 min-w-0">
+                <div className="w-9 h-9 rounded-full bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center text-white shrink-0 shadow-lg shadow-indigo-500/20">
+                  <Sparkles className="w-4 h-4 animate-pulse text-purple-200" />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-medium text-foreground text-left">
+                    You two met before!
+                  </p>
+                  <p className="text-xs text-muted-foreground text-left">
+                    You chatted {formatReunionRelative(lastMetAt)} · {formatDateTime(lastMetAt)}
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowReunion(false)}
+                className="p-1.5 rounded-lg text-muted-foreground hover:bg-muted/40 transition shrink-0"
+                aria-label="Dismiss banner"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {/* In-chat friend-request banner. Fires when the active peer sends
           a friend request — much more discoverable than waiting for the
@@ -798,9 +1099,13 @@ export function ChatScreen({ conversationId }: { conversationId: string }) {
             Say hi to start the conversation.
           </p>
         ) : (
+          <>
+          <IcebreakerBubble chunks={icebreakerChunks} done={icebreakerDone} />
+
           <AnimatePresence initial={false}>
             {sortedMessages.map((msg, idx) => {
-              const mine = msg.senderId === me?.id;
+              const isSystem = msg.type === 'SYSTEM';
+              const mine = !isSystem && msg.senderId === me?.id;
               const prev = idx > 0 ? sortedMessages[idx - 1] : null;
               const showTimestamp = shouldShowTimestamp(
                 prev?.createdAt ?? null,
@@ -808,6 +1113,24 @@ export function ChatScreen({ conversationId }: { conversationId: string }) {
                 prev?.senderId ?? null,
                 msg.senderId,
               );
+
+              // System messages (ice-breaker, "You're now friends!") render
+              // centred and muted — they're not from either participant.
+              if (isSystem) {
+                return (
+                  <motion.div
+                    key={msg.id}
+                    initial={{ opacity: 0, y: 4 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    className="flex justify-center my-1"
+                  >
+                    <p className="text-xs text-muted-foreground bg-muted/40 rounded-full px-3 py-1 text-center max-w-xs">
+                      {msg.body}
+                    </p>
+                  </motion.div>
+                );
+              }
+
               return (
                 <motion.div
                   key={msg.id}
@@ -825,8 +1148,6 @@ export function ChatScreen({ conversationId }: { conversationId: string }) {
                     )}
                     <div className="relative group">
                       <div
-                        // Hover (desktop) or onContextMenu (mobile long-press)
-                        // opens the reaction picker for this bubble.
                         onMouseEnter={() =>
                           window.matchMedia('(hover: hover)').matches && setPickerOpenForId(msg.id)
                         }
@@ -834,8 +1155,6 @@ export function ChatScreen({ conversationId }: { conversationId: string }) {
                           window.matchMedia('(hover: hover)').matches && setPickerOpenForId(null)
                         }
                         onContextMenu={(e) => {
-                          // Long-press shows the OS context menu by default
-                          // on mobile; suppress it and open our picker.
                           e.preventDefault();
                           setPickerOpenForId((id) => (id === msg.id ? null : msg.id));
                         }}
@@ -845,7 +1164,14 @@ export function ChatScreen({ conversationId }: { conversationId: string }) {
                             : 'bg-glass-bg border border-glass-border rounded-bl-sm'
                         } ${msg.pending ? 'opacity-60' : ''} ${msg.failed ? 'opacity-80 ring-1 ring-destructive/60' : ''}`}
                       >
-                        <p className="text-sm break-words whitespace-pre-wrap">{msg.body}</p>
+                        <p
+                          className="text-sm break-words whitespace-pre-wrap"
+                          data-testid={showTranslatedIds.has(msg.id) ? 'translated-text' : undefined}
+                        >
+                          {showTranslatedIds.has(msg.id)
+                            ? (translatedMessages.get(msg.id)?.translated ?? msg.body)
+                            : msg.body}
+                        </p>
                       </div>
                       <ReactionPicker
                         open={pickerOpenForId === msg.id && !msg.pending && !msg.failed}
@@ -853,6 +1179,16 @@ export function ChatScreen({ conversationId }: { conversationId: string }) {
                         onClose={() => setPickerOpenForId(null)}
                       />
                     </div>
+                    {/* Translate button — only for peer messages that are persisted. */}
+                    {!mine && !msg.pending && !msg.failed && (
+                      <TranslateButton
+                        loading={translatingIds.has(msg.id)}
+                        showingTranslation={showTranslatedIds.has(msg.id)}
+                        detectedLanguage={translatedMessages.get(msg.id)?.detectedLanguage ?? null}
+                        onTranslate={() => void handleTranslate(msg.id)}
+                        onToggle={() => handleToggleTranslation(msg.id)}
+                      />
+                    )}
                     {/* Pills below the bubble — clickable to toggle. */}
                     <ReactionPills
                       reactions={msg.reactions ?? []}
@@ -878,33 +1214,51 @@ export function ChatScreen({ conversationId }: { conversationId: string }) {
               );
             })}
           </AnimatePresence>
+          </>
         )}
 
         {peerTyping && (
-          <div className="flex justify-start">
+          <motion.div
+            initial={{ opacity: 0, y: 8 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: 8 }}
+            className="flex justify-start"
+          >
             <GlassCard className="px-4 py-2.5">
-              <div className="flex items-center gap-1.5">
-                {[0, 1, 2].map((i) => (
-                  <motion.span
-                    key={i}
-                    animate={{ scale: [1, 1.4, 1], opacity: [0.3, 1, 0.3] }}
-                    transition={{ duration: 1, repeat: Infinity, delay: i * 0.2 }}
-                    className="w-1.5 h-1.5 rounded-full bg-muted-foreground"
-                  />
-                ))}
+              <div className="flex flex-col gap-1">
+                {peer?.nickname && (
+                  <span className="text-[10px] text-muted-foreground font-medium">
+                    {peer.nickname}
+                  </span>
+                )}
+                <div className="flex items-center gap-1.5">
+                  {[0, 1, 2].map((i) => (
+                    <motion.span
+                      key={i}
+                      animate={{ scale: [1, 1.4, 1], opacity: [0.3, 1, 0.3] }}
+                      transition={{ duration: 1, repeat: Infinity, delay: i * 0.2 }}
+                      className="w-1.5 h-1.5 rounded-full bg-muted-foreground"
+                    />
+                  ))}
+                </div>
               </div>
             </GlassCard>
-          </div>
+          </motion.div>
         )}
       </div>
 
-      <form
-        onSubmit={(e) => {
-          e.preventDefault();
-          sendMessage();
-        }}
-        className="p-3 border-t border-glass-border bg-glass-bg backdrop-blur-xl flex items-end gap-2 sticky bottom-0"
-      >
+      <div className="sticky bottom-0 border-t border-glass-border bg-glass-bg backdrop-blur-xl">
+        <SuggestionChips
+          suggestions={suggestions}
+          onSelect={(text) => sendMessage(text)}
+        />
+        <form
+          onSubmit={(e) => {
+            e.preventDefault();
+            sendMessage();
+          }}
+          className="p-3 flex items-end gap-2"
+        >
         <textarea
           value={draft}
           onChange={(e) => onInputChange(e.target.value)}
@@ -927,7 +1281,8 @@ export function ChatScreen({ conversationId }: { conversationId: string }) {
         >
           <Send className="w-5 h-5" />
         </motion.button>
-      </form>
+        </form>
+      </div>
 
       {peer && (
         <ReportDialog

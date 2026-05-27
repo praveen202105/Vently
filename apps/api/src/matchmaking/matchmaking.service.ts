@@ -4,6 +4,7 @@ import type { Gender, MoodIntent } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { REDIS_CLIENT } from '../redis/redis.module.js';
 import { BlocksService } from '../blocks/blocks.service.js';
+import { EmbeddingService } from '../profiles/embedding.service.js';
 
 const GENDERS: Gender[] = ['MALE', 'FEMALE'];
 const MOODS: MoodIntent[] = [
@@ -20,33 +21,29 @@ function queueKey(mood: MoodIntent, gender: Gender) {
   return `queue:${mood}:${gender}`;
 }
 
-// Lua: atomically check the opposite-gender queue. If it has a ticket, pop the
-// oldest one (ZRANGE … 0 0) and ZREM it; return the peerId. Otherwise push our
-// own ticket and return nil. Runs as a single Redis operation so two clients
-// hitting match:join at the same instant can't both think they're waiting.
-const MATCH_SCRIPT = `
-local oppQueue = KEYS[1]
-local myQueue = KEYS[2]
-local userId = ARGV[1]
-local now = tonumber(ARGV[2])
+function getHourSet(start: number, end: number): Set<number> {
+  const hours = new Set<number>();
+  const normalizedEnd = end % 24;
+  const normalizedStart = start % 24;
 
-local peers = redis.call('ZRANGE', oppQueue, 0, 0)
-if #peers > 0 then
-  local peerId = peers[1]
-  if peerId ~= userId then
-    redis.call('ZREM', oppQueue, peerId)
-    return peerId
-  end
-end
+  if (normalizedStart === normalizedEnd) {
+    for (let h = 0; h < 24; h++) hours.add(h);
+    return hours;
+  }
 
-redis.call('ZADD', myQueue, now, userId)
-return nil
-`;
+  let h = normalizedStart;
+  while (h !== normalizedEnd) {
+    hours.add(h);
+    h = (h + 1) % 24;
+  }
+  return hours;
+}
 
 export interface MatchResult {
   status: 'matched' | 'queued';
   conversationId?: string;
   peerUserId?: string;
+  lastMetAt?: Date | null;
 }
 
 @Injectable()
@@ -57,6 +54,7 @@ export class MatchmakingService {
     @Inject(REDIS_CLIENT) private readonly redis: Redis,
     private readonly prisma: PrismaService,
     private readonly blocks: BlocksService,
+    private readonly embedding: EmbeddingService,
   ) {}
 
   async join(args: {
@@ -74,49 +72,137 @@ export class MatchmakingService {
     // Make sure we don't have stale tickets in our own queue from a prior session.
     await this.redis.zrem(myQueue, args.userId);
 
-    // Try up to 3 times in case the first peer is blocked. We re-eval the Lua
-    // script each iteration so the work stays atomic per attempt.
-    let peerId: string | null = null;
-    for (let attempt = 0; attempt < 3; attempt++) {
-      peerId = (await this.redis.eval(
-        MATCH_SCRIPT,
-        2,
-        oppQueue,
-        myQueue,
-        args.userId,
-        Date.now().toString(),
-      )) as string | null;
+    // 1. Retrieve candidates: Get up to 10 candidates in the opposite queue.
+    const candidates: string[] = await this.redis.zrange(oppQueue, 0, 9);
 
-      if (!peerId) break;
-
-      const blocked = await this.blocks.isBlocked(args.userId, peerId);
-      if (!blocked) break;
-
-      // Blocked peer — discard the match and try again. (Their ticket is gone
-      // from the queue; if they're still online they'll re-queue on next tick.)
-      this.logger.debug(`skipped blocked peer ${peerId} for ${args.userId}`);
-      peerId = null;
-    }
-
-    if (!peerId) {
-      this.logger.debug(`queued ${args.userId} on ${myQueue}`);
+    if (candidates.length === 0) {
+      this.logger.debug(`no candidates, queued ${args.userId} on ${myQueue}`);
+      await this.redis.zadd(myQueue, Date.now(), args.userId);
       return { status: 'queued' };
     }
 
-    // Match found — create the conversation + participants.
+    // 2. Fetch profiles for current user and candidates to calculate scores.
+    const [myProfile, candidateProfiles] = await Promise.all([
+      this.prisma.profile.findUnique({ where: { userId: args.userId } }),
+      this.prisma.profile.findMany({ where: { userId: { in: candidates } } }),
+    ]);
+
+    if (!myProfile) {
+      this.logger.debug(`current user profile missing, queued ${args.userId}`);
+      await this.redis.zadd(myQueue, Date.now(), args.userId);
+      return { status: 'queued' };
+    }
+
+    // 3. Compute matchmaking scores
+    const scoredCandidates: Array<{
+      peerId: string;
+      score: number;
+      lastMetAt?: Date | null;
+    }> = [];
+
+    for (const peerProfile of candidateProfiles) {
+      const peerId = peerProfile.userId;
+
+      // Concurrency safety check: make sure user is not trying to match with themselves
+      if (peerId === args.userId) continue;
+
+      // Check if blocked
+      const blocked = await this.blocks.isBlocked(args.userId, peerId);
+      if (blocked) continue;
+
+      // A. Bio Similarity Score (Weight: 40%)
+      let bioScore = 0.5; // neutral fallback
+      if (myProfile.bioEmbedding && peerProfile.bioEmbedding) {
+        bioScore = this.embedding.cosineSimilarity(
+          myProfile.bioEmbedding as number[],
+          peerProfile.bioEmbedding as number[],
+        );
+      } else if (myProfile.bio && peerProfile.bio) {
+        bioScore = this.embedding.textSimilarity(myProfile.bio, peerProfile.bio);
+      }
+
+      // B. Active Hours Overlap (Weight: 30%)
+      const myHours = getHourSet(myProfile.activeStartHour, myProfile.activeEndHour);
+      const peerHours = getHourSet(peerProfile.activeStartHour, peerProfile.activeEndHour);
+      const intersection = new Set([...myHours].filter((x) => peerHours.has(x)));
+      const hoursScore = intersection.size / Math.min(myHours.size, peerHours.size);
+
+      // C. Past Interaction Boost (Weight: 30%)
+      const pastConvos = await this.prisma.conversation.findMany({
+        where: {
+          type: 'DIRECT',
+          AND: [
+            { participants: { some: { userId: args.userId } } },
+            { participants: { some: { userId: peerId } } },
+          ],
+        },
+        include: {
+          _count: {
+            select: { messages: true },
+          },
+        },
+      });
+
+      const totalMessages = pastConvos.reduce((sum, c) => sum + c._count.messages, 0);
+      const interactionScore = Math.min(totalMessages / 20, 1.0);
+
+      // Total compatibility score
+      const score = 0.4 * bioScore + 0.3 * hoursScore + 0.3 * interactionScore;
+
+      // Extract lastMetAt from past direct conversations
+      const lastMetAt =
+        pastConvos.length > 0
+          ? pastConvos
+              .map((c) => c.endedAt)
+              .filter(Boolean)
+              .sort((a, b) => b!.getTime() - a!.getTime())[0] ?? null
+          : null;
+
+      scoredCandidates.push({ peerId, score, lastMetAt });
+    }
+
+    // 4. Sort candidates by score descending
+    scoredCandidates.sort((a, b) => b.score - a.score);
+
+    // 5. Atomic pop: try to atomically claim the highest-scoring candidate
+    let matchedPeer: { peerId: string; lastMetAt?: Date | null } | null = null;
+    for (const candidate of scoredCandidates) {
+      const removed = await this.redis.zrem(oppQueue, candidate.peerId);
+      if (removed === 1) {
+        // Successfully locked this peer!
+        matchedPeer = { peerId: candidate.peerId, lastMetAt: candidate.lastMetAt };
+        break;
+      }
+    }
+
+    if (!matchedPeer) {
+      // All candidates were either claimed or none qualified; queue current user
+      this.logger.debug(`no valid/free candidates, queued ${args.userId} on ${myQueue}`);
+      await this.redis.zadd(myQueue, Date.now(), args.userId);
+      return { status: 'queued' };
+    }
+
+    // 6. Match found — create the conversation + participants.
     const convo = await this.prisma.conversation.create({
       data: {
         type: 'DIRECT',
         participants: {
           createMany: {
-            data: [{ userId: args.userId }, { userId: peerId }],
+            data: [{ userId: args.userId }, { userId: matchedPeer.peerId }],
           },
         },
       },
     });
 
-    this.logger.log(`matched ${args.userId} ↔ ${peerId} as ${convo.id}`);
-    return { status: 'matched', conversationId: convo.id, peerUserId: peerId };
+    this.logger.log(
+      `matched ${args.userId} ↔ ${matchedPeer.peerId} as ${convo.id} with compatibility score`,
+    );
+    return {
+      status: 'matched',
+      conversationId: convo.id,
+      peerUserId: matchedPeer.peerId,
+      lastMetAt: matchedPeer.lastMetAt ?? null,
+    };
   }
 
   async cancel(userId: string) {

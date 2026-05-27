@@ -70,3 +70,33 @@ export function shouldShowTimestamp(
   const diff = new Date(currIso).getTime() - new Date(prevIso).getTime();
   return diff > CLUSTER_GAP_MS;
 }
+
+/**
+ * Custom long relative time for reunion banner (e.g. "3 days ago", "yesterday", "2 hours ago")
+ */
+export function formatReunionRelative(iso: string): string {
+  const ms = Date.now() - new Date(iso).getTime();
+  const mins = Math.floor(ms / 60_000);
+  if (mins < 60) return mins === 1 ? '1 minute ago' : `${mins} minutes ago`;
+  const hours = Math.floor(mins / 60);
+  if (hours < 24) return hours === 1 ? '1 hour ago' : `${hours} hours ago`;
+  const days = Math.floor(hours / 24);
+  if (days === 1) return 'yesterday';
+  if (days < 30) return `${days} days ago`;
+  const months = Math.floor(days / 30);
+  return months === 1 ? '1 month ago' : `${months} months ago`;
+}
+
+/**
+ * Standard date-time formatter (e.g. "May 23, 11:43 PM")
+ */
+export function formatDateTime(iso: string): string {
+  const d = new Date(iso);
+  return d.toLocaleDateString([], {
+    month: 'short',
+    day: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+    hour12: true,
+  });
+}

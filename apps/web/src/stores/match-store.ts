@@ -17,9 +17,10 @@ interface MatchState {
   mood: MoodIntent | null;
   conversationId: string | null;
   peer: MatchPeer | null;
+  lastMetAt: string | null;
   setMood: (mood: MoodIntent) => void;
   setQueued: () => void;
-  setMatched: (payload: { conversationId: string; peer: MatchPeer }) => void;
+  setMatched: (payload: { conversationId: string; peer: MatchPeer; lastMetAt?: string | null }) => void;
   setTimeout: () => void;
   reset: () => void;
 }
@@ -29,9 +30,11 @@ export const useMatchStore = create<MatchState>((set) => ({
   mood: null,
   conversationId: null,
   peer: null,
+  lastMetAt: null,
   setMood: (mood) => set({ mood }),
   setQueued: () => set({ status: 'queued' }),
-  setMatched: ({ conversationId, peer }) => set({ status: 'matched', conversationId, peer }),
+  setMatched: ({ conversationId, peer, lastMetAt }) =>
+    set({ status: 'matched', conversationId, peer, lastMetAt: lastMetAt ?? null }),
   setTimeout: () => set({ status: 'timeout' }),
-  reset: () => set({ status: 'idle', mood: null, conversationId: null, peer: null }),
+  reset: () => set({ status: 'idle', mood: null, conversationId: null, peer: null, lastMetAt: null }),
 }));

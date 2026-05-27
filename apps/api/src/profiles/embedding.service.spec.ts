@@ -1,0 +1,84 @@
+import { Test } from '@nestjs/testing';
+import { ConfigService } from '@nestjs/config';
+import { EmbeddingService } from './embedding.service';
+
+describe('EmbeddingService', () => {
+  let service: EmbeddingService;
+  let configGet: jest.Mock;
+
+  beforeEach(async () => {
+    configGet = jest.fn();
+
+    const module = await Test.createTestingModule({
+      providers: [
+        EmbeddingService,
+        {
+          provide: ConfigService,
+          useValue: { get: configGet },
+        },
+      ],
+    }).compile();
+
+    service = module.get(EmbeddingService);
+  });
+
+  describe('cosineSimilarity', () => {
+    it('returns normalized similarity of 1.0 for identical vectors', () => {
+      const vec = [1, 2, 3];
+      expect(service.cosineSimilarity(vec, vec)).toBeCloseTo(1.0);
+    });
+
+    it('returns normalized similarity of 0.5 for orthogonal vectors', () => {
+      const vecA = [1, 0];
+      const vecB = [0, 1];
+      expect(service.cosineSimilarity(vecA, vecB)).toBeCloseTo(0.5);
+    });
+
+    it('returns normalized similarity of 0.0 for perfectly opposite vectors', () => {
+      const vecA = [1, 1];
+      const vecB = [-1, -1];
+      expect(service.cosineSimilarity(vecA, vecB)).toBeCloseTo(0.0);
+    });
+
+    it('returns 0.5 neutral fallback for invalid inputs', () => {
+      expect(service.cosineSimilarity([], [])).toBe(0.5);
+      expect(service.cosineSimilarity([1], [])).toBe(0.5);
+    });
+  });
+
+  describe('textSimilarity', () => {
+    it('returns 1.0 Jaccard similarity for identical strings ignoring case and punctuation', () => {
+      expect(
+        service.textSimilarity('Hello, World! I love coding.', 'hello world i love coding')
+      ).toBeCloseTo(1.0);
+    });
+
+    it('returns correct overlap ratio for partially matching strings', () => {
+      // union: {apple, banana, cherry} (3), intersection: {apple, banana} (2)
+      // intersection / union = 2 / 3 = 0.666...
+      expect(service.textSimilarity('apple banana', 'banana cherry apple')).toBeCloseTo(2 / 3);
+    });
+
+    it('returns 0.0 for completely disjoint strings', () => {
+      expect(service.textSimilarity('apple', 'orange banana')).toBeCloseTo(0.0);
+    });
+
+    it('returns 1.0 for empty strings', () => {
+      expect(service.textSimilarity('', '')).toBeCloseTo(1.0);
+    });
+  });
+
+  describe('generate', () => {
+    it('returns null if client is not initialized', async () => {
+      (service as any).client = null;
+      const embedding = await service.generate('some bio text');
+      expect(embedding).toBeNull();
+    });
+
+    it('returns null for empty or white-spaced bio inputs', async () => {
+      (service as any).client = {};
+      expect(await service.generate('')).toBeNull();
+      expect(await service.generate('   ')).toBeNull();
+    });
+  });
+});

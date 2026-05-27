@@ -11,6 +11,7 @@ import { SocketEvents, type MatchJoinPayload } from '@vently/shared';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { type AuthedSocket, convRoom, userRoom } from '../realtime/types.js';
 import { MatchmakingService } from './matchmaking.service.js';
+import { IcebreakerService } from '../icebreaker/icebreaker.service.js';
 
 @WebSocketGateway({ cors: { credentials: true } })
 export class MatchmakingGateway {
@@ -20,6 +21,7 @@ export class MatchmakingGateway {
   constructor(
     private readonly matchmaking: MatchmakingService,
     private readonly prisma: PrismaService,
+    private readonly icebreaker: IcebreakerService,
   ) {}
 
   @SubscribeMessage(SocketEvents.MATCH_JOIN)
@@ -61,6 +63,7 @@ export class MatchmakingGateway {
         avatarSeed: peer.avatarSeed,
       },
       mood: payload.mood,
+      lastMetAt: result.lastMetAt?.toISOString() ?? null,
     };
     const peerForPeer = {
       conversationId,
@@ -71,6 +74,7 @@ export class MatchmakingGateway {
         avatarSeed: '',
       },
       mood: payload.mood,
+      lastMetAt: result.lastMetAt?.toISOString() ?? null,
     };
 
     // Tell both sides. We also pre-join both sockets to the conversation room
@@ -93,6 +97,15 @@ export class MatchmakingGateway {
       void s.join(convRoom(conversationId));
     }
     this.server.to(userRoom(result.peerUserId!)).emit(SocketEvents.MATCH_FOUND, peerForPeer);
+
+    // Fire-and-forget — never awaited so the match response is not delayed.
+    void this.icebreaker.generate({
+      conversationId,
+      userAId: user.userId,
+      userBId: result.peerUserId!,
+      mood: payload.mood,
+      socketServer: this.server,
+    });
 
     return { ok: true, status: 'matched', conversationId };
   }

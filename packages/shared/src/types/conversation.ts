@@ -27,6 +27,7 @@ export interface ConversationDetail {
     avatarSeed: string;
     isOnline: boolean;
   } | null;
+  lastMetAt?: string | null;
 }
 
 export interface MessageReactionPublic {
