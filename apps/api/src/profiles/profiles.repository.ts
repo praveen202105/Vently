@@ -23,6 +23,9 @@ export class ProfilesRepository {
         gender: data.gender,
         bio: data.bio,
         mood: data.mood,
+        bioEmbedding: data.bioEmbedding,
+        activeStartHour: data.activeStartHour,
+        activeEndHour: data.activeEndHour,
       },
     });
   }

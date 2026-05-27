@@ -29,17 +29,20 @@ model User {
 }
 
 model Profile {
-  userId     String      @id
-  user       User        @relation(fields: [userId], references: [id], onDelete: Cascade)
-  nickname   String      @unique
-  gender     Gender
-  bio        String?
-  avatarSeed String
-  mood       MoodIntent?
-  isOnline   Boolean     @default(false)
-  lastSeenAt DateTime    @default(now())
-  createdAt  DateTime    @default(now())
-  updatedAt  DateTime    @updatedAt
+  userId          String      @id
+  user            User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  nickname        String      @unique
+  gender          Gender
+  bio             String?
+  avatarSeed      String
+  mood            MoodIntent?
+  isOnline        Boolean     @default(false)
+  lastSeenAt      DateTime    @default(now())
+  createdAt       DateTime    @default(now())
+  updatedAt       DateTime    @updatedAt
+  bioEmbedding    Json?
+  activeStartHour Int         @default(0)
+  activeEndHour   Int         @default(24)
 
   @@index([isOnline, gender])
 }

@@ -4,6 +4,7 @@ import { SocketEvents } from '@vently/shared';
 import { IcebreakerService } from './icebreaker.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { ModerationService } from '../moderation/moderation.service';
+import { SuggestionsService } from '../suggestions/suggestions.service';
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
@@ -38,8 +39,6 @@ describe('IcebreakerService', () => {
   let service: IcebreakerService;
   let prisma: {
     profile: { findUnique: jest.Mock };
-    conversation: { findUnique: jest.Mock };
-    message: { create: jest.Mock };
   };
   let moderation: { inspectMessage: jest.Mock };
   let groqCreate: jest.Mock;
@@ -49,17 +48,6 @@ describe('IcebreakerService', () => {
 
     prisma = {
       profile: { findUnique: jest.fn().mockResolvedValue({ bio: null }) },
-      conversation: { findUnique: jest.fn().mockResolvedValue({ endedAt: null }) },
-      message: {
-        create: jest.fn().mockResolvedValue({
-          id: 'msg-1',
-          conversationId: 'conv-1',
-          senderId: 'user-a',
-          body: '',
-          type: 'SYSTEM',
-          createdAt: new Date(),
-        }),
-      },
     };
 
     moderation = {
@@ -75,6 +63,7 @@ describe('IcebreakerService', () => {
         },
         { provide: PrismaService, useValue: prisma },
         { provide: ModerationService, useValue: moderation },
+        { provide: SuggestionsService, useValue: { generate: jest.fn() } },
       ],
     }).compile();
 
@@ -88,7 +77,7 @@ describe('IcebreakerService', () => {
     };
   });
 
-  it('emits chunks and done, then persists SYSTEM message', async () => {
+  it('emits chunks and done', async () => {
     groqCreate.mockResolvedValue(makeStream(['Both ', 'of ', 'you…']));
     const { server, to, emit } = makeSocketServer();
 
@@ -100,16 +89,7 @@ describe('IcebreakerService', () => {
     expect(chunkCalls).toHaveLength(3);
     expect(chunkCalls.map(([, p]) => p.chunk)).toEqual(['Both ', 'of ', 'you…']);
 
-    expect(emit.mock.calls.some(([e]) => e === SocketEvents.CHAT_MESSAGE)).toBe(true);
     expect(emit.mock.calls.some(([e]) => e === SocketEvents.CHAT_ICEBREAKER_DONE)).toBe(true);
-
-    expect(prisma.message.create).toHaveBeenCalledWith({
-      data: expect.objectContaining({
-        conversationId: 'conv-1',
-        type: 'SYSTEM',
-        body: 'Both of you…',
-      }),
-    });
   });
 
   it('is a no-op when GROQ_API_KEY is missing', async () => {
@@ -117,7 +97,6 @@ describe('IcebreakerService', () => {
     const { server, emit } = makeSocketServer();
     await service.generate({ ...BASE_PARAMS, socketServer: server as any });
     expect(emit).not.toHaveBeenCalled();
-    expect(prisma.message.create).not.toHaveBeenCalled();
   });
 
   it('skips VOICE_ONLY matches entirely', async () => {
@@ -127,21 +106,19 @@ describe('IcebreakerService', () => {
     expect(groqCreate).not.toHaveBeenCalled();
   });
 
-  it('does not throw or persist when Groq stream throws', async () => {
+  it('does not throw or emit done when Groq stream throws', async () => {
     groqCreate.mockRejectedValue(new Error('network error'));
     const { server, emit } = makeSocketServer();
     await expect(
       service.generate({ ...BASE_PARAMS, socketServer: server as any }),
     ).resolves.toBeUndefined();
-    expect(prisma.message.create).not.toHaveBeenCalled();
     expect(emit.mock.calls.some(([e]) => e === SocketEvents.CHAT_ICEBREAKER_DONE)).toBe(false);
   });
 
-  it('does not emit or persist when accumulated text is empty', async () => {
+  it('does not emit done when accumulated text is empty', async () => {
     groqCreate.mockResolvedValue(makeStream(['   ']));
     const { server, emit } = makeSocketServer();
     await service.generate({ ...BASE_PARAMS, socketServer: server as any });
-    expect(prisma.message.create).not.toHaveBeenCalled();
     expect(emit.mock.calls.some(([e]) => e === SocketEvents.CHAT_ICEBREAKER_DONE)).toBe(false);
   });
 
@@ -150,16 +127,6 @@ describe('IcebreakerService', () => {
     moderation.inspectMessage.mockReturnValue({ severity: 'SEVERE', match: 'badword' });
     const { server, emit } = makeSocketServer();
     await service.generate({ ...BASE_PARAMS, socketServer: server as any });
-    expect(prisma.message.create).not.toHaveBeenCalled();
-    expect(emit.mock.calls.some(([e]) => e === SocketEvents.CHAT_ICEBREAKER_DONE)).toBe(false);
-  });
-
-  it('aborts persist when conversation already ended', async () => {
-    groqCreate.mockResolvedValue(makeStream(['Some ice-breaker']));
-    prisma.conversation.findUnique.mockResolvedValue({ endedAt: new Date() });
-    const { server, emit } = makeSocketServer();
-    await service.generate({ ...BASE_PARAMS, socketServer: server as any });
-    expect(prisma.message.create).not.toHaveBeenCalled();
     expect(emit.mock.calls.some(([e]) => e === SocketEvents.CHAT_ICEBREAKER_DONE)).toBe(false);
   });
 
