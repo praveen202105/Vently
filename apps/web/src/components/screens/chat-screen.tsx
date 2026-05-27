@@ -37,6 +37,8 @@ import { ReactionPicker } from '@/components/chat/reaction-picker';
 import { ReactionPills } from '@/components/chat/reaction-pills';
 import { IcebreakerBubble } from '@/components/chat/icebreaker-bubble';
 import { SuggestionChips } from '@/components/chat/suggestion-chips';
+import { TranslateButton } from '@/components/chat/translate-button';
+import { translateMessage, type TranslateResult } from '@/lib/api/translation';
 import { formatChatTime, shouldShowTimestamp, formatReunionRelative, formatDateTime } from '@/lib/utils/time';
 import { useUnreadTabBadge } from '@/lib/hooks/use-unread-tab-badge';
 
@@ -107,6 +109,17 @@ export function ChatScreen({ conversationId }: { conversationId: string }) {
   const [searchResults, setSearchResults] = useState<MessagePublic[]>([]);
   const [isSearching, setIsSearching] = useState(false);
   const searchDebounceRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+
+  // Translation state — keyed by messageId.
+  // translatedMessages: holds the Groq result for each translated message.
+  // translatingIds: tracks which messages are currently being fetched.
+  // showTranslatedIds: tracks which messages are displaying the translation
+  //   (vs the original — allows toggling back).
+  const [translatedMessages, setTranslatedMessages] = useState<Map<string, TranslateResult>>(
+    new Map(),
+  );
+  const [translatingIds, setTranslatingIds] = useState<Set<string>>(new Set());
+  const [showTranslatedIds, setShowTranslatedIds] = useState<Set<string>>(new Set());
 
   // Unread tab badge — only accumulates when the tab is backgrounded
   const [tabUnread, setTabUnread] = useState(0);
@@ -745,6 +758,50 @@ export function ChatScreen({ conversationId }: { conversationId: string }) {
     }
   };
 
+  // Detect the viewer's browser locale (e.g. "en", "hi", "es-MX").
+  // We pass the full BCP-47 tag to the API; Groq handles regional variants.
+  const viewerLocale =
+    typeof navigator !== 'undefined' ? navigator.language : 'en';
+
+  const handleTranslate = useCallback(
+    async (messageId: string) => {
+      if (translatingIds.has(messageId) || translatedMessages.has(messageId)) {
+        // Already fetched — just show it.
+        setShowTranslatedIds((prev) => new Set([...prev, messageId]));
+        return;
+      }
+      setTranslatingIds((prev) => new Set([...prev, messageId]));
+      try {
+        const result = await translateMessage(conversationId, messageId, viewerLocale);
+        setTranslatedMessages((prev) => new Map([...prev, [messageId, result]]));
+        setShowTranslatedIds((prev) => new Set([...prev, messageId]));
+        // Replace suggestion chips with localized ones if available.
+        if (result.chips.length > 0) setSuggestions(result.chips);
+      } catch {
+        toast.error('Could not translate message');
+      } finally {
+        setTranslatingIds((prev) => {
+          const next = new Set(prev);
+          next.delete(messageId);
+          return next;
+        });
+      }
+    },
+    [conversationId, translatingIds, translatedMessages, viewerLocale],
+  );
+
+  const handleToggleTranslation = useCallback((messageId: string) => {
+    setShowTranslatedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(messageId)) {
+        next.delete(messageId);
+      } else {
+        next.add(messageId);
+      }
+      return next;
+    });
+  }, []);
+
   const confirmBlock = async () => {
     if (!peer) return;
     setBlocking(true);
@@ -1107,7 +1164,14 @@ export function ChatScreen({ conversationId }: { conversationId: string }) {
                             : 'bg-glass-bg border border-glass-border rounded-bl-sm'
                         } ${msg.pending ? 'opacity-60' : ''} ${msg.failed ? 'opacity-80 ring-1 ring-destructive/60' : ''}`}
                       >
-                        <p className="text-sm break-words whitespace-pre-wrap">{msg.body}</p>
+                        <p
+                          className="text-sm break-words whitespace-pre-wrap"
+                          data-testid={showTranslatedIds.has(msg.id) ? 'translated-text' : undefined}
+                        >
+                          {showTranslatedIds.has(msg.id)
+                            ? (translatedMessages.get(msg.id)?.translated ?? msg.body)
+                            : msg.body}
+                        </p>
                       </div>
                       <ReactionPicker
                         open={pickerOpenForId === msg.id && !msg.pending && !msg.failed}
@@ -1115,6 +1179,16 @@ export function ChatScreen({ conversationId }: { conversationId: string }) {
                         onClose={() => setPickerOpenForId(null)}
                       />
                     </div>
+                    {/* Translate button — only for peer messages that are persisted. */}
+                    {!mine && !msg.pending && !msg.failed && (
+                      <TranslateButton
+                        loading={translatingIds.has(msg.id)}
+                        showingTranslation={showTranslatedIds.has(msg.id)}
+                        detectedLanguage={translatedMessages.get(msg.id)?.detectedLanguage ?? null}
+                        onTranslate={() => void handleTranslate(msg.id)}
+                        onToggle={() => handleToggleTranslation(msg.id)}
+                      />
+                    )}
                     {/* Pills below the bubble — clickable to toggle. */}
                     <ReactionPills
                       reactions={msg.reactions ?? []}

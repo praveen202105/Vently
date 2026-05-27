@@ -1,6 +1,6 @@
 # Vently — Future Feature Roadmap
 
-_Last updated: May 2026 (revised). Covers everything discussed during the SDE2 enhancement session._
+_Last updated: May 28, 2026. Covers everything discussed during the SDE2 enhancement session and post-session work._
 
 ---
 
@@ -18,22 +18,19 @@ _Last updated: May 2026 (revised). Covers everything discussed during the SDE2 e
 | **Typing Indicator — Peer Name** | Displays peer's actual name in FRIEND chats (e.g. "Praveen is typing...") with a slide-in animation. |
 | **Message Search** | Full-text search within a conversation's message history via case-insensitive query with match highlighting. |
 | **Unread Badge on Tab Title** | Updates document `<title>` to display `(X) Vently` when there are unread messages and the tab is backgrounded/not focused. |
+| **Smart Matching Score** | Beyond mood-only: factors in bio similarity (Groq text-embedding-ada-002 vectors stored in Postgres), active-hour overlap, and past conversation length. Rewrote matchmaking queue selection with a composite score. `EmbeddingService` + Prisma migration for `bioEmbedding` float[] column. All 17 Playwright agent E2E tests pass. |
+| **Auto-Detect Language + Translate Chips** | Peer messages show a 🌐 **Translate** button. One tap calls `POST /conversations/:cid/messages/:mid/translate` (Groq `llama-3.1-8b-instant`) — detects source language, returns translated body + 3 localized reply chips in the viewer's browser locale. Translation is ephemeral (never stored). Chips update inline. Toggle back to original with "Show original". No new DB schema, no `franc` bundle dep. |
 
 ---
 
 ## 🔜 High Priority (Next Sprint)
 
-### 1. Smart Matching Score (formerly #5)
-Beyond mood-only matching — factor in bio similarity, active hours, past conversation length. Use a lightweight embedding (Groq or local) to score bio overlap.
-- **Why SDE2-level**: Vector similarity, scoring algorithm, queue rewrite.
-- **Effort**: 2–3 days.
-
-### 2. Mood Analytics Dashboard (`/insights`) (formerly #6)
+### 1. Mood Analytics Dashboard (`/insights`) (formerly #6)
 Show the user: which moods they've matched under most, average conversation length per mood, most-used reply chips. Bar chart + sparkline.
 - **Stack**: Aggregate queries in Prisma, Recharts on frontend.
 - **Effort**: 1–2 days.
 
-### 3. Add `matchMood` to ConversationParticipant
+### 2. Add `matchMood` to ConversationParticipant
 Store the mood used at match-time so it's stable even if the user changes their profile mood mid-conversation. Needs Prisma migration.
 - **Effort**: 0.5 day.
 
@@ -41,12 +38,7 @@ Store the mood used at match-time so it's stable even if the user changes their 
 
 ## 🗓 Medium Priority
 
-### 4. Auto-Detect Language + Translate Chips (formerly #7)
-If the peer is writing in a different language (detected via `franc` or Groq), offer "Translate" button on their messages. Generate chips in the user's own language.
-- **Why SDE2-level**: i18n, LLM integration, UX edge-case thinking.
-- **Effort**: 1–2 days.
-
-### 5. Reputation / Trust Score (formerly #8)
+### 4. Reputation / Trust Score (formerly #8)
 Each user accumulates a score based on: conversation length, reactions received, friend requests accepted. Shown as a subtle badge on profile. Used to surface higher-quality matches first.
 - **Effort**: 1 day backend + 0.5 day frontend.
 
@@ -80,10 +72,12 @@ After 5+ messages, silently classify the conversation tone (mentor/mentee, peers
 |------|-------|--------|
 | **Rotate GROQ_API_KEY** | Current key is exposed in session history. Get a new one at console.groq.com and update Railway env. | ⏳ Pending |
 | **Merge `feat/ai-icebreaker` → `main`** | Branch has 8+ commits ready to merge. | ⏳ Pending |
-| **Playwright E2E for ice-breaker** | Add assertion on `data-testid="icebreaker-bubble"` in `02-chat-flow.spec.ts`. | ⏳ Pending |
+| **Playwright E2E — full agent suite** | 17-test `full-flow.spec.ts` suite verified locally (matchmaking, chat, WebRTC, friends, blocking, search). | ✅ Done |
+| **Playwright E2E for ice-breaker bubble** | Add assertion on `data-testid="icebreaker-bubble"` in `02-chat-flow.spec.ts`. | ⏳ Pending |
 | **Unit tests for SuggestionsService** | Mirror the `icebreaker.service.spec.ts` pattern — mock Groq client, test each mood instruction, test JSON parse fallback. | ⏳ Pending |
 | **CORS_ORIGIN update** | When new Vercel preview URLs are created, update Railway env or switch to a wildcard pattern for `*.vercel.app` in dev. | ⏳ Pending |
 | **pnpm upgrade** | pnpm 9 → 11 (prompted during Railway build). Low risk, run `corepack install -g pnpm@11.3.0`. | ⏳ Pending |
+| **Vercel production deploy** | `vercel deploy --prebuilt` failed with ENOENT on `next-server`. Needs `vercel build` run from monorepo root instead. | ⏳ Pending |
 
 ---
 
@@ -92,8 +86,8 @@ After 5+ messages, silently classify the conversation tone (mentor/mentee, peers
 ```
                 HIGH IMPACT
                     │
-   Smart matching   │  Reunion banner (1b) [x]
-   score (1)        │  
+   Smart matching   │  Reunion banner [x]
+   score [x]        │  
                     │
 LOW EFFORT ─────────┼───────── HIGH EFFORT
                     │
