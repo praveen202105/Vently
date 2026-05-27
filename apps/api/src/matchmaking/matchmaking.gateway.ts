@@ -63,6 +63,7 @@ export class MatchmakingGateway {
         avatarSeed: peer.avatarSeed,
       },
       mood: payload.mood,
+      lastMetAt: result.lastMetAt?.toISOString() ?? null,
     };
     const peerForPeer = {
       conversationId,
@@ -73,6 +74,7 @@ export class MatchmakingGateway {
         avatarSeed: '',
       },
       mood: payload.mood,
+      lastMetAt: result.lastMetAt?.toISOString() ?? null,
     };
 
     // Tell both sides. We also pre-join both sockets to the conversation room

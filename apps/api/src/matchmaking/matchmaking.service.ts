@@ -47,6 +47,7 @@ export interface MatchResult {
   status: 'matched' | 'queued';
   conversationId?: string;
   peerUserId?: string;
+  lastMetAt?: Date | null;
 }
 
 @Injectable()
@@ -115,8 +116,23 @@ export class MatchmakingService {
       },
     });
 
+    // Check if they met before
+    const pastConvo = await this.prisma.conversation.findFirst({
+      where: {
+        type: 'DIRECT',
+        endedAt: { not: null },
+        AND: [
+          { participants: { some: { userId: args.userId } } },
+          { participants: { some: { userId: peerId } } },
+        ],
+      },
+      orderBy: { endedAt: 'desc' },
+      select: { endedAt: true },
+    });
+    const lastMetAt = pastConvo?.endedAt ?? null;
+
     this.logger.log(`matched ${args.userId} ↔ ${peerId} as ${convo.id}`);
-    return { status: 'matched', conversationId: convo.id, peerUserId: peerId };
+    return { status: 'matched', conversationId: convo.id, peerUserId: peerId, lastMetAt };
   }
 
   async cancel(userId: string) {

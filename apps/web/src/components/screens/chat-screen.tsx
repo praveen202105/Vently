@@ -4,7 +4,7 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 import { useRouter } from 'next/navigation';
 import { useInfiniteQuery, useQuery, useQueryClient } from '@tanstack/react-query';
 import { motion, AnimatePresence } from 'motion/react';
-import { AlertCircle, ArrowLeft, Check, Phone, RotateCw, Send, UserPlus, Shield, Flag, X } from 'lucide-react';
+import { AlertCircle, ArrowLeft, Check, Phone, RotateCw, Send, UserPlus, Shield, Flag, X, Sparkles } from 'lucide-react';
 import { toast } from 'sonner';
 import {
   SocketEvents,
@@ -37,7 +37,7 @@ import { ReactionPicker } from '@/components/chat/reaction-picker';
 import { ReactionPills } from '@/components/chat/reaction-pills';
 import { IcebreakerBubble } from '@/components/chat/icebreaker-bubble';
 import { SuggestionChips } from '@/components/chat/suggestion-chips';
-import { formatChatTime, shouldShowTimestamp } from '@/lib/utils/time';
+import { formatChatTime, shouldShowTimestamp, formatReunionRelative, formatDateTime } from '@/lib/utils/time';
 
 interface PendingMessage extends MessagePublic {
   pending?: true;
@@ -66,7 +66,7 @@ export function ChatScreen({ conversationId }: { conversationId: string }) {
   const socket = useSocket();
   const qc = useQueryClient();
   const me = useAuthStore((s) => s.user);
-  const peer = useMatchStore((s) => s.peer);
+  const storePeer = useMatchStore((s) => s.peer);
 
   const [messages, setMessages] = useState<PendingMessage[]>([]);
   const [draft, setDraft] = useState('');
@@ -128,6 +128,11 @@ export function ChatScreen({ conversationId }: { conversationId: string }) {
     staleTime: 60_000,
   });
   const isFriendConvo = conversation?.type === 'FRIEND';
+
+  const storeLastMetAt = useMatchStore((s) => s.lastMetAt);
+  const lastMetAt = conversation?.lastMetAt || storeLastMetAt;
+  const [showReunion, setShowReunion] = useState(true);
+  const peer = storePeer || conversation?.peer;
 
   // Message history with cursor pagination. listMessages returns the OLDEST
   // 30 of the requested cursor window in chronological order (items[0] is
@@ -782,6 +787,42 @@ export function ChatScreen({ conversationId }: { conversationId: string }) {
           {isFriendConvo ? 'Back' : 'End'}
         </button>
       </header>
+
+      {/* Reunion Banner */}
+      <AnimatePresence>
+        {lastMetAt && showReunion && peer && (
+          <motion.div
+            initial={{ opacity: 0, y: -8, height: 0 }}
+            animate={{ opacity: 1, y: 0, height: 'auto' }}
+            exit={{ opacity: 0, y: -8, height: 0 }}
+            className="border-b border-glass-border bg-glass-bg/50 backdrop-blur-xl"
+          >
+            <div className="flex items-center justify-between gap-3 px-4 py-3 max-w-xl mx-auto">
+              <div className="flex items-center gap-3 min-w-0">
+                <div className="w-9 h-9 rounded-full bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center text-white shrink-0 shadow-lg shadow-indigo-500/20">
+                  <Sparkles className="w-4 h-4 animate-pulse text-purple-200" />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-medium text-foreground text-left">
+                    You two met before!
+                  </p>
+                  <p className="text-xs text-muted-foreground text-left">
+                    You chatted {formatReunionRelative(lastMetAt)} · {formatDateTime(lastMetAt)}
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowReunion(false)}
+                className="p-1.5 rounded-lg text-muted-foreground hover:bg-muted/40 transition shrink-0"
+                aria-label="Dismiss banner"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {/* In-chat friend-request banner. Fires when the active peer sends
           a friend request — much more discoverable than waiting for the

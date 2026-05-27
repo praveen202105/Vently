@@ -80,6 +80,7 @@ export interface MatchFoundPayload {
   // uses this to branch routing — VOICE_ONLY goes straight to /call/[id],
   // every other mood goes to /chat/[id].
   mood: MoodIntent;
+  lastMetAt?: string | null;
 }
 
 export interface ChatSendPayload {
