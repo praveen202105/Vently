@@ -24,13 +24,17 @@ test.describe('05 — Translate Chips', () => {
     await loginPage(alice, aliceCtx, aliceUser);
     await loginPage(bob, bobCtx, bobUser);
 
-    // Both users pick FRIENDSHIP mood and match.
-    await alice.goto('/mood', { waitUntil: 'networkidle' });
-    await bob.goto('/mood', { waitUntil: 'networkidle' });
+    // Both users pick the same mood and match (using 'need to talk' —
+    // same pattern as 02-chat-flow.spec.ts which is proven to work).
+    await alice.goto('/mood', { waitUntil: 'domcontentloaded' });
+    await bob.goto('/mood', { waitUntil: 'domcontentloaded' });
 
-    await alice.getByRole('button', { name: /friendship/i }).click();
+    // Wait for auth hydration — the mood buttons only appear after /me resolves.
+    await alice.getByRole('button', { name: /need to talk/i }).waitFor({ timeout: 15_000 });
+    await alice.getByRole('button', { name: /need to talk/i }).click();
     await alice.waitForURL(/\/matching/);
-    await bob.getByRole('button', { name: /friendship/i }).click();
+    await bob.getByRole('button', { name: /need to talk/i }).waitFor({ timeout: 15_000 });
+    await bob.getByRole('button', { name: /need to talk/i }).click();
     await bob.waitForURL(/\/matching/);
 
     await alice.waitForURL(/\/chat\//, { timeout: 15_000 });
@@ -38,7 +42,8 @@ test.describe('05 — Translate Chips', () => {
 
     const convId = alice.url().split('/chat/')[1];
     expect(convId).toBeTruthy();
-    expect(alice.url()).toContain(bob.url().split('/chat/')[1] ?? '');
+    const bobConvId = bob.url().split('/chat/')[1];
+    expect(convId).toEqual(bobConvId);
 
     // Alice sends a Spanish message (simulates a foreign-language peer).
     const spanishMsg = '¡Hola amigo! ¿Cómo estás hoy?';
@@ -100,12 +105,15 @@ test.describe('05 — Translate Chips', () => {
     await loginPage(alice, aliceCtx, aliceUser);
     await loginPage(bob, bobCtx, bobUser);
 
-    await alice.goto('/mood', { waitUntil: 'networkidle' });
-    await bob.goto('/mood', { waitUntil: 'networkidle' });
+    await alice.goto('/mood', { waitUntil: 'domcontentloaded' });
+    await bob.goto('/mood', { waitUntil: 'domcontentloaded' });
 
-    await alice.getByRole('button', { name: /friendship/i }).click();
+    // Wait for auth hydration before clicking mood buttons.
+    await alice.getByRole('button', { name: /need to talk/i }).waitFor({ timeout: 15_000 });
+    await alice.getByRole('button', { name: /need to talk/i }).click();
     await alice.waitForURL(/\/matching/);
-    await bob.getByRole('button', { name: /friendship/i }).click();
+    await bob.getByRole('button', { name: /need to talk/i }).waitFor({ timeout: 15_000 });
+    await bob.getByRole('button', { name: /need to talk/i }).click();
     await bob.waitForURL(/\/matching/);
 
     await alice.waitForURL(/\/chat\//, { timeout: 15_000 });
@@ -119,9 +127,12 @@ test.describe('05 — Translate Chips', () => {
     await expect(alice.getByText(msg)).toBeVisible({ timeout: 5_000 });
 
     // Translate button should NOT appear on the sender's own bubble.
+    // Wait a moment for any buttons that would appear.
+    await alice.waitForTimeout(1_000);
     await expect(alice.getByTestId('translate-btn')).not.toBeVisible();
 
     // But it SHOULD appear on Bob's screen (it's a peer message for Bob).
+    await expect(bob.getByText(msg)).toBeVisible({ timeout: 5_000 });
     await expect(bob.getByTestId('translate-btn').first()).toBeVisible({ timeout: 5_000 });
 
     await aliceCtx.close();
@@ -129,19 +140,11 @@ test.describe('05 — Translate Chips', () => {
   });
 
   test('translate REST endpoint returns expected shape', async () => {
-    // Direct API test — provisions a user, sends a message via socket, then
-    // calls the translate endpoint directly to validate the JSON shape.
+    // Direct API test — validates the endpoint is auth-guarded and
+    // returns the right error status for invalid params.
     const apiCtx = await request.newContext({ baseURL: API_HOST });
 
     const alice = await provisionUserViaApi({ gender: 'MALE' });
-    const bob = await provisionUserViaApi({ gender: 'FEMALE' });
-
-    // Create a conversation by registering both + using the API directly.
-    // We'll POST to /conversations with alice's token to create a direct
-    // conversation between alice and bob, then send a message via API.
-    // Since matchmaking is socket-based, we test the translate endpoint with
-    // a mocked message by calling it with a known message body.
-    // Simplest approach: just validate the endpoint is auth-guarded.
 
     // Unauthenticated request must be rejected.
     const unauthedRes = await apiCtx.post(
@@ -150,7 +153,7 @@ test.describe('05 — Translate Chips', () => {
     );
     expect(unauthedRes.status()).toBe(401);
 
-    // Authenticated request with a non-existent message should be 403/404.
+    // Authenticated request with a non-existent conversation should be 403/404.
     const authedRes = await apiCtx.post(
       `/api/conversations/fake-conv-id/messages/fake-msg-id/translate`,
       {
@@ -162,3 +165,4 @@ test.describe('05 — Translate Chips', () => {
     expect([403, 404]).toContain(authedRes.status());
   });
 });
+
