@@ -46,6 +46,13 @@ export class MessagesService {
     return this.repo.markRead(args);
   }
 
+  async search(args: { conversationId: string; userId: string; q: string }) {
+    if (!args.q || args.q.trim().length < 2) return { items: [] };
+    await this.conversations.assertParticipant(args.conversationId, args.userId);
+    const msgs = await this.repo.search(args.conversationId, args.q.trim());
+    return { items: msgs.map((m) => this.shape(m)) };
+  }
+
   // Idempotent toggle. The server is authoritative — clients shouldn't need
   // to track whether they've already reacted before calling; we look it up
   // and add or remove based on existence.

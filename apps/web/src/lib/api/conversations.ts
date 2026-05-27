@@ -1,4 +1,4 @@
-import type { ConversationDetail, ConversationSummary, MessagePage } from '@vently/shared';
+import type { ConversationDetail, ConversationSummary, MessagePage, MessagePublic } from '@vently/shared';
 import { api } from './client';
 
 export function listConversations() {
@@ -22,4 +22,9 @@ export function leaveConversation(conversationId: string) {
 
 export function getUnreadCount() {
   return api<{ count: number }>('/conversations/unread-count');
+}
+
+export function searchMessages(conversationId: string, q: string) {
+  const params = new URLSearchParams({ q });
+  return api<{ items: MessagePublic[] }>(`/conversations/${conversationId}/messages/search?${params}`);
 }

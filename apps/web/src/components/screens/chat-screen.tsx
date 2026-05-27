@@ -4,7 +4,7 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 import { useRouter } from 'next/navigation';
 import { useInfiniteQuery, useQuery, useQueryClient } from '@tanstack/react-query';
 import { motion, AnimatePresence } from 'motion/react';
-import { AlertCircle, ArrowLeft, Check, Phone, RotateCw, Send, UserPlus, Shield, Flag, X, Sparkles } from 'lucide-react';
+import { AlertCircle, ArrowLeft, Check, Phone, RotateCw, Search, Send, UserPlus, Shield, Flag, X, Sparkles } from 'lucide-react';
 import { toast } from 'sonner';
 import {
   SocketEvents,
@@ -25,7 +25,7 @@ import { useAuthStore } from '@/stores/auth-store';
 import { useMatchStore } from '@/stores/match-store';
 import { useSocket } from '@/lib/socket/use-socket';
 import { useSocketEvent } from '@/lib/socket/use-socket-event';
-import { getConversation, listMessages, leaveConversation } from '@/lib/api/conversations';
+import { getConversation, listMessages, leaveConversation, searchMessages } from '@/lib/api/conversations';
 import { respondToFriendRequest, sendFriendRequest } from '@/lib/api/friends';
 import { blockUser } from '@/lib/api/blocks';
 import { toggleReaction as apiToggleReaction } from '@/lib/api/messages';
@@ -38,6 +38,7 @@ import { ReactionPills } from '@/components/chat/reaction-pills';
 import { IcebreakerBubble } from '@/components/chat/icebreaker-bubble';
 import { SuggestionChips } from '@/components/chat/suggestion-chips';
 import { formatChatTime, shouldShowTimestamp, formatReunionRelative, formatDateTime } from '@/lib/utils/time';
+import { useUnreadTabBadge } from '@/lib/hooks/use-unread-tab-badge';
 
 interface PendingMessage extends MessagePublic {
   pending?: true;
@@ -99,6 +100,20 @@ export function ChatScreen({ conversationId }: { conversationId: string }) {
   // AI smart reply suggestions — populated by CHAT_SUGGESTIONS events,
   // cleared whenever the user starts typing or sends a message.
   const [suggestions, setSuggestions] = useState<string[]>([]);
+
+  // Search state
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [searchResults, setSearchResults] = useState<MessagePublic[]>([]);
+  const [isSearching, setIsSearching] = useState(false);
+  const searchDebounceRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+
+  // Unread tab badge — only accumulates when the tab is backgrounded
+  const [tabUnread, setTabUnread] = useState(0);
+  const tabVisibleRef = useRef(true);
+
+  // Apply the unread tab badge hook
+  useUnreadTabBadge(tabUnread, 'Vently');
 
   const typingTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const lastTypingEmitRef = useRef(0);
@@ -266,6 +281,20 @@ export function ChatScreen({ conversationId }: { conversationId: string }) {
     ),
   );
 
+  // Track tab visibility — reset unread count when user returns to tab
+  useEffect(() => {
+    const onVisibility = () => {
+      if (document.visibilityState === 'visible') {
+        tabVisibleRef.current = true;
+        setTabUnread(0);
+      } else {
+        tabVisibleRef.current = false;
+      }
+    };
+    document.addEventListener('visibilitychange', onVisibility);
+    return () => document.removeEventListener('visibilitychange', onVisibility);
+  }, []);
+
   // Live message handler.
   useSocketEvent(
     SocketEvents.CHAT_MESSAGE,
@@ -278,6 +307,10 @@ export function ChatScreen({ conversationId }: { conversationId: string }) {
         });
         if (msg.senderId !== me?.id) {
           void qc.invalidateQueries({ queryKey: ['conversations', 'unread-count'] });
+        }
+        // Bump the unread badge when the tab is backgrounded and it's a peer message
+        if (!tabVisibleRef.current && msg.senderId !== me?.id) {
+          setTabUnread((n) => n + 1);
         }
       },
       [conversationId, me?.id, qc],
@@ -667,6 +700,32 @@ export function ChatScreen({ conversationId }: { conversationId: string }) {
     router.push('/mood');
   };
 
+  const onSearchChange = (q: string) => {
+    setSearchQuery(q);
+    if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current);
+    if (!q || q.trim().length < 2) {
+      setSearchResults([]);
+      return;
+    }
+    setIsSearching(true);
+    searchDebounceRef.current = setTimeout(async () => {
+      try {
+        const res = await searchMessages(conversationId, q.trim());
+        setSearchResults(res.items);
+      } catch {
+        // silent
+      } finally {
+        setIsSearching(false);
+      }
+    }, 350);
+  };
+
+  const closeSearch = () => {
+    setSearchOpen(false);
+    setSearchQuery('');
+    setSearchResults([]);
+  };
+
   const addFriend = async () => {
     if (!peer || requestSent) return;
     try {
@@ -708,26 +767,44 @@ export function ChatScreen({ conversationId }: { conversationId: string }) {
   );
 
   return (
-    <div className="min-h-screen flex flex-col">
+    <div className="min-h-screen flex flex-col relative">
       <header className="flex items-center gap-3 p-4 border-b border-glass-border bg-glass-bg backdrop-blur-xl sticky top-0 z-10">
         <button
           type="button"
-          onClick={() => router.push('/connections')}
+          onClick={() => searchOpen ? closeSearch() : router.push('/connections')}
           className="p-2 rounded-lg hover:bg-muted transition"
-          aria-label="Back"
+          aria-label={searchOpen ? 'Close search' : 'Back'}
         >
-          <ArrowLeft className="w-5 h-5" />
+          {searchOpen ? <X className="w-5 h-5" /> : <ArrowLeft className="w-5 h-5" />}
         </button>
-        <div className="w-10 h-10 rounded-full bg-gradient-to-br from-purple-600 to-pink-600 flex items-center justify-center text-white">
-          {peer?.nickname[0]?.toUpperCase() ?? '?'}
-        </div>
-        <div className="flex-1 min-w-0">
-          <p className="truncate">{peer?.nickname ?? 'Stranger'}</p>
-          <p className="text-xs text-muted-foreground">
-            {peerTyping ? 'typing…' : peer ? 'online' : '—'}
-          </p>
-        </div>
-        {!isFriendConvo && (
+
+        {searchOpen ? (
+          <input
+            id="chat-search-input"
+            autoFocus
+            type="text"
+            value={searchQuery}
+            onChange={(e) => onSearchChange(e.target.value)}
+            placeholder="Search messages…"
+            className="flex-1 bg-input rounded-xl px-4 py-2 outline-none border border-glass-border focus:ring-2 focus:ring-primary/40 text-sm"
+          />
+        ) : (
+          <>
+            <div className="w-10 h-10 rounded-full bg-gradient-to-br from-purple-600 to-pink-600 flex items-center justify-center text-white">
+              {peer?.nickname[0]?.toUpperCase() ?? '?'}
+            </div>
+            <div className="flex-1 min-w-0">
+              <p className="truncate">{peer?.nickname ?? 'Stranger'}</p>
+              <p className="text-xs text-muted-foreground">
+                {peerTyping
+                  ? `${isFriendConvo ? (peer?.nickname ?? 'Peer') : 'Peer'} is typing…`
+                  : peer ? 'online' : '—'}
+              </p>
+            </div>
+          </>
+        )}
+
+        {!searchOpen && !isFriendConvo && (
           <button
             type="button"
             onClick={addFriend}
@@ -743,50 +820,125 @@ export function ChatScreen({ conversationId }: { conversationId: string }) {
             {requestSent ? <Check className="w-5 h-5" /> : <UserPlus className="w-5 h-5" />}
           </button>
         )}
+
+        {!searchOpen && (
+          <>
+            <button
+              type="button"
+              onClick={() => router.push(`/call/${conversationId}`)}
+              className="p-2 rounded-lg hover:bg-primary/20 transition text-primary"
+              aria-label="Start voice call"
+            >
+              <Phone className="w-5 h-5" />
+            </button>
+            <button
+              type="button"
+              onClick={() => setReportOpen(true)}
+              disabled={!peer}
+              className="p-2 rounded-lg hover:bg-destructive/20 transition text-destructive disabled:opacity-50"
+              aria-label="Report user"
+              title="Report"
+            >
+              <Flag className="w-5 h-5" />
+            </button>
+            <button
+              type="button"
+              onClick={() => setBlockOpen(true)}
+              disabled={!peer}
+              className="p-2 rounded-lg hover:bg-destructive/20 transition text-destructive disabled:opacity-50"
+              aria-label="Block user"
+              title="Block"
+            >
+              <Shield className="w-5 h-5" />
+            </button>
+            <button
+              type="button"
+              onClick={() => (isFriendConvo ? void leave() : setLeaveOpen(true))}
+              className={`text-xs px-3 py-1.5 rounded-lg transition ${
+                isFriendConvo
+                  ? 'hover:bg-muted text-muted-foreground'
+                  : 'hover:bg-destructive/10 text-destructive'
+              }`}
+            >
+              {isFriendConvo ? 'Back' : 'End'}
+            </button>
+          </>
+        )}
+
         <button
           type="button"
-          onClick={() => router.push(`/call/${conversationId}`)}
+          onClick={() => searchOpen ? closeSearch() : setSearchOpen(true)}
           className="p-2 rounded-lg hover:bg-primary/20 transition text-primary"
-          aria-label="Start voice call"
+          aria-label="Search messages"
+          title="Search"
         >
-          <Phone className="w-5 h-5" />
-        </button>
-        <button
-          type="button"
-          onClick={() => setReportOpen(true)}
-          disabled={!peer}
-          className="p-2 rounded-lg hover:bg-destructive/20 transition text-destructive disabled:opacity-50"
-          aria-label="Report user"
-          title="Report"
-        >
-          <Flag className="w-5 h-5" />
-        </button>
-        <button
-          type="button"
-          onClick={() => setBlockOpen(true)}
-          disabled={!peer}
-          className="p-2 rounded-lg hover:bg-destructive/20 transition text-destructive disabled:opacity-50"
-          aria-label="Block user"
-          title="Block"
-        >
-          <Shield className="w-5 h-5" />
-        </button>
-        <button
-          type="button"
-          // For FRIEND chats the button is a navigation, not a destructive
-          // action — skip the confirm dialog and just go back to /connections.
-          // For DIRECT chats it still pops the existing "End this chat?"
-          // confirm flow.
-          onClick={() => (isFriendConvo ? void leave() : setLeaveOpen(true))}
-          className={`text-xs px-3 py-1.5 rounded-lg transition ${
-            isFriendConvo
-              ? 'hover:bg-muted text-muted-foreground'
-              : 'hover:bg-destructive/10 text-destructive'
-          }`}
-        >
-          {isFriendConvo ? 'Back' : 'End'}
+          <Search className="w-5 h-5" />
         </button>
       </header>
+
+      {/* Search results overlay */}
+      <AnimatePresence>
+        {searchOpen && (
+          <motion.div
+            initial={{ opacity: 0, y: -8 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -8 }}
+            className="absolute top-[65px] left-0 right-0 bottom-0 z-20 bg-background/95 backdrop-blur-xl overflow-y-auto"
+          >
+            {isSearching ? (
+              <div className="flex items-center justify-center h-32">
+                <p className="text-sm text-muted-foreground">Searching…</p>
+              </div>
+            ) : searchQuery.trim().length < 2 ? (
+              <div className="flex flex-col items-center justify-center h-32 gap-2">
+                <Search className="w-8 h-8 text-muted-foreground/40" />
+                <p className="text-sm text-muted-foreground">Type at least 2 characters to search</p>
+              </div>
+            ) : searchResults.length === 0 ? (
+              <div className="flex flex-col items-center justify-center h-32 gap-2">
+                <p className="text-sm text-muted-foreground">No messages found for &ldquo;{searchQuery}&rdquo;</p>
+              </div>
+            ) : (
+              <div className="p-4 space-y-2">
+                <p className="text-xs text-muted-foreground mb-3">
+                  {searchResults.length} result{searchResults.length !== 1 ? 's' : ''} for &ldquo;{searchQuery}&rdquo;
+                </p>
+                {searchResults.map((msg) => {
+                  const mine = msg.senderId === me?.id;
+                  const qi = msg.body.toLowerCase().indexOf(searchQuery.toLowerCase());
+                  const highlighted = qi >= 0 ? (
+                    <span>
+                      {msg.body.slice(0, qi)}
+                      <mark className="bg-yellow-400/30 text-foreground rounded px-0.5">
+                        {msg.body.slice(qi, qi + searchQuery.length)}
+                      </mark>
+                      {msg.body.slice(qi + searchQuery.length)}
+                    </span>
+                  ) : msg.body;
+
+                  return (
+                    <motion.div
+                      key={msg.id}
+                      initial={{ opacity: 0, y: 4 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      className={`flex ${mine ? 'justify-end' : 'justify-start'}`}
+                    >
+                      <div className={`px-4 py-2.5 rounded-2xl max-w-[80%] ${
+                        mine
+                          ? 'bg-gradient-to-br from-purple-600 via-pink-600 to-blue-600 text-white rounded-br-sm'
+                          : 'bg-glass-bg border border-glass-border rounded-bl-sm'
+                      }`}>
+                        <p className="text-sm break-words">{highlighted}</p>
+                        <p className="text-[10px] mt-1 opacity-60">{new Date(msg.createdAt).toLocaleString()}</p>
+                      </div>
+                    </motion.div>
+                  );
+                })}
+              </div>
+            )}
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {/* Reunion Banner */}
       <AnimatePresence>
@@ -992,20 +1144,32 @@ export function ChatScreen({ conversationId }: { conversationId: string }) {
         )}
 
         {peerTyping && (
-          <div className="flex justify-start">
+          <motion.div
+            initial={{ opacity: 0, y: 8 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: 8 }}
+            className="flex justify-start"
+          >
             <GlassCard className="px-4 py-2.5">
-              <div className="flex items-center gap-1.5">
-                {[0, 1, 2].map((i) => (
-                  <motion.span
-                    key={i}
-                    animate={{ scale: [1, 1.4, 1], opacity: [0.3, 1, 0.3] }}
-                    transition={{ duration: 1, repeat: Infinity, delay: i * 0.2 }}
-                    className="w-1.5 h-1.5 rounded-full bg-muted-foreground"
-                  />
-                ))}
+              <div className="flex flex-col gap-1">
+                {peer?.nickname && (
+                  <span className="text-[10px] text-muted-foreground font-medium">
+                    {peer.nickname}
+                  </span>
+                )}
+                <div className="flex items-center gap-1.5">
+                  {[0, 1, 2].map((i) => (
+                    <motion.span
+                      key={i}
+                      animate={{ scale: [1, 1.4, 1], opacity: [0.3, 1, 0.3] }}
+                      transition={{ duration: 1, repeat: Infinity, delay: i * 0.2 }}
+                      className="w-1.5 h-1.5 rounded-full bg-muted-foreground"
+                    />
+                  ))}
+                </div>
               </div>
             </GlassCard>
-          </div>
+          </motion.div>
         )}
       </div>
 

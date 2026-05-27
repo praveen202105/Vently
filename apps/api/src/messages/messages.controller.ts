@@ -8,6 +8,15 @@ import { MessagesService } from './messages.service.js';
 export class MessagesController {
   constructor(private readonly messages: MessagesService) {}
 
+  @Get('search')
+  search(
+    @CurrentUser() user: AuthUser,
+    @Param('id') conversationId: string,
+    @Query('q') q: string,
+  ) {
+    return this.messages.search({ conversationId, userId: user.userId, q: q ?? '' });
+  }
+
   @Get()
   list(
     @CurrentUser() user: AuthUser,

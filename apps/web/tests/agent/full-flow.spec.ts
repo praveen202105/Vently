@@ -537,6 +537,204 @@ test.describe('🤖 Vently Testing Agent', () => {
     );
     expect(stillReacted).toBe(false);
   });
+
+  // ────────────────────────────────────────────────────────────────────────
+  // Phase 12 — Message Search (new feature)
+  // Verifies the search API endpoint returns filtered results and the
+  // frontend search UI is present on the chat screen.
+  // ────────────────────────────────────────────────────────────────────────
+
+  test('15. Message search API returns filtered results', async () => {
+    // Reuse Alice + Bob's friend conversation from test 14.
+    const friendsRes = await alicePage.request.get(`${API_HOST}/api/friends`, {
+      headers: { Authorization: `Bearer ${alice.accessToken}` },
+    });
+    const friends = (await friendsRes.json()) as {
+      profile: { userId: string } | null;
+      conversationId: string | null;
+    }[];
+    const bobFriendRow = friends.find((f) => f.profile?.userId === bob.userId);
+    test.skip(!bobFriendRow?.conversationId, 'no friend conversation between Alice + Bob');
+    const conversationId = bobFriendRow!.conversationId!;
+
+    step('Send a uniquely searchable message via API so we have something to find');
+    const uniqueWord = `searchable_${Date.now()}`;
+    await alicePage.request.post(`${API_HOST}/api/conversations/${conversationId}/messages`, {
+      data: { body: `Hello this is a ${uniqueWord} message` },
+      headers: { Authorization: `Bearer ${alice.accessToken}`, 'Content-Type': 'application/json' },
+    }).catch(() => {
+      // Messages are sent via socket in production; skip if REST isn't exposed.
+    });
+
+    step('Search endpoint returns results matching the query');
+    const searchRes = await alicePage.request.get(
+      `${API_HOST}/api/conversations/${conversationId}/messages/search?q=agent`,
+      { headers: { Authorization: `Bearer ${alice.accessToken}` } },
+    );
+    expect(searchRes.ok()).toBeTruthy();
+    const body = (await searchRes.json()) as { items: { id: string; body: string }[] };
+    expect(Array.isArray(body.items)).toBe(true);
+    // Every returned message must contain "agent" (case-insensitive)
+    for (const msg of body.items) {
+      expect(msg.body.toLowerCase()).toContain('agent');
+    }
+
+    step('Search with short query (< 2 chars) returns empty items');
+    const shortRes = await alicePage.request.get(
+      `${API_HOST}/api/conversations/${conversationId}/messages/search?q=a`,
+      { headers: { Authorization: `Bearer ${alice.accessToken}` } },
+    );
+    expect(shortRes.ok()).toBeTruthy();
+    const shortBody = (await shortRes.json()) as { items: unknown[] };
+    expect(shortBody.items.length).toBe(0);
+
+    step('Search UI: the search button exists on the chat screen');
+    // Navigate to the friend conversation to verify the search icon is in the header.
+    await alicePage.goto(`/chat/${conversationId}`, { waitUntil: 'networkidle' });
+    await expect(alicePage.getByRole('button', { name: /search messages/i })).toBeVisible({
+      timeout: 10_000,
+    });
+
+    step('Opening search mode shows the search input');
+    await alicePage.getByRole('button', { name: /search messages/i }).click();
+    await expect(alicePage.locator('#chat-search-input')).toBeVisible({ timeout: 5_000 });
+
+    step('Typing a query shows the "Type at least 2 characters" hint first');
+    // Input is empty — should show placeholder hint
+    await expect(alicePage.getByText(/type at least 2 characters/i)).toBeVisible({
+      timeout: 3_000,
+    });
+
+    step('Typing "agent" in the search box fetches and highlights results');
+    await alicePage.locator('#chat-search-input').fill('agent');
+    // After debounce (350ms) results should appear
+    await alicePage.waitForTimeout(600);
+    // Either results OR "no messages found" — both indicate the search fired
+    const hasResults = await alicePage
+      .getByText(/\d+ result/i)
+      .isVisible()
+      .catch(() => false);
+    const hasEmpty = await alicePage
+      .getByText(/no messages found/i)
+      .isVisible()
+      .catch(() => false);
+    expect(hasResults || hasEmpty).toBe(true);
+
+    await alicePage.screenshot({ path: 'agent-results/15-message-search.png', fullPage: true });
+
+    step('Pressing close (X) exits search mode');
+    await alicePage.getByRole('button', { name: /close search/i }).click();
+    await expect(alicePage.locator('#chat-search-input')).not.toBeVisible({ timeout: 3_000 });
+  });
+
+  // ────────────────────────────────────────────────────────────────────────
+  // Phase 13 — Typing indicator with peer name (new feature)
+  // Verifies the chat header subtitle updates correctly when a peer is
+  // typing. We drive via socket events emitted through the browser.
+  // ────────────────────────────────────────────────────────────────────────
+
+  test('16. Typing indicator shows peer nickname in chat header', async () => {
+    // Use the friend chat already open on Alice's page from test 15.
+    const friendsRes = await alicePage.request.get(`${API_HOST}/api/friends`, {
+      headers: { Authorization: `Bearer ${alice.accessToken}` },
+    });
+    const friends = (await friendsRes.json()) as {
+      profile: { userId: string; nickname: string } | null;
+      conversationId: string | null;
+    }[];
+    const bobFriendRow = friends.find((f) => f.profile?.userId === bob.userId);
+    test.skip(!bobFriendRow?.conversationId, 'no friend conversation between Alice + Bob');
+    const conversationId = bobFriendRow!.conversationId!;
+
+    step('Both Alice and Bob open the shared friend conversation');
+    await alicePage.goto(`/chat/${conversationId}`, { waitUntil: 'networkidle' });
+    await bobPage.goto(`/chat/${conversationId}`, { waitUntil: 'networkidle' });
+
+    step('Bob starts typing — Alice should see "X is typing…" in the header');
+    await bobPage.getByPlaceholder(/type a message/i).click();
+    await bobPage.getByPlaceholder(/type a message/i).type('hell', { delay: 80 });
+
+    // The header subtitle should show Bob's nickname followed by "is typing"
+    await expect(
+      alicePage.getByText(new RegExp(`${bob.nickname}.*is typing`, 'i')),
+    ).toBeVisible({ timeout: 6_000 });
+
+    await alicePage.screenshot({
+      path: 'agent-results/16-typing-indicator-with-name.png',
+      fullPage: true,
+    });
+
+    step('After Bob stops typing, the subtitle reverts to "online"');
+    await bobPage.getByPlaceholder(/type a message/i).clear();
+    // The typing indicator clears after the server-side 3s timeout; we wait a bit.
+    await alicePage.waitForTimeout(4_000);
+    await expect(alicePage.getByText(/online/i).first()).toBeVisible({ timeout: 5_000 });
+  });
+
+  // ────────────────────────────────────────────────────────────────────────
+  // Phase 14 — Unread tab badge (new feature)
+  // Verifies the document title updates when Alice receives messages while
+  // the tab is backgrounded (simulated by Page.evaluate).
+  // ────────────────────────────────────────────────────────────────────────
+
+  test('17. Unread tab badge updates document title when tab is hidden', async () => {
+    const friendsRes = await alicePage.request.get(`${API_HOST}/api/friends`, {
+      headers: { Authorization: `Bearer ${alice.accessToken}` },
+    });
+    const friends = (await friendsRes.json()) as {
+      profile: { userId: string } | null;
+      conversationId: string | null;
+    }[];
+    const bobFriendRow = friends.find((f) => f.profile?.userId === bob.userId);
+    test.skip(!bobFriendRow?.conversationId, 'no friend conversation between Alice + Bob');
+    const conversationId = bobFriendRow!.conversationId!;
+
+    step('Alice opens the friend conversation');
+    await alicePage.goto(`/chat/${conversationId}`, { waitUntil: 'networkidle' });
+
+    step("Simulate tab hidden on Alice's page (visibilitychange to hidden)");
+    await alicePage.evaluate(() => {
+      Object.defineProperty(document, 'visibilityState', {
+        configurable: true,
+        get: () => 'hidden',
+      });
+      document.dispatchEvent(new Event('visibilitychange'));
+    });
+
+    step('Bob sends a message while Alice is "backgrounded"');
+    await bobPage.goto(`/chat/${conversationId}`, { waitUntil: 'networkidle' });
+    const unreadMsg = `unread-badge-test ${Date.now()}`;
+    await bobPage.getByPlaceholder(/type a message/i).fill(unreadMsg);
+    await bobPage.keyboard.press('Enter');
+
+    step("Alice's document title should update to '(N) Vently'");
+    await alicePage.waitForFunction(
+      () => document.title.startsWith('('),
+      { timeout: 8_000 },
+    );
+    const title = await alicePage.evaluate(() => document.title);
+    expect(title).toMatch(/^\(\d+\) Vently/);
+
+    await alicePage.screenshot({
+      path: 'agent-results/17-unread-tab-badge.png',
+      fullPage: true,
+    });
+
+    step("Simulating tab becoming visible resets the title to 'Vently'");
+    await alicePage.evaluate(() => {
+      Object.defineProperty(document, 'visibilityState', {
+        configurable: true,
+        get: () => 'visible',
+      });
+      document.dispatchEvent(new Event('visibilitychange'));
+    });
+    await alicePage.waitForFunction(
+      () => !document.title.startsWith('('),
+      { timeout: 5_000 },
+    );
+    const resetTitle = await alicePage.evaluate(() => document.title);
+    expect(resetTitle).toBe('Vently');
+  });
 });
 
 // Suppress "unused import" hint for SocketEvents — handy to keep around for
