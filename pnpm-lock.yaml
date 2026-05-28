@@ -71,6 +71,9 @@ importers:
       cookie-parser:
         specifier: ^1.4.7
         version: 1.4.7
+      express:
+        specifier: ^4.19.2
+        version: 4.22.1
       groq-sdk:
         specifier: ^1.2.0
         version: 1.2.0
