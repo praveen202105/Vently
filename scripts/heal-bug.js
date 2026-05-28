@@ -101,8 +101,8 @@ async function callGemini({ apiKey, contents, systemInstruction, tools }) {
       },
       generationConfig: {
         temperature: 0.2,
-        // Full-file rewrites can be large; flash supports up to 65K output.
-        maxOutputTokens: 32768,
+        // No explicit maxOutputTokens — let Gemini use the model's full
+        // built-in output budget so large full-file rewrites aren't cut off.
       },
     }),
   });
