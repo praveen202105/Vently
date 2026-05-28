@@ -4,6 +4,7 @@ import { execSync, spawn } from 'child_process';
 import fs from 'fs';
 import path from 'path';
 import readline from 'readline';
+import { tryAutoHeal } from './heal-bug.js';
 
 // ANSI terminal colors for premium visual aesthetics
 const RESET = '\x1b[0m';
@@ -19,17 +20,31 @@ const WORKSPACE_ROOT = process.cwd();
 const BUGS_FILE = path.join(WORKSPACE_ROOT, 'bugs.md');
 const PROD_URL = 'https://vently-web-gamma.vercel.app';
 
-// Parse command line arguments
 const args = process.argv.slice(2);
 const IS_LOCAL_ONLY = args.includes('--local-only');
 const IS_CI = args.includes('--ci') || process.env.CI === 'true';
+const NO_HEAL = args.includes('--no-heal');
 
 const SLACK_WEBHOOK = process.env.SLACK_WEBHOOK_URL;
+const ANTHROPIC_KEY = process.env.ANTHROPIC_API_KEY;
+const MAX_HEAL_ATTEMPTS = Number(process.env.MAX_HEAL_ATTEMPTS || 2);
+
+const GITHUB_SERVER_URL = process.env.GITHUB_SERVER_URL || 'https://github.com';
+const GITHUB_REPOSITORY = process.env.GITHUB_REPOSITORY || '';
+const GITHUB_RUN_ID = process.env.GITHUB_RUN_ID || '';
+const RUN_URL =
+  GITHUB_REPOSITORY && GITHUB_RUN_ID
+    ? `${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}`
+    : '';
 
 function printHeader(title) {
-  console.log(`\n${PURPLE}${BOLD}================================================================================${RESET}`);
+  console.log(
+    `\n${PURPLE}${BOLD}================================================================================${RESET}`,
+  );
   console.log(`${CYAN}${BOLD} 🚀 Vently Automated Verification Pipeline: ${title}${RESET}`);
-  console.log(`${PURPLE}${BOLD}================================================================================${RESET}\n`);
+  console.log(
+    `${PURPLE}${BOLD}================================================================================${RESET}\n`,
+  );
 }
 
 function printStep(number, message) {
@@ -37,27 +52,42 @@ function printStep(number, message) {
 }
 
 async function sendSlackNotification(title, description, color, fields = []) {
-  if (!SLACK_WEBHOOK) return;
+  if (!SLACK_WEBHOOK) {
+    console.warn(`${YELLOW}[Slack] SLACK_WEBHOOK_URL not configured — skipping "${title}"${RESET}`);
+    return;
+  }
+  const finalFields = [...fields];
+  if (RUN_URL) {
+    finalFields.push({
+      title: 'GitHub Run',
+      value: `<${RUN_URL}|View live logs ↗>`,
+      short: false,
+    });
+  }
   try {
     const payload = {
       attachments: [
         {
-          color: color, // e.g. '#2eb886' (green), '#a30200' (red), '#3aa3e3' (blue)
+          color,
           title: `Vently Pipeline: ${title}`,
           text: description,
-          fields: fields,
+          fields: finalFields,
           footer: 'Vently CI/CD Bot',
-          ts: Math.floor(Date.now() / 1000)
-        }
-      ]
+          ts: Math.floor(Date.now() / 1000),
+        },
+      ],
     };
-    await fetch(SLACK_WEBHOOK, {
+    const res = await fetch(SLACK_WEBHOOK, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),
     });
+    if (!res.ok) {
+      const txt = await res.text().catch(() => '');
+      console.warn(`${YELLOW}[Slack] HTTP ${res.status}: ${txt}${RESET}`);
+    }
   } catch (err) {
-    console.warn(`[Slack] Webhook delivery failed: ${err.message}`);
+    console.warn(`${YELLOW}[Slack] Webhook delivery failed: ${err.message}${RESET}`);
   }
 }
 
@@ -71,14 +101,14 @@ function getFailingTests(output) {
       if (currentFailure) failures.push(currentFailure);
       currentFailure = {
         title: line.replace(/^\s*\d+\)\s+/, '').trim(),
-        details: []
+        details: [],
       };
     } else if (currentFailure) {
       if (line.trim().startsWith('Error:')) {
         currentFailure.details.push(line.trim());
       } else if (line.includes('▶') || line.includes('└') || line.includes('──')) {
-        // Skip visual tree lines
-      } else if (line.trim().length > 0 && currentFailure.details.length < 5) {
+        // skip tree-drawing lines
+      } else if (line.trim().length > 0 && currentFailure.details.length < 10) {
         currentFailure.details.push(line.trim());
       }
     }
@@ -87,9 +117,9 @@ function getFailingTests(output) {
   return failures;
 }
 
-async function writeBugsMd(failures, phase = 'Local E2E Tests') {
+async function writeBugsMd(failures, phase) {
   console.log(`\n${RED}${BOLD}❌ Verification Failed! Writing bug report to bugs.md...${RESET}`);
-  
+
   let content = '';
   if (fs.existsSync(BUGS_FILE)) {
     content = fs.readFileSync(BUGS_FILE, 'utf8');
@@ -104,7 +134,7 @@ async function writeBugsMd(failures, phase = 'Local E2E Tests') {
   failures.forEach((f, i) => {
     bugReport += `### ${i + 1}. Failing Spec: \`${f.title}\`\n`;
     bugReport += `> **Error Details**:\n`;
-    f.details.forEach(d => {
+    f.details.forEach((d) => {
       bugReport += `> \`${d}\`\n`;
     });
     bugReport += `\n**Proposed Action Plan**:\n`;
@@ -114,34 +144,31 @@ async function writeBugsMd(failures, phase = 'Local E2E Tests') {
     bugReport += `--- \n`;
 
     slackFields.push({
-      title: `Failure ${i + 1}: ${f.title}`,
-      value: f.details[0] || 'Unknown error',
-      short: false
+      title: `Failure ${i + 1}: ${f.title}`.slice(0, 250),
+      value: (f.details[0] || 'Unknown error').slice(0, 500),
+      short: false,
     });
   });
 
   fs.writeFileSync(BUGS_FILE, bugReport + content);
   console.log(`${GREEN}✔ Bug report successfully written to: ${BUGS_FILE}${RESET}\n`);
 
-  // Deliver error card to Slack
   await sendSlackNotification(
     `❌ Failure during ${phase}`,
-    `Test suite failed. Generated bugs.md in workspace root.`,
+    `Test suite failed. See bugs.md for details. Self-heal attempts ${NO_HEAL || !ANTHROPIC_KEY ? 'disabled' : 'in progress'}.`,
     '#a30200',
-    slackFields
+    slackFields,
   );
 }
 
 function askQuestion(query) {
-  const rl = readline.createInterface({
-    input: process.stdin,
-    output: process.stdout,
-  });
-
-  return new Promise((resolve) => rl.question(query, (ans) => {
-    rl.close();
-    resolve(ans);
-  }));
+  const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+  return new Promise((resolve) =>
+    rl.question(query, (ans) => {
+      rl.close();
+      resolve(ans);
+    }),
+  );
 }
 
 async function getBranchName() {
@@ -152,96 +179,217 @@ async function getBranchName() {
   }
 }
 
-async function verifyLocal() {
-  printStep(1, 'Running Local E2E Tests');
-  
-  await sendSlackNotification(
-    '⏳ Local Verification Started',
-    `Running local Playwright test suites...`,
-    '#3aa3e3'
-  );
-
-  let stdout = '';
-  let stderr = '';
-  
-  const proc = spawn('pnpm', ['--filter', '@vently/web', 'test:e2e'], {
-    env: { ...process.env, FORCE_COLOR: '1' }
-  });
-
-  proc.stdout.on('data', (data) => {
-    const chunk = data.toString();
-    stdout += chunk;
-    process.stdout.write(chunk);
-  });
-
-  proc.stderr.on('data', (data) => {
-    const chunk = data.toString();
-    stderr += chunk;
-    process.stderr.write(chunk);
-  });
-
+function runTests(filter, scriptName, extraEnv = {}) {
   return new Promise((resolve) => {
-    proc.on('close', (code) => {
-      if (code !== 0) {
-        const failures = getFailingTests(stdout + '\n' + stderr);
-        if (failures.length > 0) {
-          writeBugsMd(failures, 'Local E2E Tests');
-        } else {
-          writeBugsMd([{ title: 'E2E Suite Failure', details: ['Playwright test execution failed. Check console output above.'] }], 'Local E2E Tests');
-        }
-        resolve(false);
-      } else {
-        console.log(`\n${GREEN}${BOLD}✔ All local E2E tests passed successfully!${RESET}\n`);
-        resolve(true);
-      }
+    let stdout = '';
+    let stderr = '';
+    const proc = spawn('pnpm', ['--filter', filter, scriptName], {
+      env: { ...process.env, FORCE_COLOR: '1', ...extraEnv },
     });
+    proc.stdout.on('data', (data) => {
+      const chunk = data.toString();
+      stdout += chunk;
+      process.stdout.write(chunk);
+    });
+    proc.stderr.on('data', (data) => {
+      const chunk = data.toString();
+      stderr += chunk;
+      process.stderr.write(chunk);
+    });
+    proc.on('close', (code) => resolve({ code, stdout, stderr }));
   });
 }
 
-async function verifyProd() {
+async function verifyLocalWithHealing() {
+  printStep(1, 'Running Local E2E Tests');
+
+  await sendSlackNotification(
+    '⏳ Local Verification Started',
+    `Running local Playwright test suites...`,
+    '#3aa3e3',
+  );
+
+  for (let attempt = 0; attempt <= MAX_HEAL_ATTEMPTS; attempt++) {
+    if (attempt > 0) {
+      console.log(
+        `\n${PURPLE}${BOLD}🤖 Self-Heal Attempt ${attempt}/${MAX_HEAL_ATTEMPTS}${RESET} — re-running test suite after auto-fix...\n`,
+      );
+      await sendSlackNotification(
+        `🤖 Self-Heal Retry #${attempt}`,
+        `Auto-fix applied. Re-running local E2E suite...`,
+        '#f2c744',
+      );
+    }
+
+    const { code, stdout, stderr } = await runTests('@vently/web', 'test:e2e');
+    if (code === 0) {
+      console.log(`\n${GREEN}${BOLD}✔ All local E2E tests passed!${RESET}\n`);
+      if (attempt > 0) {
+        await sendSlackNotification(
+          `✅ Self-Heal Succeeded (attempt ${attempt})`,
+          `Local E2E suite recovered after auto-fix.`,
+          '#2eb886',
+        );
+      }
+      return true;
+    }
+
+    const failures = getFailingTests(stdout + '\n' + stderr);
+    const failureList =
+      failures.length > 0
+        ? failures
+        : [
+            {
+              title: 'E2E Suite Failure',
+              details: ['Playwright test execution failed. Check console output above.'],
+            },
+          ];
+
+    // If healing is disabled, or we've exhausted attempts, write bugs.md and bail
+    if (NO_HEAL || !ANTHROPIC_KEY || attempt >= MAX_HEAL_ATTEMPTS) {
+      await writeBugsMd(failureList, 'Local E2E Tests');
+      return false;
+    }
+
+    console.log(
+      `\n${YELLOW}${BOLD}🩺 Test suite failed. Invoking Claude self-heal (attempt ${attempt + 1}/${MAX_HEAL_ATTEMPTS})...${RESET}\n`,
+    );
+
+    const healResult = await tryAutoHeal({
+      failures: failureList,
+      rawOutput: (stdout + '\n' + stderr).slice(-20_000),
+      workspaceRoot: WORKSPACE_ROOT,
+      anthropicKey: ANTHROPIC_KEY,
+    });
+
+    if (!healResult.applied) {
+      console.log(
+        `${RED}${BOLD}✗ Self-heal could not produce a safe patch: ${healResult.reason}${RESET}\n`,
+      );
+      await writeBugsMd(failureList, 'Local E2E Tests');
+      return false;
+    }
+
+    console.log(
+      `${GREEN}${BOLD}✔ Self-heal applied edits to: ${healResult.filesChanged.join(', ')}${RESET}\n`,
+    );
+    await sendSlackNotification(
+      `🤖 Auto-Fix Applied`,
+      `Claude proposed edits to: \`${healResult.filesChanged.join('`, `')}\`. Re-running tests...`,
+      '#3aa3e3',
+    );
+  }
+
+  return false;
+}
+
+async function runProdSuite() {
+  return runTests('@vently/web', 'test:agent', { E2E_WEB_URL: PROD_URL });
+}
+
+async function verifyProdWithHealing(branch) {
   printStep(4, 'Running Production Verification Smoke Tests');
-  
+
   await sendSlackNotification(
     '⏳ Production Verification Started',
     `Running production Playwright smoke tests against ${PROD_URL}...`,
-    '#3aa3e3'
+    '#3aa3e3',
   );
 
-  let stdout = '';
-  let stderr = '';
-  
-  const proc = spawn('pnpm', ['--filter', '@vently/web', 'test:agent'], {
-    env: { ...process.env, FORCE_COLOR: '1', E2E_WEB_URL: PROD_URL }
-  });
+  for (let attempt = 0; attempt <= MAX_HEAL_ATTEMPTS; attempt++) {
+    if (attempt > 0) {
+      console.log(
+        `\n${PURPLE}${BOLD}🤖 Prod Self-Heal Attempt ${attempt}/${MAX_HEAL_ATTEMPTS}${RESET}\n`,
+      );
+    }
 
-  proc.stdout.on('data', (data) => {
-    const chunk = data.toString();
-    stdout += chunk;
-    process.stdout.write(chunk);
-  });
-
-  proc.stderr.on('data', (data) => {
-    const chunk = data.toString();
-    stderr += chunk;
-    process.stderr.write(chunk);
-  });
-
-  return new Promise((resolve) => {
-    proc.on('close', (code) => {
-      if (code !== 0) {
-        const failures = getFailingTests(stdout + '\n' + stderr);
-        if (failures.length > 0) {
-          writeBugsMd(failures, 'Production E2E Tests');
-        } else {
-          writeBugsMd([{ title: 'Production E2E Suite Failure', details: ['Playwright production tests failed. Check console output.'] }], 'Production E2E Tests');
-        }
-        resolve(false);
-      } else {
-        console.log(`\n${GREEN}${BOLD}✔ All Production E2E tests passed successfully against ${PROD_URL}!${RESET}\n`);
-        resolve(true);
+    const { code, stdout, stderr } = await runProdSuite();
+    if (code === 0) {
+      console.log(
+        `\n${GREEN}${BOLD}✔ All Production E2E tests passed against ${PROD_URL}!${RESET}\n`,
+      );
+      if (attempt > 0) {
+        await sendSlackNotification(
+          `✅ Prod Self-Heal Succeeded (attempt ${attempt})`,
+          `Production E2E recovered after auto-fix + redeploy.`,
+          '#2eb886',
+        );
       }
+      return true;
+    }
+
+    const failures = getFailingTests(stdout + '\n' + stderr);
+    const failureList =
+      failures.length > 0
+        ? failures
+        : [
+            {
+              title: 'Production E2E Suite Failure',
+              details: ['Playwright production tests failed. Check console output.'],
+            },
+          ];
+
+    if (NO_HEAL || !ANTHROPIC_KEY || attempt >= MAX_HEAL_ATTEMPTS) {
+      await writeBugsMd(failureList, 'Production E2E Tests');
+      return false;
+    }
+
+    console.log(
+      `\n${YELLOW}${BOLD}🩺 Prod tests failed. Invoking Claude self-heal (attempt ${attempt + 1}/${MAX_HEAL_ATTEMPTS})...${RESET}\n`,
+    );
+    await sendSlackNotification(
+      `🤖 Prod Self-Heal Triggered`,
+      `Production tests failed. Asking Claude to patch the source...`,
+      '#f2c744',
+    );
+
+    const healResult = await tryAutoHeal({
+      failures: failureList,
+      rawOutput: (stdout + '\n' + stderr).slice(-20_000),
+      workspaceRoot: WORKSPACE_ROOT,
+      anthropicKey: ANTHROPIC_KEY,
     });
-  });
+
+    if (!healResult.applied) {
+      console.log(
+        `${RED}${BOLD}✗ Self-heal could not produce a safe patch: ${healResult.reason}${RESET}\n`,
+      );
+      await writeBugsMd(failureList, 'Production E2E Tests');
+      return false;
+    }
+
+    console.log(
+      `${GREEN}${BOLD}✔ Self-heal applied edits to: ${healResult.filesChanged.join(', ')}${RESET}\n`,
+    );
+
+    // Commit + push the auto-fix so prod redeploys.
+    try {
+      await commitAndPush(
+        branch,
+        `fix(auto-heal): patch failing prod E2E tests (attempt ${attempt + 1})`,
+      );
+      await sendSlackNotification(
+        `🤖 Auto-Fix Pushed (prod attempt ${attempt + 1})`,
+        `Patched \`${healResult.filesChanged.join('`, `')}\`. Waiting for production redeploy...`,
+        '#3aa3e3',
+      );
+    } catch (err) {
+      console.log(`${RED}Auto-heal commit failed: ${err.message}${RESET}`);
+      await writeBugsMd(failureList, 'Production E2E Tests');
+      return false;
+    }
+
+    // Wait for prod redeploy before retrying.
+    const isOnline = await pollProdUrl();
+    if (!isOnline) {
+      const msg = 'Auto-heal redeploy timeout. Production URL never came back online.';
+      console.log(`${RED}${BOLD}${msg}${RESET}`);
+      await sendSlackNotification('❌ Auto-Heal Redeploy Timeout', msg, '#a30200');
+      return false;
+    }
+  }
+
+  return false;
 }
 
 async function pollProdUrl(maxRetries = 30) {
@@ -254,111 +402,165 @@ async function pollProdUrl(maxRetries = 30) {
         return true;
       }
     } catch {
-      // Offline or DNS not ready yet
+      // not ready yet
     }
-    console.log(`${YELLOW}Waiting for production build to complete... (${i + 1}/${maxRetries})${RESET}`);
-    await new Promise(r => setTimeout(r, 10000));
+    console.log(
+      `${YELLOW}Waiting for production build to complete... (${i + 1}/${maxRetries})${RESET}`,
+    );
+    await new Promise((r) => setTimeout(r, 10000));
   }
   return false;
+}
+
+function configureGitIdentity() {
+  // CI runs as a detached HEAD without a configured identity. Set one so
+  // auto-heal commits don't crash. No-op locally when identity already exists.
+  try {
+    execSync('git config user.email', { stdio: 'pipe' });
+  } catch {
+    execSync('git config user.email "vently-bot@users.noreply.github.com"');
+  }
+  try {
+    execSync('git config user.name', { stdio: 'pipe' });
+  } catch {
+    execSync('git config user.name "Vently CI Bot"');
+  }
+}
+
+async function commitAndPush(branch, commitMsg) {
+  const status = execSync('git status --porcelain').toString().trim();
+  if (status.length === 0) {
+    console.log(`${YELLOW}No changes to commit. Continuing.${RESET}`);
+    return false;
+  }
+  configureGitIdentity();
+  console.log(`${BLUE}Staging all changes...${RESET}`);
+  execSync('git add .');
+  console.log(`${BLUE}Committing: "${commitMsg}"...${RESET}`);
+  execSync(`git commit -m "${commitMsg}"`);
+  printStep(3, `Pushing changes to Git branch: ${branch}`);
+  execSync(`git push origin HEAD:${branch}`);
+  console.log(`${GREEN}✔ Changes successfully pushed to remote!${RESET}\n`);
+  return true;
 }
 
 async function main() {
   const branch = await getBranchName();
   printHeader(`Verification Loop Start (Branch: ${branch})`);
-  
+
   if (IS_CI && !SLACK_WEBHOOK) {
-    console.log(`\n${YELLOW}${BOLD}⚠️  Warning: SLACK_WEBHOOK_URL is missing in GitHub Actions environment variables.${RESET}`);
-    console.log(`${YELLOW}Please add SLACK_WEBHOOK_URL to your GitHub Repository Secrets to receive Slack updates!${RESET}\n`);
+    console.log(
+      `${YELLOW}${BOLD}⚠️  SLACK_WEBHOOK_URL is missing — Slack updates disabled.${RESET}`,
+    );
+  }
+  if (IS_CI && !ANTHROPIC_KEY && !NO_HEAL) {
+    console.log(
+      `${YELLOW}${BOLD}⚠️  ANTHROPIC_API_KEY is missing — self-heal disabled. Add the secret to enable AI auto-fix.${RESET}`,
+    );
   }
 
-  // 1. Run local verification
+  // 1. Local verification (with self-healing retries)
   if (IS_CI && !IS_LOCAL_ONLY) {
-    console.log(`\n${YELLOW}${BOLD}ℹ️  CI Run: Skipping local E2E verification. Proceeding directly to production deployment smoke tests...${RESET}\n`);
+    console.log(
+      `${YELLOW}${BOLD}ℹ️  CI Run: Skipping local E2E. Going straight to commit + prod smoke tests.${RESET}\n`,
+    );
   } else {
-    const localPassed = await verifyLocal();
+    const localPassed = await verifyLocalWithHealing();
     if (!localPassed) {
-      console.log(`${RED}${BOLD}Pipeline halted. Please review bugs.md and apply necessary fixes.${RESET}`);
+      console.log(`${RED}${BOLD}Pipeline halted. Review bugs.md and apply fixes manually.${RESET}`);
       process.exit(1);
     }
 
-    // If local-only mode was selected, exit clean here
     if (IS_LOCAL_ONLY) {
       await sendSlackNotification(
         '✔ Local Verification Succeeded',
-        `All E2E tests passed successfully (Local Only Mode).`,
-        '#2eb886'
+        `All E2E tests passed (Local Only Mode).`,
+        '#2eb886',
+        [{ title: 'Branch', value: branch, short: true }],
       );
       console.log(`${GREEN}${BOLD}✔ Local verification complete. Exiting (--local-only).${RESET}`);
       process.exit(0);
     }
   }
 
-  // 2. Local passed -> Commit & Push
+  // 2. Commit & push (including any self-heal edits)
   printStep(2, 'Staging and Committing Changes');
   try {
-    const status = execSync('git status --porcelain').toString().trim();
-    if (status.length === 0) {
-      console.log(`${YELLOW}No changes to commit. Proceeding to deployment verification.${RESET}`);
-    } else {
-      console.log(`${BLUE}Staging all changes...${RESET}`);
-      execSync('git add .');
-      
-      const commitMsg = `verify: automatic E2E check pass on branch ${branch}`;
-      console.log(`${BLUE}Committing: "${commitMsg}"...${RESET}`);
-      execSync(`git commit -m "${commitMsg}"`);
-      
-      printStep(3, `Pushing changes to Git branch: ${branch}`);
-      execSync(`git push origin ${branch}`);
-      console.log(`${GREEN}✔ Changes successfully pushed to remote!${RESET}\n`);
+    const pushed = await commitAndPush(
+      branch,
+      `verify: automatic E2E check pass on branch ${branch}`,
+    );
+    if (pushed) {
+      await sendSlackNotification(
+        '📤 Auto-Commit Pushed',
+        `Changes pushed to \`${branch}\`. Waiting for production deployment...`,
+        '#3aa3e3',
+      );
     }
   } catch (err) {
     console.log(`${RED}Git operations failed: ${err.message}${RESET}`);
+    await sendSlackNotification(
+      '❌ Auto-Commit Failed',
+      `Could not commit/push pipeline changes: \`${err.message}\``,
+      '#a30200',
+    );
     process.exit(1);
   }
 
-  // 3. Monitor / Wait for Prod Deployment
-  console.log(`${PURPLE}${BOLD}================================================================================${RESET}`);
+  // 3. Wait for prod deployment
+  console.log(
+    `${PURPLE}${BOLD}================================================================================${RESET}`,
+  );
   console.log(`${YELLOW}${BOLD} ⏳ Deployment In Progress...${RESET}`);
-  console.log(`${YELLOW} Please wait for your Vercel/Railway build to finish deploying to production.${RESET}`);
   console.log(`${YELLOW} Host URL: ${BOLD}${PROD_URL}${RESET}`);
-  console.log(`${PURPLE}${BOLD}================================================================================${RESET}\n`);
+  console.log(
+    `${PURPLE}${BOLD}================================================================================${RESET}\n`,
+  );
 
   if (IS_CI) {
-    // Under CI mode, automatically poll the URL instead of waiting interactively
     const isOnline = await pollProdUrl();
     if (!isOnline) {
-      console.log(`${RED}${BOLD}Deployment timeout: Production URL failed to respond with 200 OK within 5 minutes.${RESET}`);
+      const msg = 'Deployment timeout: Production URL failed to respond within 5 minutes.';
+      console.log(`${RED}${BOLD}${msg}${RESET}`);
+      await sendSlackNotification('❌ Deployment Timeout', msg, '#a30200');
       process.exit(1);
     }
   } else {
-    const deployAns = await askQuestion(`${CYAN}${BOLD}Type 'ok' and press Enter once the build is successfully deployed: ${RESET}`);
+    const deployAns = await askQuestion(`${CYAN}${BOLD}Type 'ok' once deployed: ${RESET}`);
     if (deployAns.trim().toLowerCase() !== 'ok') {
       console.log(`${YELLOW}Smoke tests skipped by user request.${RESET}`);
       process.exit(0);
     }
   }
 
-  // 4. Verification in Prod
-  const prodPassed = await verifyProd();
+  // 4. Production verification (with self-heal + redeploy loop)
+  const prodPassed = await verifyProdWithHealing(branch);
   if (!prodPassed) {
-    console.log(`${RED}${BOLD}Pipeline finished with production errors. See bugs.md for detail.${RESET}`);
+    console.log(
+      `${RED}${BOLD}Pipeline finished with production errors. See bugs.md for detail.${RESET}`,
+    );
     process.exit(1);
   }
 
   await sendSlackNotification(
     '🎉 Pipeline Deployment & E2E Succeeded',
-    `All smoke tests successfully verified against the live environment: ${PROD_URL}!`,
+    `All smoke tests verified against ${PROD_URL}!`,
     '#2eb886',
     [
       { title: 'Branch', value: branch, short: true },
-      { title: 'Environment', value: 'Production', short: true }
-    ]
+      { title: 'Environment', value: 'Production', short: true },
+    ],
   );
 
-  console.log(`\n${GREEN}${BOLD}🎉 Pipeline Finished Successfully! Your feature is live and fully verified! 🥂${RESET}\n`);
+  console.log(`\n${GREEN}${BOLD}🎉 Pipeline Finished Successfully! 🥂${RESET}\n`);
 }
 
-main().catch((err) => {
+main().catch(async (err) => {
   console.error(`${RED}Pipeline crash: ${err.message}${RESET}`);
+  await sendSlackNotification(
+    '💥 Pipeline Crash',
+    `Unhandled error: \`${err.message}\``,
+    '#a30200',
+  );
   process.exit(1);
 });

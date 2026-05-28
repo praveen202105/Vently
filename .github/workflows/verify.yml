@@ -9,17 +9,32 @@ on:
     types: [verify_pipeline]
   workflow_dispatch:
 
+# Required so the self-healing pipeline can push commits back to the branch.
+permissions:
+  contents: write
+  actions: read
+
 jobs:
   verify:
     name: Verify & Deploy smoke test
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 45
 
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v4
         with:
           ref: ${{ github.event.client_payload.branch || github.ref || 'main' }}
+          # token with write scope is required so verify-feature.js can push
+          # auto-heal commits back. GITHUB_TOKEN gets `contents: write` from
+          # the workflow-level permissions block above.
+          token: ${{ secrets.GITHUB_TOKEN }}
+          fetch-depth: 0
+
+      - name: Configure Git identity
+        run: |
+          git config user.email "vently-bot@users.noreply.github.com"
+          git config user.name "Vently CI Bot"
 
       - name: Install pnpm
         uses: pnpm/action-setup@v4
@@ -47,19 +62,36 @@ jobs:
         env:
           FORCE_COLOR: '1'
           SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          MAX_HEAL_ATTEMPTS: '2'
           CI: 'true'
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          GITHUB_RUN_ID: ${{ github.run_id }}
+          GITHUB_SERVER_URL: ${{ github.server_url }}
           NEXT_PUBLIC_API_URL: http://localhost:4000/api
           NEXT_PUBLIC_SOCKET_URL: http://localhost:4000
           NEXT_PUBLIC_VAPID_PUBLIC_KEY: placeholder_vapid_key_for_build
           DATABASE_URL: postgresql://placeholder:placeholder@localhost:5432/placeholder
           REDIS_URL: redis://localhost:6379
-        # Run local verification only on pull requests (since deployment is not live yet)
-        # On push to main, run full local & prod smoke tests
+        # PR: run local-only verification (no commit/push, no prod tests).
+        # Push to main / Slack dispatch / manual: full pipeline with self-heal,
+        # auto-commit, deploy wait, and prod smoke tests.
         run: |
           if [ "${{ github.event_name }}" = "pull_request" ]; then
             node scripts/verify-feature.js --local-only
           else
-            # Push to main: runs full pipeline.
-            # Note: For fully unattended CI runs, we can bypass the interactive deployment wait.
             node scripts/verify-feature.js --ci
           fi
+
+      - name: Upload Playwright artefacts on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-artifacts
+          path: |
+            apps/web/agent-results/
+            apps/web/agent-report/
+            apps/web/playwright-report/
+            bugs.md
+          retention-days: 7
+          if-no-files-found: ignore
