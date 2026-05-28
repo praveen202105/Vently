@@ -26,7 +26,9 @@ const IS_CI = args.includes('--ci') || process.env.CI === 'true';
 const NO_HEAL = args.includes('--no-heal');
 
 const SLACK_WEBHOOK = process.env.SLACK_WEBHOOK_URL;
-const ANTHROPIC_KEY = process.env.ANTHROPIC_API_KEY;
+// We accept either GEMINI_API_KEY (preferred) or ANTHROPIC_API_KEY (legacy).
+// heal-bug.js always routes to the Gemini API regardless of which is set.
+const HEAL_KEY = process.env.GEMINI_API_KEY || process.env.ANTHROPIC_API_KEY;
 const MAX_HEAL_ATTEMPTS = Number(process.env.MAX_HEAL_ATTEMPTS || 2);
 
 const GITHUB_SERVER_URL = process.env.GITHUB_SERVER_URL || 'https://github.com';
@@ -155,7 +157,7 @@ async function writeBugsMd(failures, phase) {
 
   await sendSlackNotification(
     `❌ Failure during ${phase}`,
-    `Test suite failed. See bugs.md for details. Self-heal attempts ${NO_HEAL || !ANTHROPIC_KEY ? 'disabled' : 'in progress'}.`,
+    `Test suite failed. See bugs.md for details. Self-heal attempts ${NO_HEAL || !HEAL_KEY ? 'disabled' : 'in progress'}.`,
     '#a30200',
     slackFields,
   );
@@ -246,7 +248,7 @@ async function verifyLocalWithHealing() {
           ];
 
     // If healing is disabled, or we've exhausted attempts, write bugs.md and bail
-    if (NO_HEAL || !ANTHROPIC_KEY || attempt >= MAX_HEAL_ATTEMPTS) {
+    if (NO_HEAL || !HEAL_KEY || attempt >= MAX_HEAL_ATTEMPTS) {
       await writeBugsMd(failureList, 'Local E2E Tests');
       return false;
     }
@@ -259,7 +261,7 @@ async function verifyLocalWithHealing() {
       failures: failureList,
       rawOutput: (stdout + '\n' + stderr).slice(-20_000),
       workspaceRoot: WORKSPACE_ROOT,
-      anthropicKey: ANTHROPIC_KEY,
+      geminiKey: HEAL_KEY,
     });
 
     if (!healResult.applied) {
@@ -329,7 +331,7 @@ async function verifyProdWithHealing(branch) {
             },
           ];
 
-    if (NO_HEAL || !ANTHROPIC_KEY || attempt >= MAX_HEAL_ATTEMPTS) {
+    if (NO_HEAL || !HEAL_KEY || attempt >= MAX_HEAL_ATTEMPTS) {
       await writeBugsMd(failureList, 'Production E2E Tests');
       return false;
     }
@@ -347,7 +349,7 @@ async function verifyProdWithHealing(branch) {
       failures: failureList,
       rawOutput: (stdout + '\n' + stderr).slice(-20_000),
       workspaceRoot: WORKSPACE_ROOT,
-      anthropicKey: ANTHROPIC_KEY,
+      geminiKey: HEAL_KEY,
     });
 
     if (!healResult.applied) {
@@ -453,9 +455,9 @@ async function main() {
       `${YELLOW}${BOLD}⚠️  SLACK_WEBHOOK_URL is missing — Slack updates disabled.${RESET}`,
     );
   }
-  if (IS_CI && !ANTHROPIC_KEY && !NO_HEAL) {
+  if (IS_CI && !HEAL_KEY && !NO_HEAL) {
     console.log(
-      `${YELLOW}${BOLD}⚠️  ANTHROPIC_API_KEY is missing — self-heal disabled. Add the secret to enable AI auto-fix.${RESET}`,
+      `${YELLOW}${BOLD}⚠️  GEMINI_API_KEY is missing — self-heal disabled. Add the secret to enable AI auto-fix.${RESET}`,
     );
   }
 
