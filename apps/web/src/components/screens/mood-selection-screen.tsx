@@ -68,7 +68,7 @@ export function MoodSelectionScreen() {
   };
 
   return (
-    <div className="min-h-screen relative overflow-hidden p-6">
+    <div className="min-h-dvh relative overflow-hidden p-6">
       <AnimatedBackground variant="mood" />
 
       <div className="relative z-10 max-w-2xl mx-auto pt-8">

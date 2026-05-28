@@ -393,11 +393,13 @@ Block enforcement: after popping a peer from Lua, the service checks the `Block`
 ### 6.4 Realtime chat
 
 #### What the user sees
-- After a match, `/chat/[conversationId]` opens for both users.
-- Type a message → press Enter or hit Send → message appears instantly on both screens.
-- "typing…" indicator under the peer's name when they're composing.
-- Old messages persist across refreshes.
-- Header buttons: Save-as-friend, Phone (start voice call), Report, Block, End.
+- **Realtime Text Exchange**: `/chat/[conversationId]` opens automatically on match. Sending messages is instantaneous.
+- **Dynamic Viewport Height (`dvh`)**: Root chat container scales automatically to perfectly fit mobile screens and dynamic keyboards without cutoffs or hidden composers.
+- **Bouncing Inline Typing Bubble**: A fluid inline bubble with three bouncing dots animates at the bottom of the chat list while the peer is actively typing, providing a gorgeous, native messaging feedback loop (replaces static header text).
+- **Haptic touch-long-press menus**: On touch-screen mobile devices, pressing a bubble for 500ms triggers a haptic vibration (`navigator.vibrate(15)`) and pops up the custom **Reply / Delete** context action overlay.
+- **Smart Scroll protection & "New Message 👇" badge**: Scroll-proximity limits prevent the view from violently auto-scrolling when a peer message arrives while you are reading historical messages. A glassmorphic button floats above the composer instead to let you jump back down, disappearing automatically when you scroll near the bottom.
+- **Reactive connection banner**: If the websocket loses connection, a top glassmorphic banner slides in indicating *"Connection lost. Reconnecting..."* with a pulsing yellow warning indicator, sliding out automatically when connection is restored.
+- **Header Actions**: Clean online/offline peer state text, save-as-friend, voice-calling, blocking, and reporting triggers.
 
 #### Files
 - Backend: [chat.gateway.ts](apps/api/src/chat/chat.gateway.ts), [messages.service.ts](apps/api/src/messages/messages.service.ts), [conversations.service.ts](apps/api/src/conversations/conversations.service.ts)
@@ -419,7 +421,18 @@ All chat traffic flows over **Socket.io** (not REST), except the initial history
   - `chat:ack { clientId, messageId }` back to sender → swap optimistic message with real one.
   - `chat:message { …fullMessage }` to the rest of the room → peer renders it.
 
-**Typing:** debounced 300 ms emit of `chat:typing { isTyping: true }`. Auto-stops 3 s after last keystroke (timer). Server forwards `chat:typing-status { userId, isTyping }` to room.
+**Typing & Bouncing Indicators:**
+- Typing emits a debounced 300ms `chat:typing { isTyping: true }` event. Auto-stops 3s after last keystroke.
+- The inline typing bubble is rendered at the bottom of the list when `peerTyping` is true, and is wrapped inside `<AnimatePresence>` for beautiful exit fade transitions when typing stops.
+
+**Touch Handlers (Mobile Long-press):**
+- Coordinates tracked via `onTouchStart` and `onTouchMove` to ignore swipe movements. If touch persists for `500ms`, `navigator.vibrate(15)` fires, showing the contextual option card (Reply / Delete).
+
+**Scroll Management & Badge:**
+- Proximity checks compute `scrollHeight - scrollTop - clientHeight < 150`. If the user is scrolled up, incoming messages toggle `showNewMessageBadge` to true. Clicking the badge triggers smooth scrolling to bottom and clears the state. An `onScroll` handler on the container also clears the badge if the user manually scrolls back down.
+
+**Network Connectivity States:**
+- The socket instance hooks standard client events (`connect`, `disconnect`) to mirror connectivity state into a reactive local state hook, triggering a sliding header alert.
 
 **Read receipts:** when a message scrolls into view (IntersectionObserver), client emits `chat:read { conversationId, lastMessageId }`. Server upserts `MessageReceipt.readAt` for every prior message + emits `chat:read-status` to peer.
 
@@ -427,9 +440,10 @@ All chat traffic flows over **Socket.io** (not REST), except the initial history
 
 #### What the user sees
 1. In a chat, click the Phone icon in the header → call screen opens, "Calling…" ringback tone plays.
-2. The other side gets a top-right banner with the ringtone + Accept/Reject buttons.
-3. Accept → both phones connect → "00:00 …" timer starts → audio flows P2P.
-4. Either side hits the red phone button to hang up. Duration is saved as a `CallSession` row.
+2. The user sees a modern, dynamic avatar surrounded by **glowing, concentric pulsing rings** using Framer Motion (`motion.div` keyframes) to represent connecting and dialer states.
+3. The other side gets a top-right banner with the ringtone + Accept/Reject buttons.
+4. Accept → both phones connect → "00:00 …" timer starts → audio flows P2P.
+5. Either side hits the red phone button to hang up. Duration is saved as a `CallSession` row.
 
 #### Files
 - Backend: [calls.gateway.ts](apps/api/src/calls/calls.gateway.ts), [calls.service.ts](apps/api/src/calls/calls.service.ts), [webrtc/ice.service.ts](apps/api/src/webrtc/ice.service.ts)

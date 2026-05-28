@@ -4,7 +4,7 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 import { useRouter } from 'next/navigation';
 import { useInfiniteQuery, useQuery, useQueryClient } from '@tanstack/react-query';
 import { motion, AnimatePresence } from 'motion/react';
-import { AlertCircle, ArrowLeft, Check, Phone, Reply, RotateCw, Search, Send, Trash2, UserPlus, Shield, Flag, X, Sparkles } from 'lucide-react';
+import { AlertCircle, ArrowLeft, ArrowDown, Check, Phone, Reply, RotateCw, Search, Send, Trash2, UserPlus, Shield, Flag, X, Sparkles } from 'lucide-react';
 import { toast } from 'sonner';
 import {
   SocketEvents,
@@ -122,6 +122,17 @@ export function ChatScreen({ conversationId }: { conversationId: string }) {
   // Context menu (delete) — which message is the target.
   const [ctxMenuMessageId, setCtxMenuMessageId] = useState<string | null>(null);
 
+  // New message floating badge state
+  const [showNewMessageBadge, setShowNewMessageBadge] = useState(false);
+  const prevMessagesCountRef = useRef(messages.length);
+
+  // Reactive socket connection state
+  const [socketConnected, setSocketConnected] = useState(true);
+
+  // Touch long-press context menu states
+  const touchTimeoutRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const touchStartRef = useRef<{ x: number; y: number } | null>(null);
+
   // Search state
   const [searchOpen, setSearchOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
@@ -146,6 +157,30 @@ export function ChatScreen({ conversationId }: { conversationId: string }) {
 
   // Apply the unread tab badge hook
   useUnreadTabBadge(tabUnread, 'Vently');
+
+  // Track socket connection reactivity for connection banners
+  useEffect(() => {
+    if (!socket) {
+      setSocketConnected(false);
+      return;
+    }
+    setSocketConnected(socket.connected);
+    const onConnect = () => setSocketConnected(true);
+    const onDisconnect = () => setSocketConnected(false);
+    socket.on('connect', onConnect);
+    socket.on('disconnect', onDisconnect);
+    return () => {
+      socket.off('connect', onConnect);
+      socket.off('disconnect', onDisconnect);
+    };
+  }, [socket]);
+
+  // Touch timeouts cleanup on unmount
+  useEffect(() => {
+    return () => {
+      if (touchTimeoutRef.current) clearTimeout(touchTimeoutRef.current);
+    };
+  }, []);
 
   const typingTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const lastTypingEmitRef = useRef(0);
@@ -635,6 +670,12 @@ export function ChatScreen({ conversationId }: { conversationId: string }) {
     return () => observer.disconnect();
   }, [hasNextPage, isFetchingNextPage, fetchNextPage]);
 
+  const sortedMessages = useMemo(
+    () =>
+      [...messages].sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()),
+    [messages],
+  );
+
   // Combined scroll management:
   //  - if older messages just prepended, keep the user anchored to what
   //    they were already reading (compensate for the new content above).
@@ -646,6 +687,12 @@ export function ChatScreen({ conversationId }: { conversationId: string }) {
   useLayoutEffect(() => {
     const scroller = scrollRef.current;
     if (!scroller) return;
+
+    const lastMsg = sortedMessages[sortedMessages.length - 1];
+    const isLastMine = lastMsg?.senderId === me?.id;
+    const messageAdded = messages.length > prevMessagesCountRef.current;
+    prevMessagesCountRef.current = messages.length;
+
     if (isPrependingRef.current) {
       const diff = scroller.scrollHeight - prevScrollHeightRef.current;
       if (diff > 0) scroller.scrollTop = diff;
@@ -653,12 +700,17 @@ export function ChatScreen({ conversationId }: { conversationId: string }) {
       prevScrollHeightRef.current = 0;
       return;
     }
+
     const nearBottom =
-      scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight < 100;
-    if (nearBottom) {
+      scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight < 150;
+
+    if (isLastMine || nearBottom) {
       scroller.scrollTo({ top: scroller.scrollHeight, behavior: 'smooth' });
+      setShowNewMessageBadge(false);
+    } else if (messageAdded && !isLastMine) {
+      setShowNewMessageBadge(true);
     }
-  }, [messages.length, peerTyping]);
+  }, [messages, sortedMessages, me?.id]);
 
   // Mark the latest message read whenever a new peer message lands — keeps
   // the unread badge accurate without needing a per-bubble IntersectionObserver.
@@ -906,14 +958,8 @@ export function ChatScreen({ conversationId }: { conversationId: string }) {
     }
   };
 
-  const sortedMessages = useMemo(
-    () =>
-      [...messages].sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()),
-    [messages],
-  );
-
   return (
-    <div className="min-h-screen flex flex-col relative">
+    <div className="h-dvh min-h-dvh flex flex-col relative overflow-hidden">
       <header className="flex items-center gap-3 p-4 border-b border-glass-border bg-glass-bg backdrop-blur-xl sticky top-0 z-10">
         <button
           type="button"
@@ -942,9 +988,7 @@ export function ChatScreen({ conversationId }: { conversationId: string }) {
             <div className="flex-1 min-w-0">
               <p className="truncate">{peer?.nickname ?? 'Stranger'}</p>
               <p className="text-xs text-muted-foreground">
-                {peerTyping
-                  ? `${isFriendConvo ? (peer?.nickname ?? 'Peer') : 'Peer'} is typing…`
-                  : peer ? 'online' : '—'}
+                {peer ? 'online' : '—'}
               </p>
             </div>
           </>
@@ -1021,6 +1065,20 @@ export function ChatScreen({ conversationId }: { conversationId: string }) {
           <Search className="w-5 h-5" />
         </button>
       </header>
+
+      <AnimatePresence>
+        {!socketConnected && (
+          <motion.div
+            initial={{ opacity: 0, height: 0 }}
+            animate={{ opacity: 1, height: 'auto' }}
+            exit={{ opacity: 0, height: 0 }}
+            className="bg-amber-500/10 border-b border-amber-500/20 text-amber-300 text-xs px-4 py-2 flex items-center justify-center gap-2 z-10"
+          >
+            <span className="w-2 h-2 rounded-full bg-amber-400 animate-pulse shrink-0" />
+            <span>Connection lost. Reconnecting to chat network…</span>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {/* Search results overlay */}
       <AnimatePresence>
@@ -1173,6 +1231,15 @@ export function ChatScreen({ conversationId }: { conversationId: string }) {
         data-testid="message-list"
         className="flex-1 overflow-y-auto p-4 space-y-3"
         aria-live="polite"
+        onScroll={() => {
+          const scroller = scrollRef.current;
+          if (!scroller) return;
+          const nearBottom =
+            scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight < 150;
+          if (nearBottom) {
+            setShowNewMessageBadge(false);
+          }
+        }}
       >
         {/* Sentinel + indicator for "load older" pagination. The IntersectionObserver
             attached to topSentinelRef triggers fetchNextPage whenever it enters
@@ -1250,6 +1317,42 @@ export function ChatScreen({ conversationId }: { conversationId: string }) {
                           if (!msg.pending && !msg.failed && !msg.deletedAt) {
                             setCtxMenuMessageId((id) => (id === msg.id ? null : msg.id));
                           }
+                        }}
+                        onTouchStart={(e) => {
+                          const touch = e.touches[0];
+                          if (!touch) return;
+                          if (touchTimeoutRef.current) clearTimeout(touchTimeoutRef.current);
+                          touchStartRef.current = {
+                            x: touch.clientX,
+                            y: touch.clientY,
+                          };
+                          touchTimeoutRef.current = setTimeout(() => {
+                            if (typeof navigator !== 'undefined' && navigator.vibrate) {
+                              navigator.vibrate(15);
+                            }
+                            setPickerOpenForId(msg.id);
+                            if (!msg.pending && !msg.failed && !msg.deletedAt) {
+                              setCtxMenuMessageId(msg.id);
+                            }
+                          }, 500);
+                        }}
+                        onTouchMove={(e) => {
+                          const touch = e.touches[0];
+                          if (!touch || !touchStartRef.current) return;
+                          const dx = Math.abs(touch.clientX - touchStartRef.current.x);
+                          const dy = Math.abs(touch.clientY - touchStartRef.current.y);
+                          if (dx > 10 || dy > 10) {
+                            if (touchTimeoutRef.current) clearTimeout(touchTimeoutRef.current);
+                            touchStartRef.current = null;
+                          }
+                        }}
+                        onTouchEnd={() => {
+                          if (touchTimeoutRef.current) clearTimeout(touchTimeoutRef.current);
+                          touchStartRef.current = null;
+                        }}
+                        onTouchCancel={() => {
+                          if (touchTimeoutRef.current) clearTimeout(touchTimeoutRef.current);
+                          touchStartRef.current = null;
                         }}
                         className={`px-4 py-2.5 rounded-2xl ${
                           mine
@@ -1362,35 +1465,58 @@ export function ChatScreen({ conversationId }: { conversationId: string }) {
           </>
         )}
 
-        {peerTyping && (
-          <motion.div
-            initial={{ opacity: 0, y: 8 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: 8 }}
-            className="flex justify-start"
-          >
-            <GlassCard className="px-4 py-2.5">
-              <div className="flex flex-col gap-1">
-                {peer?.nickname && (
-                  <span className="text-[10px] text-muted-foreground font-medium">
-                    {peer.nickname}
-                  </span>
-                )}
-                <div className="flex items-center gap-1.5">
-                  {[0, 1, 2].map((i) => (
-                    <motion.span
-                      key={i}
-                      animate={{ scale: [1, 1.4, 1], opacity: [0.3, 1, 0.3] }}
-                      transition={{ duration: 1, repeat: Infinity, delay: i * 0.2 }}
-                      className="w-1.5 h-1.5 rounded-full bg-muted-foreground"
-                    />
-                  ))}
+        <AnimatePresence>
+          {peerTyping && (
+            <motion.div
+              initial={{ opacity: 0, y: 8 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: 8 }}
+              className="flex justify-start"
+            >
+              <GlassCard className="px-4 py-2.5">
+                <div className="flex flex-col gap-1">
+                  {peer?.nickname && (
+                    <span className="text-[10px] text-muted-foreground font-medium">
+                      {peer.nickname}
+                    </span>
+                  )}
+                  <div className="flex items-center gap-1.5">
+                    {[0, 1, 2].map((i) => (
+                      <motion.span
+                        key={i}
+                        animate={{ scale: [1, 1.4, 1], opacity: [0.3, 1, 0.3] }}
+                        transition={{ duration: 1, repeat: Infinity, delay: i * 0.2 }}
+                        className="w-1.5 h-1.5 rounded-full bg-muted-foreground"
+                      />
+                    ))}
+                  </div>
                 </div>
-              </div>
-            </GlassCard>
-          </motion.div>
-        )}
+              </GlassCard>
+            </motion.div>
+          )}
+        </AnimatePresence>
       </div>
+
+      {/* Floating New Message Badge */}
+      <AnimatePresence>
+        {showNewMessageBadge && (
+          <motion.button
+            initial={{ opacity: 0, y: 10, scale: 0.95 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: 10, scale: 0.95 }}
+            onClick={() => {
+              if (scrollRef.current) {
+                scrollRef.current.scrollTo({ top: scrollRef.current.scrollHeight, behavior: 'smooth' });
+              }
+              setShowNewMessageBadge(false);
+            }}
+            className="absolute bottom-[80px] left-1/2 -translate-x-1/2 z-30 flex items-center gap-1.5 px-4 py-2 rounded-full border border-glass-border bg-glass-bg backdrop-blur-xl text-xs text-primary font-semibold shadow-lg shadow-primary/20 hover:scale-105 active:scale-95 transition-transform"
+          >
+            <ArrowDown className="w-3.5 h-3.5 animate-bounce" />
+            New Message
+          </motion.button>
+        )}
+      </AnimatePresence>
 
       <div className="sticky bottom-0 border-t border-glass-border bg-glass-bg backdrop-blur-xl">
         {/* Toxic message pre-warning banner */}
