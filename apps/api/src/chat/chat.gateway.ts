@@ -9,6 +9,7 @@ import {
 import type { Server } from 'socket.io';
 import {
   SocketEvents,
+  type ChatDeletePayload,
   type ChatReadPayload,
   type ChatSendPayload,
   type ChatTypingPayload,
@@ -110,6 +111,7 @@ export class ChatGateway {
       conversationId: payload.conversationId,
       senderId: user.userId,
       body,
+      replyToMessageId: payload.replyToMessageId,
     });
 
     // Acknowledge the sender (optimistic UI swaps client message with server one).
@@ -126,14 +128,43 @@ export class ChatGateway {
     socket.emit(SocketEvents.CHAT_MESSAGE, msg);
 
     // Smart reply suggestions — fire for the peer only, never block delivery.
+    // Fetch up to 3 recent messages (excluding the one just sent) so Groq can
+    // generate context-aware chips that make sense in the thread.
     if (peer) {
-      void this.suggestions.generate({
-        conversationId: payload.conversationId,
-        lastMessage: body,
-        mood: senderProfile?.mood ?? null,
-        forUserId: peer.userId,
-        socketServer: this.server,
-      });
+      void (async () => {
+        let recentMessages: { senderId: string; body: string; isFromSender: boolean }[] | undefined;
+        try {
+          const recent = await this.prisma.message.findMany({
+            where: {
+              conversationId: payload.conversationId,
+              deletedAt: null,
+              id: { not: msg.id },
+              type: 'TEXT',
+            },
+            orderBy: { createdAt: 'desc' },
+            take: 3,
+            select: { senderId: true, body: true },
+          });
+          // Reverse so oldest-first, mark each as from-sender (peer) or not (viewer).
+          recentMessages = recent
+            .reverse()
+            .map((m) => ({
+              senderId: m.senderId,
+              body: m.body,
+              isFromSender: m.senderId === user.userId,
+            }));
+        } catch {
+          // Best-effort — if the DB call fails, fall back to single-message mode.
+        }
+        void this.suggestions.generate({
+          conversationId: payload.conversationId,
+          lastMessage: body,
+          mood: senderProfile?.mood ?? null,
+          forUserId: peer.userId,
+          socketServer: this.server,
+          recentMessages,
+        });
+      })();
     }
 
     // Web push to the peer — only if they're NOT currently focused on this
@@ -186,5 +217,20 @@ export class ChatGateway {
       ...payload,
       userId,
     });
+  }
+
+  /** Delete a message for all participants in the conversation. */
+  @SubscribeMessage(SocketEvents.CHAT_DELETE)
+  async onDelete(
+    @ConnectedSocket() socket: AuthedSocket,
+    @MessageBody() payload: ChatDeletePayload,
+  ) {
+    const userId = socket.data.user.userId;
+    const result = await this.messages.deleteForEveryone({
+      messageId: payload.messageId,
+      requesterId: userId,
+      conversationId: payload.conversationId,
+    });
+    return result;
   }
 }

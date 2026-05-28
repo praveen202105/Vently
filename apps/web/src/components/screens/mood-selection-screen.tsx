@@ -15,6 +15,8 @@ import {
 import type { MoodIntent } from '@vently/shared';
 import { AnimatedBackground, GlassCard } from '@vently/ui';
 import { useMatchStore } from '@/stores/match-store';
+import { AgeGateModal } from '@/components/safety/age-gate-modal';
+import { useState } from 'react';
 
 interface MoodOption {
   id: MoodIntent;
@@ -42,8 +44,26 @@ export function MoodSelectionScreen() {
   const setMood = useMatchStore((s) => s.setMood);
   const reduceMotion = useReducedMotion();
 
+  // Age gate state — which mood is pending confirmation (if any).
+  const [pendingMood, setPendingMood] = useState<MoodIntent | null>(null);
+  const pendingOption = MOODS.find((m) => m.id === pendingMood) ?? null;
+
+  // Moods that require the age gate / content advisory before joining the queue.
+  const GATED_MOODS = new Set<MoodIntent>(['FLIRTY', 'LATE_NIGHT']);
+
   const pick = (mood: MoodIntent) => {
+    if (GATED_MOODS.has(mood)) {
+      setPendingMood(mood);
+      return;
+    }
     setMood(mood);
+    router.push('/matching');
+  };
+
+  const confirmGatedMood = () => {
+    if (!pendingMood) return;
+    setMood(pendingMood);
+    setPendingMood(null);
     router.push('/matching');
   };
 
@@ -119,6 +139,14 @@ export function MoodSelectionScreen() {
           })}
         </div>
       </div>
+
+      {/* Age gate modal for FLIRTY / LATE_NIGHT moods */}
+      <AgeGateModal
+        open={pendingMood !== null}
+        moodLabel={pendingOption?.label ?? ''}
+        onConfirm={confirmGatedMood}
+        onCancel={() => setPendingMood(null)}
+      />
     </div>
   );
 }

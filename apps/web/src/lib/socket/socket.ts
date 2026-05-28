@@ -47,6 +47,8 @@ function buildSocket(token: string): VentlySocket {
   });
 
   if (typeof window !== 'undefined') {
+    // @ts-expect-error Attach to window for end-to-end tests to access socket directly
+    window.__ventlySocket = s;
     // Surface connect failures so they show up in DevTools console + Sentry
     // (Phase 6) instead of being lost.
     s.on('connect_error', (err) => {

@@ -28,6 +28,10 @@ export const SocketEvents = {
   CHAT_READ_STATUS: 'chat:read-status',
   CHAT_CONVERSATION_ENDED: 'chat:conversation-ended',
   CHAT_REACTION: 'chat:reaction',
+  CHAT_DELETE: 'chat:delete',
+  CHAT_DELETE_STATUS: 'chat:delete-status',
+  // Match queue stats for ETA estimator
+  MATCH_QUEUE_STATS: 'match:queue-stats',
 
   // Presence (focus suppression for push)
   PRESENCE_FOCUS: 'presence:focus',
@@ -87,6 +91,8 @@ export interface ChatSendPayload {
   conversationId: string;
   body: string;
   clientId: string;
+  /** If set, this message is a reply to the given messageId (quote-reply). */
+  replyToMessageId?: string;
 }
 
 export interface ChatMessagePayload {
@@ -98,6 +104,12 @@ export interface ChatMessagePayload {
   createdAt: string;
   deletedAt: string | null;
   reactions: { emoji: string; userId: string }[];
+  /** ISO string of the latest readAt receipt for this message, or null. */
+  readReceiptAt?: string | null;
+  /** messageId this message is replying to (quote-reply), if any. */
+  replyToMessageId?: string | null;
+  /** Snapshot of the quoted message body (populated by server on send). */
+  replyToBody?: string | null;
 }
 
 export interface ChatAckPayload {
@@ -118,6 +130,24 @@ export interface ChatReadPayload {
 export interface ChatConversationEndedPayload {
   conversationId: string;
   reason: 'blocked' | 'left' | 'system';
+}
+
+export interface ChatDeletePayload {
+  /** The message id to soft-delete. */
+  messageId: string;
+  conversationId: string;
+}
+
+export interface ChatDeleteStatusPayload {
+  messageId: string;
+  conversationId: string;
+  deletedAt: string;
+}
+
+export interface MatchQueueStatsPayload {
+  mood: string;
+  queueLength: number;
+  estimatedWaitSec: number;
 }
 
 export interface ChatReactionPayload {
@@ -202,6 +232,7 @@ export interface ClientToServerEvents {
   [SocketEvents.CHAT_SEND]: (payload: ChatSendPayload) => void;
   [SocketEvents.CHAT_TYPING]: (payload: ChatTypingPayload) => void;
   [SocketEvents.CHAT_READ]: (payload: ChatReadPayload) => void;
+  [SocketEvents.CHAT_DELETE]: (payload: ChatDeletePayload) => void;
   [SocketEvents.CALL_INVITE]: (payload: CallInvitePayload) => void;
   [SocketEvents.CALL_ACCEPT]: (payload: CallInvitePayload) => void;
   [SocketEvents.CALL_REJECT]: (payload: CallInvitePayload) => void;
@@ -222,6 +253,8 @@ export interface ServerToClientEvents {
   [SocketEvents.CHAT_READ_STATUS]: (payload: ChatReadPayload & { userId: string }) => void;
   [SocketEvents.CHAT_CONVERSATION_ENDED]: (payload: ChatConversationEndedPayload) => void;
   [SocketEvents.CHAT_REACTION]: (payload: ChatReactionPayload) => void;
+  [SocketEvents.CHAT_DELETE_STATUS]: (payload: ChatDeleteStatusPayload) => void;
+  [SocketEvents.MATCH_QUEUE_STATS]: (payload: MatchQueueStatsPayload) => void;
   [SocketEvents.FRIEND_REQUEST]: (payload: FriendRequestEventPayload) => void;
   [SocketEvents.FRIEND_RESPOND]: (payload: FriendRespondEventPayload) => void;
   [SocketEvents.FRIEND_ONLINE]: (payload: { userId: string }) => void;

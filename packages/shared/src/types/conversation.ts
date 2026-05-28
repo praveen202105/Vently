@@ -47,6 +47,10 @@ export interface MessagePublic {
   // (DB unique constraint), so client-side dedup by (emoji, userId) is safe.
   // Empty array when the message has no reactions yet.
   reactions: MessageReactionPublic[];
+  /** For quote-reply: the id of the message being replied to, if any. */
+  replyToMessageId?: string | null;
+  /** Snapshot of the quoted body, populated by the server at send-time. */
+  replyToBody?: string | null;
 }
 
 export interface MessagePage {

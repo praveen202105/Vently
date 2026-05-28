@@ -23,6 +23,11 @@ export interface SuggestionsParams {
   mood: MoodIntent | null;
   forUserId: string | null;
   socketServer: Server;
+  /**
+   * Up to the last 3 message pairs (most recent last) for context-aware chips.
+   * Each item is { senderId, body }. Optional — falls back to lastMessage-only mode.
+   */
+  recentMessages?: { senderId: string; body: string; isFromSender: boolean }[];
 }
 
 @Injectable()
@@ -41,9 +46,20 @@ export class SuggestionsService implements OnModuleInit {
   async generate(params: SuggestionsParams): Promise<void> {
     if (!this.client) return;
 
-    const { conversationId, lastMessage, mood, forUserId, socketServer } = params;
+    const { conversationId, lastMessage, mood, forUserId, socketServer, recentMessages } = params;
 
-    const userContent = `Last message: "${lastMessage.slice(0, 300)}"\nGenerate 3 replies.`;
+    // Build context-aware user content.
+    // If we have recent messages, weave them into a conversation thread so
+    // the model understands what has been said before (not just the last line).
+    let userContent: string;
+    if (recentMessages && recentMessages.length > 0) {
+      const thread = recentMessages
+        .map((m) => `${m.isFromSender ? 'Them' : 'You'}: "${m.body.slice(0, 150)}"`);
+      thread.push(`Them: "${lastMessage.slice(0, 300)}"`); // always end with the peer's latest
+      userContent = `Conversation so far:\n${thread.join('\n')}\n\nGenerate 3 short replies for "You".`;
+    } else {
+      userContent = `Last message: "${lastMessage.slice(0, 300)}"\nGenerate 3 replies.`;
+    }
 
     try {
       const response = await this.client.chat.completions.create({

@@ -4,11 +4,12 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 import { useRouter } from 'next/navigation';
 import { useInfiniteQuery, useQuery, useQueryClient } from '@tanstack/react-query';
 import { motion, AnimatePresence } from 'motion/react';
-import { AlertCircle, ArrowLeft, Check, Phone, RotateCw, Search, Send, UserPlus, Shield, Flag, X, Sparkles } from 'lucide-react';
+import { AlertCircle, ArrowLeft, Check, Phone, Reply, RotateCw, Search, Send, Trash2, UserPlus, Shield, Flag, X, Sparkles } from 'lucide-react';
 import { toast } from 'sonner';
 import {
   SocketEvents,
   type ChatConversationEndedPayload,
+  type ChatDeleteStatusPayload,
   type ChatIcebreakerChunkPayload,
   type ChatIcebreakerDonePayload,
   type ChatMessagePayload,
@@ -38,15 +39,21 @@ import { ReactionPills } from '@/components/chat/reaction-pills';
 import { IcebreakerBubble } from '@/components/chat/icebreaker-bubble';
 import { SuggestionChips } from '@/components/chat/suggestion-chips';
 import { TranslateButton } from '@/components/chat/translate-button';
+import { ReadReceipt, type ReadReceiptStatus } from '@/components/chat/read-receipt';
+import { QuoteReplyPreview } from '@/components/chat/quote-reply-preview';
 import { translateMessage, type TranslateResult } from '@/lib/api/translation';
 import { formatChatTime, shouldShowTimestamp, formatReunionRelative, formatDateTime } from '@/lib/utils/time';
 import { useUnreadTabBadge } from '@/lib/hooks/use-unread-tab-badge';
+import { checkProfanityClient } from '@/lib/utils/profanity-client';
 
 interface PendingMessage extends MessagePublic {
   pending?: true;
   failed?: true;
   clientId?: string;
 }
+
+// Readset tracks which messageIds the peer has read, fed by CHAT_READ_STATUS events.
+type ReadSet = Set<string>;
 
 const TYPING_DEBOUNCE_MS = 300;
 const TYPING_TIMEOUT_MS = 3_000;
@@ -102,6 +109,18 @@ export function ChatScreen({ conversationId }: { conversationId: string }) {
   // AI smart reply suggestions — populated by CHAT_SUGGESTIONS events,
   // cleared whenever the user starts typing or sends a message.
   const [suggestions, setSuggestions] = useState<string[]>([]);
+
+  // Quote-reply: which message (if any) the composer is replying to.
+  const [replyTarget, setReplyTarget] = useState<{ id: string; body: string; senderName: string } | null>(null);
+
+  // Which messages the peer has read (keyed by messageId). Fed by CHAT_READ_STATUS.
+  const [peerReadIds, setPeerReadIds] = useState<ReadSet>(new Set());
+
+  // Toxic message pre-warning level ('clean' | 'mild' | 'severe').
+  const [profanityWarning, setProfanityWarning] = useState<'clean' | 'mild' | 'severe'>('clean');
+
+  // Context menu (delete) — which message is the target.
+  const [ctxMenuMessageId, setCtxMenuMessageId] = useState<string | null>(null);
 
   // Search state
   const [searchOpen, setSearchOpen] = useState(false);
@@ -327,6 +346,43 @@ export function ChatScreen({ conversationId }: { conversationId: string }) {
         }
       },
       [conversationId, me?.id, qc],
+    ),
+  );
+
+  // Real-time delete-for-everyone: hide the bubble body when the server broadcasts.
+  useSocketEvent(
+    SocketEvents.CHAT_DELETE_STATUS,
+    useCallback(
+      (payload: ChatDeleteStatusPayload) => {
+        if (payload.conversationId !== conversationId) return;
+        setMessages((prev) =>
+          prev.map((m) =>
+            m.id === payload.messageId ? { ...m, deletedAt: payload.deletedAt } : m,
+          ),
+        );
+      },
+      [conversationId],
+    ),
+  );
+
+  // Track which messages the peer has read (for ✓✓ read receipt rendering).
+  useSocketEvent(
+    SocketEvents.CHAT_READ_STATUS,
+    useCallback(
+      (payload: { conversationId: string; lastMessageId: string; userId: string }) => {
+        if (payload.conversationId !== conversationId) return;
+        if (payload.userId === me?.id) return; // only track peer reads
+        // Mark all messages up to lastMessageId as read by the peer.
+        setPeerReadIds((prev) => {
+          const next = new Set(prev);
+          const idx = messages.findIndex((m) => m.id === payload.lastMessageId);
+          if (idx !== -1) {
+            messages.slice(0, idx + 1).forEach((m) => next.add(m.id));
+          }
+          return next;
+        });
+      },
+      [conversationId, me?.id, messages],
     ),
   );
 
@@ -650,11 +706,21 @@ export function ChatScreen({ conversationId }: { conversationId: string }) {
       reactions: [],
       pending: true,
       clientId,
+      replyToMessageId: replyTarget?.id ?? null,
+      replyToBody: replyTarget?.body ?? null,
     };
     setMessages((prev) => [...prev, optimistic]);
     if (!overrideBody) setDraft('');
     setSuggestions([]);
-    socket.emit(SocketEvents.CHAT_SEND, { conversationId, body, clientId });
+    setProfanityWarning('clean');
+    const currentReplyTarget = replyTarget;
+    setReplyTarget(null);
+    socket.emit(SocketEvents.CHAT_SEND, {
+      conversationId,
+      body,
+      clientId,
+      replyToMessageId: currentReplyTarget?.id,
+    });
     armAckTimeout(clientId);
 
     // Also broadcast that we're no longer typing.
@@ -684,6 +750,8 @@ export function ChatScreen({ conversationId }: { conversationId: string }) {
   const onInputChange = (next: string) => {
     setDraft(next);
     if (next && suggestions.length > 0) setSuggestions([]);
+    // Real-time profanity pre-warning
+    setProfanityWarning(checkProfanityClient(next));
     if (!socket) return;
     const now = Date.now();
     if (now - lastTypingEmitRef.current > TYPING_DEBOUNCE_MS) {
@@ -695,6 +763,27 @@ export function ChatScreen({ conversationId }: { conversationId: string }) {
       socket.emit(SocketEvents.CHAT_TYPING, { conversationId, isTyping: false });
     }, TYPING_TIMEOUT_MS);
   };
+
+  /** Delete a sent message for everyone. Only own messages. */
+  const deleteMessage = useCallback(
+    (messageId: string) => {
+      if (!socket) return;
+      setCtxMenuMessageId(null);
+      socket.emit(SocketEvents.CHAT_DELETE, { messageId, conversationId });
+    },
+    [socket, conversationId],
+  );
+
+  /** Derive ✓✓ read receipt status for a sent message. */
+  const getReadReceiptStatus = useCallback(
+    (msg: PendingMessage): ReadReceiptStatus => {
+      if (msg.pending) return 'pending';
+      if (msg.failed) return 'sent'; // show grey single tick on fail
+      if (peerReadIds.has(msg.id)) return 'read';
+      return 'sent';
+    },
+    [peerReadIds],
+  );
 
   const leave = async () => {
     // FRIEND conversations are persistent — "End" on this surface just means
@@ -1081,6 +1170,7 @@ export function ChatScreen({ conversationId }: { conversationId: string }) {
 
       <div
         ref={scrollRef}
+        data-testid="message-list"
         className="flex-1 overflow-y-auto p-4 space-y-3"
         aria-live="polite"
       >
@@ -1157,6 +1247,9 @@ export function ChatScreen({ conversationId }: { conversationId: string }) {
                         onContextMenu={(e) => {
                           e.preventDefault();
                           setPickerOpenForId((id) => (id === msg.id ? null : msg.id));
+                          if (!msg.pending && !msg.failed && !msg.deletedAt) {
+                            setCtxMenuMessageId((id) => (id === msg.id ? null : msg.id));
+                          }
                         }}
                         className={`px-4 py-2.5 rounded-2xl ${
                           mine
@@ -1164,15 +1257,61 @@ export function ChatScreen({ conversationId }: { conversationId: string }) {
                             : 'bg-glass-bg border border-glass-border rounded-bl-sm'
                         } ${msg.pending ? 'opacity-60' : ''} ${msg.failed ? 'opacity-80 ring-1 ring-destructive/60' : ''}`}
                       >
-                        <p
-                          className="text-sm break-words whitespace-pre-wrap"
-                          data-testid={showTranslatedIds.has(msg.id) ? 'translated-text' : undefined}
-                        >
-                          {showTranslatedIds.has(msg.id)
-                            ? (translatedMessages.get(msg.id)?.translated ?? msg.body)
-                            : msg.body}
-                        </p>
+                        {/* Quote-reply preview inside the bubble */}
+                        {msg.replyToBody && (
+                          <QuoteReplyPreview
+                            replyToBody={msg.replyToBody}
+                            replyToSenderName={
+                              msg.replyToMessageId && messages.find((m) => m.id === msg.replyToMessageId)?.senderId === me?.id
+                                ? 'You'
+                                : (peer?.nickname ?? 'Peer')
+                            }
+                            mine={mine}
+                          />
+                        )}
+                        {msg.deletedAt ? (
+                          <p className="text-sm italic opacity-50">This message was deleted</p>
+                        ) : (
+                          <p
+                            className="text-sm break-words whitespace-pre-wrap"
+                            data-testid={showTranslatedIds.has(msg.id) ? 'translated-text' : undefined}
+                          >
+                            {showTranslatedIds.has(msg.id)
+                              ? (translatedMessages.get(msg.id)?.translated ?? msg.body)
+                              : msg.body}
+                          </p>
+                        )}
                       </div>
+                      {/* Context menu — reply & delete for everyone */}
+                      <AnimatePresence>
+                        {ctxMenuMessageId === msg.id && (
+                          <motion.div
+                            initial={{ opacity: 0, scale: 0.9, y: -4 }}
+                            animate={{ opacity: 1, scale: 1, y: 0 }}
+                            exit={{ opacity: 0, scale: 0.9, y: -4 }}
+                            className={`absolute ${mine ? 'right-0' : 'left-0'} top-full mt-1 z-30 rounded-2xl border border-glass-border bg-glass-bg backdrop-blur-xl shadow-xl overflow-hidden min-w-[160px]`}
+                          >
+                            <button
+                              type="button"
+                              onClick={() => setReplyTarget({ id: msg.id, body: msg.body, senderName: mine ? 'You' : (peer?.nickname ?? 'Peer') })}
+                              className="flex items-center gap-2 w-full px-4 py-2.5 text-sm hover:bg-muted/40 transition text-left"
+                            >
+                              <Reply className="w-3.5 h-3.5" />
+                              Reply
+                            </button>
+                            {mine && (
+                              <button
+                                type="button"
+                                onClick={() => deleteMessage(msg.id)}
+                                className="flex items-center gap-2 w-full px-4 py-2.5 text-sm text-destructive hover:bg-destructive/10 transition text-left"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                                Delete for everyone
+                              </button>
+                            )}
+                          </motion.div>
+                        )}
+                      </AnimatePresence>
                       <ReactionPicker
                         open={pickerOpenForId === msg.id && !msg.pending && !msg.failed}
                         onPick={(emoji) => void toggleReaction(msg.id, emoji)}
@@ -1196,6 +1335,12 @@ export function ChatScreen({ conversationId }: { conversationId: string }) {
                       mine={mine}
                       onToggle={(emoji) => void toggleReaction(msg.id, emoji)}
                     />
+                    {/* Read receipt ticks — only on own messages */}
+                    {mine && !msg.pending && !msg.failed && !msg.deletedAt && (
+                      <div className="flex justify-end pr-1">
+                        <ReadReceipt status={getReadReceiptStatus(msg)} />
+                      </div>
+                    )}
                     {mine && msg.failed && msg.clientId && (
                       <button
                         type="button"
@@ -1248,6 +1393,36 @@ export function ChatScreen({ conversationId }: { conversationId: string }) {
       </div>
 
       <div className="sticky bottom-0 border-t border-glass-border bg-glass-bg backdrop-blur-xl">
+        {/* Toxic message pre-warning banner */}
+        <AnimatePresence>
+          {profanityWarning !== 'clean' && draft.trim() && (
+            <motion.div
+              initial={{ opacity: 0, height: 0 }}
+              animate={{ opacity: 1, height: 'auto' }}
+              exit={{ opacity: 0, height: 0 }}
+              className={`flex items-center gap-2 px-4 py-2 text-xs ${
+                profanityWarning === 'severe'
+                  ? 'bg-destructive/15 text-destructive border-t border-destructive/20'
+                  : 'bg-amber-500/10 text-amber-400 border-t border-amber-500/20'
+              }`}
+            >
+              <span className="text-base">{profanityWarning === 'severe' ? '🚫' : '⚠️'}</span>
+              <span>
+                {profanityWarning === 'severe'
+                  ? 'This message violates our content policy and will be blocked.'
+                  : 'This message may be flagged by our moderation system.'}
+              </span>
+            </motion.div>
+          )}
+        </AnimatePresence>
+        {/* Quote-reply composer preview */}
+        {replyTarget && (
+          <QuoteReplyPreview
+            replyToBody={replyTarget.body}
+            replyToSenderName={replyTarget.senderName}
+            onCancel={() => setReplyTarget(null)}
+          />
+        )}
         <SuggestionChips
           suggestions={suggestions}
           onSelect={(text) => sendMessage(text)}

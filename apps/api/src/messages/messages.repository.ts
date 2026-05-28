@@ -5,13 +5,14 @@ import { PrismaService } from '../prisma/prisma.service.js';
 export class MessagesRepository {
   constructor(private readonly prisma: PrismaService) {}
 
-  create(args: { conversationId: string; senderId: string; body: string }) {
+  create(args: { conversationId: string; senderId: string; body: string; replyToMessageId?: string }) {
     return this.prisma.message.create({
       data: {
         conversationId: args.conversationId,
         senderId: args.senderId,
         body: args.body,
         type: 'TEXT',
+        ...(args.replyToMessageId ? { replyToMessageId: args.replyToMessageId } : {}),
       },
     });
   }
@@ -26,7 +27,10 @@ export class MessagesRepository {
       where,
       orderBy: { createdAt: 'desc' },
       take: limit + 1,
-      include: { reactions: { select: { emoji: true, userId: true } } },
+      include: {
+        reactions: { select: { emoji: true, userId: true } },
+        replyTo: { select: { id: true, body: true, senderId: true } },
+      },
       ...(cursor
         ? {
             cursor: { id: cursor },
@@ -94,8 +98,27 @@ export class MessagesRepository {
       },
       orderBy: { createdAt: 'desc' },
       take: 50,
-      include: { reactions: { select: { emoji: true, userId: true } } },
+      include: {
+        reactions: { select: { emoji: true, userId: true } },
+        replyTo: { select: { id: true, body: true, senderId: true } },
+      },
     });
+  }
+
+  /** Soft-delete a message. Returns null if not found or already deleted. */
+  async softDelete(messageId: string, requesterId: string): Promise<{ deletedAt: Date } | null> {
+    const msg = await this.prisma.message.findUnique({
+      where: { id: messageId },
+      select: { senderId: true, deletedAt: true },
+    });
+    if (!msg || msg.deletedAt || msg.senderId !== requesterId) return null;
+    const updated = await this.prisma.message.update({
+      where: { id: messageId },
+      data: { deletedAt: new Date() },
+      select: { deletedAt: true },
+    });
+    // After the update, deletedAt is guaranteed non-null; cast is safe.
+    return { deletedAt: updated.deletedAt as Date };
   }
 
   async markRead(args: { conversationId: string; userId: string; lastMessageId: string }) {

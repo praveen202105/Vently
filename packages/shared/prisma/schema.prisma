@@ -87,22 +87,28 @@ model ConversationParticipant {
 }
 
 model Message {
-  id             String      @id @default(cuid())
-  conversationId String
-  senderId       String
-  body           String
-  type           MessageType @default(TEXT)
-  createdAt      DateTime    @default(now())
-  deletedAt      DateTime?
+  id               String      @id @default(cuid())
+  conversationId   String
+  senderId         String
+  body             String
+  type             MessageType @default(TEXT)
+  createdAt        DateTime    @default(now())
+  deletedAt        DateTime?
+  // Quote-reply: optionally points to the message being replied to.
+  replyToMessageId String?
 
   conversation Conversation     @relation(fields: [conversationId], references: [id], onDelete: Cascade)
   receipts     MessageReceipt[]
   reactions    MessageReaction[]
   flags        ModerationFlag[]
+  replyTo      Message?         @relation("MessageReplies", fields: [replyToMessageId], references: [id], onDelete: SetNull)
+  replies      Message[]        @relation("MessageReplies")
 
   @@index([conversationId, createdAt])
   @@index([senderId])
+  @@index([replyToMessageId])
 }
+
 
 model MessageReceipt {
   messageId   String

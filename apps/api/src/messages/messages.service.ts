@@ -9,9 +9,11 @@ import { RealtimeGateway } from '../realtime/realtime.gateway.js';
 // arbitrary strings + matches the picker palette on the client.
 const ALLOWED_REACTIONS = new Set(['👍', '❤️', '😂', '😮', '😢', '🔥']);
 
-// Listed message shape includes reactions; the bare DB row doesn't.
+// Listed message shape includes reactions + reply context; the bare DB row doesn't.
+type ReplySnap = { id: string; body: string; senderId: string } | null;
 type MessageWithReactions = Message & {
   reactions?: Pick<MessageReaction, 'emoji' | 'userId'>[];
+  replyTo?: ReplySnap;
 };
 
 @Injectable()
@@ -36,7 +38,7 @@ export class MessagesService {
     };
   }
 
-  async send(args: { conversationId: string; senderId: string; body: string }) {
+  async send(args: { conversationId: string; senderId: string; body: string; replyToMessageId?: string }) {
     await this.conversations.assertParticipant(args.conversationId, args.senderId);
     const message = await this.repo.create(args);
     return this.shape(message);
@@ -95,6 +97,36 @@ export class MessagesService {
       createdAt: m.createdAt.toISOString(),
       deletedAt: m.deletedAt?.toISOString() ?? null,
       reactions: (m.reactions ?? []).map((r) => ({ emoji: r.emoji, userId: r.userId })),
+      replyToMessageId: m.replyTo?.id ?? null,
+      replyToBody: m.replyTo?.body ?? null,
     };
+  }
+
+  /**
+   * Delete a message for everyone in the conversation.
+   * Only the original sender can delete their own message.
+   * Emits CHAT_DELETE_STATUS to the conversation room so all clients
+   * hide the bubble content in real time.
+   */
+  async deleteForEveryone(args: {
+    messageId: string;
+    requesterId: string;
+    conversationId: string;
+  }): Promise<{ ok: boolean; error?: string }> {
+    await this.conversations.assertParticipant(args.conversationId, args.requesterId);
+    const result = await this.repo.softDelete(args.messageId, args.requesterId);
+    if (!result) {
+      return { ok: false, error: 'Message not found or already deleted' };
+    }
+    this.realtime.emitToConversation(
+      args.conversationId,
+      SocketEvents.CHAT_DELETE_STATUS,
+      {
+        messageId: args.messageId,
+        conversationId: args.conversationId,
+        deletedAt: result.deletedAt.toISOString(),
+      },
+    );
+    return { ok: true };
   }
 }
