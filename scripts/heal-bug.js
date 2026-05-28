@@ -90,9 +90,19 @@ async function callGemini({ apiKey, contents, systemInstruction, tools }) {
       contents,
       systemInstruction,
       tools,
+      // Force Gemini to ALWAYS call one of our functions instead of falling
+      // back to a free-form text answer. Without this, gemini-2.5-flash
+      // frequently prefers to just describe the bug in prose.
+      toolConfig: {
+        functionCallingConfig: {
+          mode: 'ANY',
+          allowedFunctionNames: ['read_file', 'propose_patch'],
+        },
+      },
       generationConfig: {
         temperature: 0.2,
-        maxOutputTokens: 8192,
+        // Full-file rewrites can be large; flash supports up to 65K output.
+        maxOutputTokens: 32768,
       },
     }),
   });
