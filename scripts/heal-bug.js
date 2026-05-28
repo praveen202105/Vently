@@ -103,6 +103,10 @@ async function callGemini({ apiKey, contents, systemInstruction, tools }) {
         temperature: 0.2,
         // No explicit maxOutputTokens — let Gemini use the model's full
         // built-in output budget so large full-file rewrites aren't cut off.
+        // gemini-2.5-flash "thinks" implicitly and that eats the output
+        // budget before it emits the functionCall. Force budget=0 to skip
+        // thinking and go straight to tool calls.
+        thinkingConfig: { thinkingBudget: 0 },
       },
     }),
   });
@@ -214,6 +218,13 @@ Rules:
 
     const parts = candidate.content?.parts || [];
     const functionCalls = parts.filter((p) => p.functionCall);
+    const finishReason = candidate.finishReason || 'UNKNOWN';
+
+    // Surface what Gemini did this turn so failures aren't a black box.
+    const fnNames = functionCalls.map((p) => p.functionCall.name).join(', ') || 'none';
+    console.log(
+      `  [heal turn ${turn + 1}] finishReason=${finishReason} functionCalls=[${fnNames}] partsCount=${parts.length}`,
+    );
 
     if (functionCalls.length === 0) {
       const textOut = parts
@@ -221,9 +232,11 @@ Rules:
         .filter(Boolean)
         .join('\n')
         .slice(0, 400);
+      // Common Gemini failure modes: MAX_TOKENS (thinking ate the budget),
+      // SAFETY (output redacted), MALFORMED_FUNCTION_CALL (schema mismatch).
       return {
         applied: false,
-        reason: `Gemini stopped without calling a function. Last text: "${textOut}"`,
+        reason: `Gemini stopped without calling a function (finishReason=${finishReason}). Last text: "${textOut}"`,
         filesChanged: [],
       };
     }
