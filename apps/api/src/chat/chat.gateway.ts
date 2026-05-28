@@ -69,7 +69,9 @@ export class ChatGateway {
     @MessageBody() payload: ChatSendPayload,
   ) {
     const body = (payload.body ?? '').trim();
-    if (!body || body.length > MAX_BODY_LEN) return { ok: false, error: 'Invalid body' };
+    const isAudio = body.startsWith('audio:');
+    const maxLen = isAudio ? 2_000_000 : MAX_BODY_LEN;
+    if (!body || body.length > maxLen) return { ok: false, error: 'Invalid body' };
 
     const user = socket.data.user;
 
@@ -100,8 +102,8 @@ export class ChatGateway {
     }
 
     // Profanity check — severe terms are rejected outright; mild get flagged
-    // after persist.
-    const profanity = this.moderation.inspectMessage(body);
+    // after persist. Bypassed for audio base64 streams.
+    const profanity = isAudio ? { severity: 'CLEAN' as const, match: '' } : this.moderation.inspectMessage(body);
     if (profanity.severity === 'SEVERE') {
       await this.moderation.logRejection(user.userId, body, profanity);
       return { ok: false, error: 'Message violates content policy' };
