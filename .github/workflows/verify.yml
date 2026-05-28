@@ -34,6 +34,11 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      - name: Generate Prisma Client & Build Shared Packages
+        run: |
+          pnpm --filter @vently/shared prisma generate
+          pnpm --filter @vently/shared build
+
       - name: Install Playwright Browsers with dependencies
         run: pnpm --filter @vently/web exec playwright install chromium --with-deps
 
