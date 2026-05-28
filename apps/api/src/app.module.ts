@@ -26,6 +26,7 @@ import { PushModule } from './push/push.module.js';
 import { IcebreakerModule } from './icebreaker/icebreaker.module.js';
 import { SuggestionsModule } from './suggestions/suggestions.module.js';
 import { TranslationModule } from './translation/translation.module.js';
+import { SlackModule } from './slack/slack.module.js';
 
 @Module({
   imports: [
@@ -78,6 +79,7 @@ import { TranslationModule } from './translation/translation.module.js';
     IcebreakerModule,
     SuggestionsModule,
     TranslationModule,
+    SlackModule,
   ],
   providers: [
     {

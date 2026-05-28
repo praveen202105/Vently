@@ -2,6 +2,7 @@ import 'reflect-metadata';
 import { NestFactory } from '@nestjs/core';
 import { ValidationPipe, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import express from 'express';
 import helmet from 'helmet';
 import cookieParser from 'cookie-parser';
 import { AppModule } from './app.module.js';
@@ -18,6 +19,7 @@ async function bootstrap() {
   const corsOrigin = config.get<string>('CORS_ORIGIN', 'http://localhost:3000');
 
   app.use(helmet());
+  app.use(express.urlencoded({ extended: true }));
   app.use(cookieParser());
   app.enableCors({
     origin: corsOrigin.split(',').map((s) => s.trim()),

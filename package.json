@@ -9,6 +9,8 @@
     "pnpm": ">=9.0.0"
   },
   "scripts": {
+    "verify": "node scripts/verify-feature.js",
+    "verify:local": "node scripts/verify-feature.js --local-only",
     "dev": "turbo run dev",
     "build": "turbo run build",
     "lint": "turbo run lint",

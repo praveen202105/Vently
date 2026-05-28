@@ -205,7 +205,7 @@ export function VoiceCallScreen({ conversationId }: { conversationId: string }) 
       : 'Call ended';
 
   return (
-    <div className="min-h-dvh flex flex-col items-center justify-between p-6 text-center">
+    <div className="fixed inset-0 flex flex-col items-center justify-between p-6 text-center overflow-hidden bg-background">
       {voiceOnly ? (
         <motion.div
           initial={{ opacity: 0, y: -8 }}

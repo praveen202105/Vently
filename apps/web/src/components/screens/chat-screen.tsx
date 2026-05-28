@@ -1096,7 +1096,7 @@ export function ChatScreen({ conversationId }: { conversationId: string }) {
   };
 
   return (
-    <div className="h-dvh min-h-dvh flex flex-col relative overflow-hidden">
+    <div className="fixed inset-0 flex flex-col overflow-hidden bg-background">
       <header className="flex items-center gap-3 p-4 border-b border-glass-border bg-glass-bg backdrop-blur-xl sticky top-0 z-10">
         <button
           type="button"
@@ -1440,7 +1440,15 @@ export function ChatScreen({ conversationId }: { conversationId: string }) {
                         {formatChatTime(msg.createdAt)}
                       </span>
                     )}
-                    <div className="relative group overflow-visible">
+                    <div
+                      className="relative group overflow-visible"
+                      onMouseEnter={() =>
+                        window.matchMedia('(hover: hover)').matches && setPickerOpenForId(msg.id)
+                      }
+                      onMouseLeave={() =>
+                        window.matchMedia('(hover: hover)').matches && setPickerOpenForId(null)
+                      }
+                    >
                       {/* Swipe reply indicator background glow */}
                       <div className="absolute left-2 top-1/2 -translate-y-1/2 flex items-center justify-center w-8 h-8 rounded-full bg-primary/20 text-primary opacity-0 group-active:opacity-100 transition-all duration-200 pointer-events-none z-0">
                         <Reply className="w-4 h-4" />
@@ -1461,12 +1469,6 @@ export function ChatScreen({ conversationId }: { conversationId: string }) {
                             });
                           }
                         }}
-                        onMouseEnter={() =>
-                          window.matchMedia('(hover: hover)').matches && setPickerOpenForId(msg.id)
-                        }
-                        onMouseLeave={() =>
-                          window.matchMedia('(hover: hover)').matches && setPickerOpenForId(null)
-                        }
                         onContextMenu={(e) => {
                           e.preventDefault();
                           setPickerOpenForId((id) => (id === msg.id ? null : msg.id));

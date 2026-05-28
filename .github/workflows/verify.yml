@@ -1,0 +1,54 @@
+name: Vently E2E Verification & CI/CD Pipeline
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  repository_dispatch:
+    types: [verify_pipeline]
+  workflow_dispatch:
+
+jobs:
+  verify:
+    name: Verify & Deploy smoke test
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.client_payload.branch || github.ref || 'main' }}
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v3
+        with:
+          version: 9
+
+      - name: Setup Node.js (v20)
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'pnpm'
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Install Playwright Browsers with dependencies
+        run: pnpm --filter @vently/web exec playwright install chromium --with-deps
+
+      - name: Run Monorepo Verification Pipeline
+        env:
+          FORCE_COLOR: '1'
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+          CI: 'true'
+        # Run local verification only on pull requests (since deployment is not live yet)
+        # On push to main, run full local & prod smoke tests
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            node scripts/verify-feature.js --local-only
+          else
+            # Push to main: runs full pipeline. 
+            # Note: For fully unattended CI runs, we can bypass the interactive deployment wait.
+            node scripts/verify-feature.js --ci
+          fi
