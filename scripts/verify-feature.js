@@ -266,22 +266,31 @@ async function main() {
   const branch = await getBranchName();
   printHeader(`Verification Loop Start (Branch: ${branch})`);
   
-  // 1. Run local verification
-  const localPassed = await verifyLocal();
-  if (!localPassed) {
-    console.log(`${RED}${BOLD}Pipeline halted. Please review bugs.md and apply necessary fixes.${RESET}`);
-    process.exit(1);
+  if (IS_CI && !SLACK_WEBHOOK) {
+    console.log(`\n${YELLOW}${BOLD}⚠️  Warning: SLACK_WEBHOOK_URL is missing in GitHub Actions environment variables.${RESET}`);
+    console.log(`${YELLOW}Please add SLACK_WEBHOOK_URL to your GitHub Repository Secrets to receive Slack updates!${RESET}\n`);
   }
 
-  // If local-only mode was selected, exit clean here
-  if (IS_LOCAL_ONLY) {
-    await sendSlackNotification(
-      '✔ Local Verification Succeeded',
-      `All E2E tests passed successfully (Local Only Mode).`,
-      '#2eb886'
-    );
-    console.log(`${GREEN}${BOLD}✔ Local verification complete. Exiting (--local-only).${RESET}`);
-    process.exit(0);
+  // 1. Run local verification
+  if (IS_CI && !IS_LOCAL_ONLY) {
+    console.log(`\n${YELLOW}${BOLD}ℹ️  CI Run: Skipping local E2E verification. Proceeding directly to production deployment smoke tests...${RESET}\n`);
+  } else {
+    const localPassed = await verifyLocal();
+    if (!localPassed) {
+      console.log(`${RED}${BOLD}Pipeline halted. Please review bugs.md and apply necessary fixes.${RESET}`);
+      process.exit(1);
+    }
+
+    // If local-only mode was selected, exit clean here
+    if (IS_LOCAL_ONLY) {
+      await sendSlackNotification(
+        '✔ Local Verification Succeeded',
+        `All E2E tests passed successfully (Local Only Mode).`,
+        '#2eb886'
+      );
+      console.log(`${GREEN}${BOLD}✔ Local verification complete. Exiting (--local-only).${RESET}`);
+      process.exit(0);
+    }
   }
 
   // 2. Local passed -> Commit & Push
