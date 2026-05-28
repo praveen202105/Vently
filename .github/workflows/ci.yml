@@ -36,6 +36,9 @@ jobs:
       - name: Validate Prisma schema
         run: pnpm --filter @vently/shared prisma validate
 
+      - name: Build Shared Packages
+        run: pnpm --filter @vently/shared build
+
       - name: Typecheck
         run: pnpm typecheck
 
