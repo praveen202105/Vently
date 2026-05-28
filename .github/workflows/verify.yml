@@ -13,6 +13,7 @@ jobs:
   verify:
     name: Verify & Deploy smoke test
     runs-on: ubuntu-latest
+    timeout-minutes: 30
 
     steps:
       - name: Checkout Repository
@@ -21,9 +22,9 @@ jobs:
           ref: ${{ github.event.client_payload.branch || github.ref || 'main' }}
 
       - name: Install pnpm
-        uses: pnpm/action-setup@v3
+        uses: pnpm/action-setup@v4
         with:
-          version: 9
+          version: 9.12.0
 
       - name: Setup Node.js (v20)
         uses: actions/setup-node@v4
@@ -47,13 +48,18 @@ jobs:
           FORCE_COLOR: '1'
           SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
           CI: 'true'
+          NEXT_PUBLIC_API_URL: http://localhost:4000/api
+          NEXT_PUBLIC_SOCKET_URL: http://localhost:4000
+          NEXT_PUBLIC_VAPID_PUBLIC_KEY: placeholder_vapid_key_for_build
+          DATABASE_URL: postgresql://placeholder:placeholder@localhost:5432/placeholder
+          REDIS_URL: redis://localhost:6379
         # Run local verification only on pull requests (since deployment is not live yet)
         # On push to main, run full local & prod smoke tests
         run: |
           if [ "${{ github.event_name }}" = "pull_request" ]; then
             node scripts/verify-feature.js --local-only
           else
-            # Push to main: runs full pipeline. 
+            # Push to main: runs full pipeline.
             # Note: For fully unattended CI runs, we can bypass the interactive deployment wait.
             node scripts/verify-feature.js --ci
           fi

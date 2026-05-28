@@ -27,6 +27,36 @@ jobs:
           node-version: 20
           cache: pnpm
 
+      - name: Notify Slack — CI Started
+        if: always()
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+        run: |
+          if [ -n "$SLACK_WEBHOOK_URL" ]; then
+            EVENT="${{ github.event_name }}"
+            BRANCH="${{ github.ref_name }}"
+            COMMIT="${{ github.sha }}"
+            SHORT_SHA="${COMMIT:0:7}"
+            ACTOR="${{ github.actor }}"
+            RUN_URL="https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+            curl -s -X POST "$SLACK_WEBHOOK_URL" \
+              -H "Content-Type: application/json" \
+              -d "{
+                \"attachments\": [{
+                  \"color\": \"#3aa3e3\",
+                  \"title\": \"⏳ Vently CI Started\",
+                  \"text\": \"Build kicked off for *${BRANCH}* by *${ACTOR}*\",
+                  \"fields\": [
+                    {\"title\": \"Event\", \"value\": \"${EVENT}\", \"short\": true},
+                    {\"title\": \"Commit\", \"value\": \"${SHORT_SHA}\", \"short\": true},
+                    {\"title\": \"Run\", \"value\": \"<${RUN_URL}|View on GitHub>\", \"short\": false}
+                  ],
+                  \"footer\": \"Vently CI Bot\",
+                  \"ts\": $(date +%s)
+                }]
+              }"
+          fi
+
       - name: Install
         run: pnpm install --frozen-lockfile
 
@@ -52,6 +82,67 @@ jobs:
           REDIS_URL: redis://localhost:6379
           NEXT_PUBLIC_API_URL: http://localhost:4000/api
           NEXT_PUBLIC_SOCKET_URL: http://localhost:4000
+          NEXT_PUBLIC_VAPID_PUBLIC_KEY: placeholder_vapid_key_for_build
 
       - name: Prettier check
         run: pnpm format:check
+
+      - name: Notify Slack — CI Success
+        if: success()
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+        run: |
+          if [ -n "$SLACK_WEBHOOK_URL" ]; then
+            BRANCH="${{ github.ref_name }}"
+            ACTOR="${{ github.actor }}"
+            SHORT_SHA="${{ github.sha }}"
+            SHORT_SHA="${SHORT_SHA:0:7}"
+            RUN_URL="https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+            curl -s -X POST "$SLACK_WEBHOOK_URL" \
+              -H "Content-Type: application/json" \
+              -d "{
+                \"attachments\": [{
+                  \"color\": \"#2eb886\",
+                  \"title\": \"✅ Vently CI Passed\",
+                  \"text\": \"All checks passed on *${BRANCH}* — Lint, Typecheck, Build, Prettier ✓\",
+                  \"fields\": [
+                    {\"title\": \"Branch\", \"value\": \"${BRANCH}\", \"short\": true},
+                    {\"title\": \"Commit\", \"value\": \"${SHORT_SHA}\", \"short\": true},
+                    {\"title\": \"Triggered by\", \"value\": \"${ACTOR}\", \"short\": true},
+                    {\"title\": \"Run\", \"value\": \"<${RUN_URL}|View on GitHub>\", \"short\": true}
+                  ],
+                  \"footer\": \"Vently CI Bot\",
+                  \"ts\": $(date +%s)
+                }]
+              }"
+          fi
+
+      - name: Notify Slack — CI Failed
+        if: failure()
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+        run: |
+          if [ -n "$SLACK_WEBHOOK_URL" ]; then
+            BRANCH="${{ github.ref_name }}"
+            ACTOR="${{ github.actor }}"
+            SHORT_SHA="${{ github.sha }}"
+            SHORT_SHA="${SHORT_SHA:0:7}"
+            RUN_URL="https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+            curl -s -X POST "$SLACK_WEBHOOK_URL" \
+              -H "Content-Type: application/json" \
+              -d "{
+                \"attachments\": [{
+                  \"color\": \"#a30200\",
+                  \"title\": \"❌ Vently CI Failed\",
+                  \"text\": \"Build failed on *${BRANCH}* — check the logs immediately!\",
+                  \"fields\": [
+                    {\"title\": \"Branch\", \"value\": \"${BRANCH}\", \"short\": true},
+                    {\"title\": \"Commit\", \"value\": \"${SHORT_SHA}\", \"short\": true},
+                    {\"title\": \"Triggered by\", \"value\": \"${ACTOR}\", \"short\": true},
+                    {\"title\": \"View Logs\", \"value\": \"<${RUN_URL}|Open GitHub Actions>\", \"short\": true}
+                  ],
+                  \"footer\": \"Vently CI Bot\",
+                  \"ts\": $(date +%s)
+                }]
+              }"
+          fi
