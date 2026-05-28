@@ -160,7 +160,7 @@ export function MatchingScreen() {
 
   return (
     <div className="min-h-dvh relative overflow-hidden flex flex-col items-center justify-center p-6">
-      <AnimatedBackground variant="mood" />
+      <AnimatedBackground variant="mood" mood={mood} />
 
       <div className="relative z-10 flex flex-col items-center gap-8">
         <motion.div

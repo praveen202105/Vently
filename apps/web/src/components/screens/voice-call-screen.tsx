@@ -107,6 +107,79 @@ export function VoiceCallScreen({ conversationId }: { conversationId: string }) 
     return () => clearInterval(t);
   }, [callState]);
 
+  const visualizerCanvasRef = useRef<HTMLCanvasElement | null>(null);
+
+  useEffect(() => {
+    if (callState !== 'CONNECTED' || !remoteStream || !visualizerCanvasRef.current) return;
+
+    const canvas = visualizerCanvasRef.current;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+
+    // Set canvas dimensions
+    canvas.width = 240;
+    canvas.height = 240;
+
+    let audioCtx: AudioContext;
+    let source: MediaStreamAudioSourceNode;
+    let analyser: AnalyserNode;
+    let animationId: number;
+
+    try {
+      audioCtx = new (window.AudioContext || (window as any).webkitAudioContext)();
+      analyser = audioCtx.createAnalyser();
+      analyser.fftSize = 64;
+      
+      source = audioCtx.createMediaStreamSource(remoteStream);
+      source.connect(analyser);
+
+      const bufferLength = analyser.frequencyBinCount;
+      const dataArray = new Uint8Array(bufferLength);
+
+      const draw = () => {
+        analyser.getByteFrequencyData(dataArray);
+
+        let total = 0;
+        for (let i = 0; i < bufferLength; i++) {
+          total += dataArray[i] ?? 0;
+        }
+        const average = total / bufferLength;
+        const volumeFactor = average / 255;
+
+        const cx = canvas.width / 2;
+        const cy = canvas.height / 2;
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+        // Draw glowing concentric rings reacting to voice amplitude
+        const ringCount = 3;
+        for (let r = 1; r <= ringCount; r++) {
+          const baseRadius = 80 + r * 15;
+          const dynamicRadius = baseRadius + volumeFactor * 25 * r;
+          const alpha = (0.4 - r * 0.1) * (0.3 + volumeFactor * 0.7);
+
+          ctx.beginPath();
+          ctx.arc(cx, cy, dynamicRadius, 0, Math.PI * 2);
+          ctx.strokeStyle = `rgba(168, 85, 247, ${alpha})`;
+          ctx.lineWidth = 1 + volumeFactor * 5;
+          ctx.stroke();
+        }
+
+        animationId = requestAnimationFrame(draw);
+      };
+
+      draw();
+    } catch (e) {
+      console.warn('Web Audio API disabled or blocked:', e);
+    }
+
+    return () => {
+      if (animationId) cancelAnimationFrame(animationId);
+      if (source) source.disconnect();
+      if (analyser) analyser.disconnect();
+      if (audioCtx) void audioCtx.close();
+    };
+  }, [callState, remoteStream]);
+
   // When the call ends we bounce out of the screen. For voice-only matches
   // there's no chat to fall back to (no text was ever exchanged), so go
   // back to /mood so the user can try another match. Classic calls return
@@ -156,11 +229,18 @@ export function VoiceCallScreen({ conversationId }: { conversationId: string }) 
           transition={reduceMotion ? undefined : { duration: 2, repeat: Infinity }}
           className="relative"
         >
-          <motion.div
-            animate={reduceMotion ? undefined : { scale: [1, 1.3, 1], opacity: [0.4, 0, 0.4] }}
-            transition={reduceMotion ? undefined : { duration: 2, repeat: Infinity }}
-            className="absolute inset-0 rounded-full bg-primary/40"
-          />
+          {!reduceMotion && callState === 'CONNECTED' ? (
+            <canvas
+              ref={visualizerCanvasRef}
+              className="absolute inset-[-40px] w-[240px] h-[240px] rounded-full pointer-events-none z-0"
+            />
+          ) : (
+            <motion.div
+              animate={reduceMotion ? undefined : { scale: [1, 1.3, 1], opacity: [0.4, 0, 0.4] }}
+              transition={reduceMotion ? undefined : { duration: 2, repeat: Infinity }}
+              className="absolute inset-0 rounded-full bg-primary/40"
+            />
+          )}
           <div className="relative w-40 h-40 rounded-full bg-gradient-to-br from-purple-600 via-pink-600 to-blue-600 flex items-center justify-center text-white text-5xl shadow-2xl">
             {peer?.nickname[0]?.toUpperCase() ?? '?'}
           </div>

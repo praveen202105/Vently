@@ -4,8 +4,9 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 import { useRouter } from 'next/navigation';
 import { useInfiniteQuery, useQuery, useQueryClient } from '@tanstack/react-query';
 import { motion, AnimatePresence } from 'motion/react';
-import { AlertCircle, ArrowLeft, ArrowDown, Check, Phone, Reply, RotateCw, Search, Send, Trash2, UserPlus, Shield, Flag, X, Sparkles } from 'lucide-react';
+import { AlertCircle, ArrowLeft, ArrowDown, Check, Phone, Reply, RotateCw, Search, Send, Trash2, UserPlus, Shield, Flag, X, Sparkles, Mic } from 'lucide-react';
 import { toast } from 'sonner';
+import { AudioBubble } from '@/components/chat/audio-bubble';
 import {
   SocketEvents,
   type ChatConversationEndedPayload,
@@ -181,6 +182,142 @@ export function ChatScreen({ conversationId }: { conversationId: string }) {
       if (touchTimeoutRef.current) clearTimeout(touchTimeoutRef.current);
     };
   }, []);
+
+  // Voice recording states & refs
+  const [isRecording, setIsRecording] = useState(false);
+  const [recordingSeconds, setRecordingSeconds] = useState(0);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const audioChunksRef = useRef<Blob[]>([]);
+  const recordingTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const recordAnalyserRef = useRef<AnalyserNode | null>(null);
+  const recordCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  const recordingContextRef = useRef<AudioContext | null>(null);
+  const recordStreamRef = useRef<MediaStream | null>(null);
+  const recordAnimIdRef = useRef<number | null>(null);
+
+  // Cleanup recording on unmount
+  useEffect(() => {
+    return () => {
+      if (recordingTimerRef.current) clearInterval(recordingTimerRef.current);
+      if (recordAnimIdRef.current) cancelAnimationFrame(recordAnimIdRef.current);
+      if (recordStreamRef.current) {
+        recordStreamRef.current.getTracks().forEach((track) => track.stop());
+      }
+      if (recordingContextRef.current) {
+        void recordingContextRef.current.close();
+      }
+    };
+  }, []);
+
+  const drawRecordWave = () => {
+    if (!recordCanvasRef.current || !recordAnalyserRef.current) return;
+    const canvas = recordCanvasRef.current;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+
+    canvas.width = 120;
+    canvas.height = 40;
+
+    const analyser = recordAnalyserRef.current;
+    const bufferLength = analyser.frequencyBinCount;
+    const dataArray = new Uint8Array(bufferLength);
+
+    const draw = () => {
+      if (!recordCanvasRef.current) return;
+      analyser.getByteFrequencyData(dataArray);
+
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      ctx.fillStyle = 'rgba(139, 92, 246, 0.6)';
+
+      const barWidth = (canvas.width / bufferLength) * 1.5;
+      let x = 0;
+
+      for (let i = 0; i < bufferLength; i++) {
+        const val = dataArray[i] ?? 0;
+        const barHeight = (val / 255) * canvas.height * 0.8;
+        const y = canvas.height / 2 - barHeight / 2;
+        ctx.fillRect(x, y, barWidth - 1, barHeight);
+        x += barWidth;
+      }
+
+      recordAnimIdRef.current = requestAnimationFrame(draw);
+    };
+
+    draw();
+  };
+
+  const startRecording = async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      recordStreamRef.current = stream;
+      audioChunksRef.current = [];
+
+      const mediaRecorder = new MediaRecorder(stream, { mimeType: 'audio/webm' });
+      mediaRecorderRef.current = mediaRecorder;
+
+      mediaRecorder.ondataavailable = (e) => {
+        if (e.data.size > 0) {
+          audioChunksRef.current.push(e.data);
+        }
+      };
+
+      mediaRecorder.onstop = async () => {
+        const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
+        const reader = new FileReader();
+        reader.readAsDataURL(audioBlob);
+        reader.onloadend = () => {
+          const base64data = reader.result as string;
+          sendMessage(`audio:${base64data}`);
+        };
+      };
+
+      const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
+      recordingContextRef.current = audioContext;
+      const analyser = audioContext.createAnalyser();
+      analyser.fftSize = 64;
+      const source = audioContext.createMediaStreamSource(stream);
+      source.connect(analyser);
+      recordAnalyserRef.current = analyser;
+
+      setIsRecording(true);
+      setRecordingSeconds(0);
+      mediaRecorder.start();
+
+      recordingTimerRef.current = setInterval(() => {
+        setRecordingSeconds((s) => s + 1);
+      }, 1000);
+
+      // Brief delay to let the canvas mount before starting draw loops
+      setTimeout(() => {
+        drawRecordWave();
+      }, 50);
+    } catch (err) {
+      toast.error('Microphone permission denied or not found.');
+      console.error(err);
+    }
+  };
+
+  const stopRecording = (shouldSend = true) => {
+    if (recordingTimerRef.current) clearInterval(recordingTimerRef.current);
+    if (recordAnimIdRef.current) cancelAnimationFrame(recordAnimIdRef.current);
+    
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
+      if (!shouldSend) {
+        mediaRecorderRef.current.onstop = () => {};
+      }
+      mediaRecorderRef.current.stop();
+    }
+
+    if (recordStreamRef.current) {
+      recordStreamRef.current.getTracks().forEach((track) => track.stop());
+    }
+    if (recordingContextRef.current) {
+      void recordingContextRef.current.close();
+    }
+
+    setIsRecording(false);
+    setRecordingSeconds(0);
+  };
 
   const typingTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const lastTypingEmitRef = useRef(0);
@@ -1303,8 +1440,27 @@ export function ChatScreen({ conversationId }: { conversationId: string }) {
                         {formatChatTime(msg.createdAt)}
                       </span>
                     )}
-                    <div className="relative group">
-                      <div
+                    <div className="relative group overflow-visible">
+                      {/* Swipe reply indicator background glow */}
+                      <div className="absolute left-2 top-1/2 -translate-y-1/2 flex items-center justify-center w-8 h-8 rounded-full bg-primary/20 text-primary opacity-0 group-active:opacity-100 transition-all duration-200 pointer-events-none z-0">
+                        <Reply className="w-4 h-4" />
+                      </div>
+                      <motion.div
+                        drag="x"
+                        dragConstraints={{ left: 0, right: 0 }}
+                        dragElastic={{ left: 0, right: 0.5 }}
+                        onDragEnd={(e, info) => {
+                          if (info.offset.x > 60) {
+                            if (typeof navigator !== 'undefined' && navigator.vibrate) {
+                              navigator.vibrate(10);
+                            }
+                            setReplyTarget({
+                              id: msg.id,
+                              body: msg.body,
+                              senderName: mine ? 'You' : (peer?.nickname ?? 'Peer'),
+                            });
+                          }
+                        }}
                         onMouseEnter={() =>
                           window.matchMedia('(hover: hover)').matches && setPickerOpenForId(msg.id)
                         }
@@ -1374,6 +1530,8 @@ export function ChatScreen({ conversationId }: { conversationId: string }) {
                         )}
                         {msg.deletedAt ? (
                           <p className="text-sm italic opacity-50">This message was deleted</p>
+                        ) : msg.body.startsWith('audio:') ? (
+                          <AudioBubble src={msg.body} mine={mine} />
                         ) : (
                           <p
                             className="text-sm break-words whitespace-pre-wrap"
@@ -1384,7 +1542,7 @@ export function ChatScreen({ conversationId }: { conversationId: string }) {
                               : msg.body}
                           </p>
                         )}
-                      </div>
+                      </motion.div>
                       {/* Context menu — reply & delete for everyone */}
                       <AnimatePresence>
                         {ctxMenuMessageId === msg.id && (
@@ -1556,32 +1714,73 @@ export function ChatScreen({ conversationId }: { conversationId: string }) {
         <form
           onSubmit={(e) => {
             e.preventDefault();
-            sendMessage();
-          }}
-          className="p-3 flex items-end gap-2"
-        >
-        <textarea
-          value={draft}
-          onChange={(e) => onInputChange(e.target.value)}
-          placeholder="Type a message…"
-          rows={1}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter' && !e.shiftKey) {
-              e.preventDefault();
+            if (isRecording) {
+              stopRecording(true);
+            } else {
               sendMessage();
             }
           }}
-          className="flex-1 bg-input rounded-2xl px-4 py-2.5 outline-none border border-glass-border resize-none max-h-32 focus:ring-2 focus:ring-primary/40"
-        />
-        <motion.button
-          type="submit"
-          whileTap={{ scale: 0.95 }}
-          disabled={!draft.trim()}
-          aria-label="Send"
-          className="p-3 rounded-full bg-gradient-to-br from-purple-600 via-pink-600 to-blue-600 text-white disabled:opacity-40 disabled:cursor-not-allowed shadow-lg shadow-primary/30"
+          className="p-3 flex items-end gap-2"
         >
-          <Send className="w-5 h-5" />
-        </motion.button>
+        {isRecording ? (
+          <div className="flex-1 bg-input rounded-2xl px-4 py-2.5 flex items-center justify-between border border-glass-border">
+            <div className="flex items-center gap-2">
+              <span className="w-2.5 h-2.5 rounded-full bg-destructive animate-pulse shrink-0" />
+              <span className="text-sm font-semibold font-mono text-destructive">
+                {Math.floor(recordingSeconds / 60).toString().padStart(2, '0')}:
+                {(recordingSeconds % 60).toString().padStart(2, '0')}
+              </span>
+            </div>
+            <canvas
+              ref={recordCanvasRef}
+              className="w-[120px] h-[30px] rounded-lg pointer-events-none"
+            />
+            <button
+              type="button"
+              onClick={() => stopRecording(false)}
+              className="text-xs text-muted-foreground hover:text-destructive transition underline px-1 animate-pulse"
+            >
+              Cancel
+            </button>
+          </div>
+        ) : (
+          <textarea
+            value={draft}
+            onChange={(e) => onInputChange(e.target.value)}
+            placeholder="Type a message…"
+            rows={1}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
+                sendMessage();
+              }
+            }}
+            className="flex-1 bg-input rounded-2xl px-4 py-2.5 outline-none border border-glass-border resize-none max-h-32 focus:ring-2 focus:ring-primary/40"
+          />
+        )}
+
+        {!draft.trim() && !isRecording ? (
+          <motion.button
+            type="button"
+            whileTap={{ scale: 0.95 }}
+            onClick={startRecording}
+            aria-label="Record voice note"
+            title="Record Voice Note"
+            className="p-3 rounded-full bg-gradient-to-br from-purple-600 via-pink-600 to-blue-600 text-white shadow-lg shadow-primary/30 active:scale-95 transition-transform"
+          >
+            <Mic className="w-5 h-5" />
+          </motion.button>
+        ) : (
+          <motion.button
+            type="submit"
+            whileTap={{ scale: 0.95 }}
+            disabled={!draft.trim() && !isRecording}
+            aria-label={isRecording ? 'Send voice note' : 'Send'}
+            className="p-3 rounded-full bg-gradient-to-br from-purple-600 via-pink-600 to-blue-600 text-white disabled:opacity-40 disabled:cursor-not-allowed shadow-lg shadow-primary/30"
+          >
+            <Send className="w-5 h-5" />
+          </motion.button>
+        )}
         </form>
       </div>
 
