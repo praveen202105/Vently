@@ -4,6 +4,7 @@ import tsPlugin from '@typescript-eslint/eslint-plugin';
 import reactPlugin from 'eslint-plugin-react';
 import reactHooks from 'eslint-plugin-react-hooks';
 import prettier from 'eslint-config-prettier';
+import globals from 'globals';
 
 export default [
   js.configs.recommended,
@@ -13,6 +14,12 @@ export default [
       parser: tsParser,
       ecmaVersion: 'latest',
       sourceType: 'module',
+      globals: {
+        // Browser globals (window, document, etc.)
+        ...globals.browser,
+        // Node.js globals
+        ...globals.node,
+      },
       parserOptions: {
         ecmaFeatures: { jsx: true },
       },
@@ -28,6 +35,8 @@ export default [
       'react/react-in-jsx-scope': 'off',
       '@typescript-eslint/no-unused-vars': ['warn', { argsIgnorePattern: '^_' }],
       '@typescript-eslint/no-explicit-any': 'warn',
+      // Disable no-undef for TypeScript files — TS handles type checking
+      'no-undef': 'off',
     },
     settings: {
       react: { version: 'detect' },

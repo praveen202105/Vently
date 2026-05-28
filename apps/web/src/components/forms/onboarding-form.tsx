@@ -125,15 +125,19 @@ export function OnboardingForm() {
             type="checkbox"
             checked={ageConfirmed === true}
             onChange={(e) =>
-              setValue('ageConfirmed', e.target.checked === true ? true : (false as unknown as true), {
-                shouldValidate: true,
-              })
+              setValue(
+                'ageConfirmed',
+                e.target.checked === true ? true : (false as unknown as true),
+                {
+                  shouldValidate: true,
+                },
+              )
             }
             className="mt-1"
           />
           <span className="text-sm text-muted-foreground">
-            I confirm I am 18 or older and understand Vently may include flirty or
-            late-night conversations.
+            I confirm I am 18 or older and understand Vently may include flirty or late-night
+            conversations.
           </span>
         </label>
         {errors.ageConfirmed && (

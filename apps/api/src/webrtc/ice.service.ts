@@ -81,7 +81,10 @@ export class IceService {
         );
         if (!res.ok) throw new Error(`Cloudflare HTTP ${res.status}`);
         const data = (await res.json()) as { iceServers: IceServerConfig };
-        return [...PUBLIC_STUN, ...(Array.isArray(data.iceServers) ? data.iceServers : [data.iceServers])];
+        return [
+          ...PUBLIC_STUN,
+          ...(Array.isArray(data.iceServers) ? data.iceServers : [data.iceServers]),
+        ];
       }
     } catch (err) {
       this.logger.error('Failed to fetch TURN credentials, falling back to Open Relay', err);

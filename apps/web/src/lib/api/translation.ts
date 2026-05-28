@@ -18,11 +18,8 @@ export function translateMessage(
   messageId: string,
   targetLocale: string,
 ): Promise<TranslateResult> {
-  return api<TranslateResult>(
-    `/conversations/${conversationId}/messages/${messageId}/translate`,
-    {
-      method: 'POST',
-      body: { targetLocale },
-    },
-  );
+  return api<TranslateResult>(`/conversations/${conversationId}/messages/${messageId}/translate`, {
+    method: 'POST',
+    body: { targetLocale },
+  });
 }

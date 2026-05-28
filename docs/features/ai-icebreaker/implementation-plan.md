@@ -8,17 +8,21 @@ Work is organized in 5 phases. Each phase is independently shippable (CI stays g
 ## Phase 0: Setup (30 min)
 
 ### 0.1 Install SDK
+
 ```bash
 pnpm --filter @vently/api add groq-sdk
 ```
 
 ### 0.2 Add env var
+
 In `apps/api/.env` (local) and Railway dashboard (prod):
+
 ```
 GROQ_API_KEY=gsk_...        # free at console.groq.com — no credit card needed
 ```
 
 Add to `apps/api/.env.example`:
+
 ```
 # AI ice-breaker (optional — feature disabled if missing)
 # Get a free key at https://console.groq.com
@@ -26,6 +30,7 @@ GROQ_API_KEY=
 ```
 
 ### 0.3 Add to turbo.json env allowlist
+
 In `turbo.json` → `build.env` array, add `"GROQ_API_KEY"`.
 
 ---
@@ -35,12 +40,14 @@ In `turbo.json` → `build.env` array, add `"GROQ_API_KEY"`.
 **File:** [packages/shared/src/socket-events.ts](../../../../packages/shared/src/socket-events.ts)
 
 Add two new constants to `SocketEvents`:
+
 ```ts
 CHAT_ICEBREAKER_CHUNK: 'chat:icebreaker:chunk',
 CHAT_ICEBREAKER_DONE:  'chat:icebreaker:done',
 ```
 
 Add payload interfaces:
+
 ```ts
 export interface ChatIcebreakerChunkPayload {
   conversationId: string;
@@ -53,12 +60,14 @@ export interface ChatIcebreakerDonePayload {
 ```
 
 Add to `ServerToClientEvents` map:
+
 ```ts
 [SocketEvents.CHAT_ICEBREAKER_CHUNK]: (p: ChatIcebreakerChunkPayload) => void;
 [SocketEvents.CHAT_ICEBREAKER_DONE]:  (p: ChatIcebreakerDonePayload) => void;
 ```
 
 Build the shared package so types are emitted:
+
 ```bash
 pnpm --filter @vently/shared build
 ```
@@ -68,12 +77,13 @@ pnpm --filter @vently/shared build
 ## Phase 2: Backend — IcebreakerModule (4–5 hours)
 
 ### 2.1 Create `apps/api/src/icebreaker/icebreaker.prompt.ts`
+
 ```ts
 import type { MoodIntent } from '@vently/shared';
 
 function timeOfDay(): string {
   const h = new Date().getHours();
-  if (h < 6)  return 'late night';
+  if (h < 6) return 'late night';
   if (h < 12) return 'morning';
   if (h < 18) return 'afternoon';
   return 'evening';
@@ -89,8 +99,10 @@ function sanitizeBio(bio: string | null): string {
 }
 
 export function buildPrompt(
-  moodA: MoodIntent, bioA: string | null,
-  moodB: MoodIntent, bioB: string | null,
+  moodA: MoodIntent,
+  bioA: string | null,
+  moodB: MoodIntent,
+  bioB: string | null,
 ): { system: string; user: string } {
   return {
     system: `You are an empathetic assistant for Vently, an anonymous chat app.
@@ -111,6 +123,7 @@ Time of day: ${timeOfDay()}`,
 ```
 
 ### 2.2 Create `apps/api/src/icebreaker/icebreaker.service.ts`
+
 ```ts
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
@@ -143,7 +156,9 @@ export class IcebreakerService implements OnModuleInit {
   onModuleInit() {
     const key = this.config.get<string>('GROQ_API_KEY');
     if (!key) {
-      this.logger.warn('GROQ_API_KEY missing — ice-breaker disabled. Get a free key at console.groq.com');
+      this.logger.warn(
+        'GROQ_API_KEY missing — ice-breaker disabled. Get a free key at console.groq.com',
+      );
       return;
     }
     this.client = new Groq({ apiKey: key });
@@ -222,14 +237,13 @@ export class IcebreakerService implements OnModuleInit {
       },
     });
 
-    socketServer
-      .to(room)
-      .emit(SocketEvents.CHAT_ICEBREAKER_DONE, { conversationId });
+    socketServer.to(room).emit(SocketEvents.CHAT_ICEBREAKER_DONE, { conversationId });
   }
 }
 ```
 
 ### 2.3 Create `apps/api/src/icebreaker/icebreaker.module.ts`
+
 ```ts
 import { Module } from '@nestjs/common';
 import { IcebreakerService } from './icebreaker.service.js';
@@ -245,9 +259,11 @@ export class IcebreakerModule {}
 ```
 
 ### 2.4 Wire into `app.module.ts`
+
 Add `IcebreakerModule` to the imports array.
 
 ### 2.5 Inject into `matchmaking.service.ts`
+
 In `MatchmakingService.createMatch()`, after emitting `match:found` to both users:
 
 ```ts
@@ -256,11 +272,12 @@ void this.icebreaker.generate({
   conversationId: conversation.id,
   userA: { mood: userAProfile.mood, bio: userAProfile.bio },
   userB: { mood: userBProfile.mood, bio: userBProfile.bio },
-  socketServer: this.server,   // RealtimeGateway's socket server, already available
+  socketServer: this.server, // RealtimeGateway's socket server, already available
 });
 ```
 
 Skip for `VOICE_ONLY` mood (both users go to `/call` directly, no chat screen):
+
 ```ts
 if (userAProfile.mood !== MoodIntent.VOICE_ONLY) {
   void this.icebreaker.generate({ ... });
@@ -272,19 +289,23 @@ if (userAProfile.mood !== MoodIntent.VOICE_ONLY) {
 ## Phase 3: Frontend — Streaming UI (3–4 hours)
 
 ### 3.1 Extend chatStore (`apps/web/src/stores/chat-store.ts`)
+
 Add fields:
+
 ```ts
 icebreakerChunks: string[];
 icebreakerDone: boolean;
 ```
 
 Add actions:
+
 ```ts
 appendIcebreakerChunk: (chunk: string) => void;
 finalizeIcebreaker: () => void;
 ```
 
 ### 3.2 Subscribe to new events in `chat-screen.tsx`
+
 ```ts
 useSocketEvent(SocketEvents.CHAT_ICEBREAKER_CHUNK, ({ conversationId, chunk }) => {
   if (conversationId !== params.id) return;
@@ -312,7 +333,7 @@ interface Props {
 
 export function IcebreakerBubble({ chunks, done }: Props) {
   const text = chunks.join('');
-  if (!text && done) return null;   // stream complete + persisted as chat:message
+  if (!text && done) return null; // stream complete + persisted as chat:message
 
   return (
     <AnimatePresence>
@@ -338,12 +359,11 @@ export function IcebreakerBubble({ chunks, done }: Props) {
 ```
 
 ### 3.4 Render in `chat-screen.tsx`
+
 Place `<IcebreakerBubble>` above the message list, below the header:
+
 ```tsx
-<IcebreakerBubble
-  chunks={icebreakerChunks}
-  done={icebreakerDone}
-/>
+<IcebreakerBubble chunks={icebreakerChunks} done={icebreakerDone} />
 ```
 
 When `chat:message` arrives with `type === 'SYSTEM'` (the persisted message),
@@ -355,6 +375,7 @@ out on `done` — both look good.
 ## Phase 4: Tests (2 hours)
 
 ### 4.1 Unit test — `IcebreakerService`
+
 File: `apps/api/src/icebreaker/icebreaker.service.spec.ts`
 
 - Mock `Anthropic` client to yield 3 chunks then end.
@@ -367,12 +388,13 @@ File: `apps/api/src/icebreaker/icebreaker.service.spec.ts`
 - Mock `conversation.endedAt = new Date()` → assert no DB write, no emit.
 
 ### 4.2 E2E test addition
+
 File: `apps/web/tests/e2e/02-chat-flow.spec.ts`  
 Add assertion after match:
+
 ```ts
 // Ice-breaker appears within 5s
-await expect(page.locator('[data-testid="icebreaker-bubble"]'))
-  .toBeVisible({ timeout: 5_000 });
+await expect(page.locator('[data-testid="icebreaker-bubble"]')).toBeVisible({ timeout: 5_000 });
 ```
 
 Add `data-testid="icebreaker-bubble"` to `IcebreakerBubble` component.
@@ -382,6 +404,7 @@ Add `data-testid="icebreaker-bubble"` to `IcebreakerBubble` component.
 ## Phase 5: Observability (30 min)
 
 In `IcebreakerService.generate()`:
+
 ```ts
 // Log on every call for cost tracking
 this.logger.log({
@@ -393,6 +416,7 @@ this.logger.log({
 ```
 
 In `matchmaking.service.ts` where we call `generate()`:
+
 ```ts
 this.logger.log({ event: 'icebreaker.triggered', conversationId, mood: userAProfile.mood });
 ```
@@ -401,12 +425,12 @@ this.logger.log({ event: 'icebreaker.triggered', conversationId, mood: userAProf
 
 ## Phase Summary
 
-| Phase | Files changed / created | Time |
-|---|---|---|
-| 0. Setup | `.env.example`, `turbo.json`, install `groq-sdk` | 30 min |
-| 1. Contracts | `packages/shared/src/socket-events.ts` | 20 min |
-| 2. Backend | `icebreaker/` (3 files), `app.module.ts`, `matchmaking.service.ts` | 4–5 h |
-| 3. Frontend | `chat-store.ts`, `chat-screen.tsx`, `icebreaker-bubble.tsx` | 3–4 h |
-| 4. Tests | `icebreaker.service.spec.ts`, `02-chat-flow.spec.ts` | 2 h |
-| 5. Observability | `icebreaker.service.ts` log calls | 30 min |
-| **Total** | | **~2–3 days** |
+| Phase            | Files changed / created                                            | Time          |
+| ---------------- | ------------------------------------------------------------------ | ------------- |
+| 0. Setup         | `.env.example`, `turbo.json`, install `groq-sdk`                   | 30 min        |
+| 1. Contracts     | `packages/shared/src/socket-events.ts`                             | 20 min        |
+| 2. Backend       | `icebreaker/` (3 files), `app.module.ts`, `matchmaking.service.ts` | 4–5 h         |
+| 3. Frontend      | `chat-store.ts`, `chat-screen.tsx`, `icebreaker-bubble.tsx`        | 3–4 h         |
+| 4. Tests         | `icebreaker.service.spec.ts`, `02-chat-flow.spec.ts`               | 2 h           |
+| 5. Observability | `icebreaker.service.ts` log calls                                  | 30 min        |
+| **Total**        |                                                                    | **~2–3 days** |

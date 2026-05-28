@@ -2,9 +2,16 @@
 
 import { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { 
-  Terminal, Play, Cpu, Cloud, Globe, 
-  RefreshCw, CheckCircle, XCircle, AlertCircle 
+import {
+  Terminal,
+  Play,
+  Cpu,
+  Cloud,
+  Globe,
+  RefreshCw,
+  CheckCircle,
+  XCircle,
+  AlertCircle,
 } from 'lucide-react';
 import { AnimatedBackground, Button, GlassCard } from '@vently/ui';
 import { useSocket } from '@/lib/socket/use-socket';
@@ -15,7 +22,7 @@ export function DevDashboardScreen() {
   const [logs, setLogs] = useState<string[]>([]);
   const [apiStatus, setApiStatus] = useState<'checking' | 'online' | 'offline'>('checking');
   const [exitCode, setExitCode] = useState<number | null>(null);
-  
+
   const consoleEndRef = useRef<HTMLDivElement | null>(null);
 
   // Check the NestJS backend API health on mount
@@ -61,11 +68,11 @@ export function DevDashboardScreen() {
 
       const reader = response.body.getReader();
       const decoder = new TextDecoder();
-      
+
       while (true) {
         const { value, done } = await reader.read();
         if (done) break;
-        
+
         const chunk = decoder.decode(value, { stream: true });
         setLogs((prev) => [...prev, chunk]);
 
@@ -85,7 +92,7 @@ export function DevDashboardScreen() {
   return (
     <div className="fixed inset-0 flex flex-col overflow-hidden bg-background">
       <AnimatedBackground variant="mood" mood="FRIENDSHIP" />
-      
+
       {/* Sleek dev header */}
       <header className="relative z-10 flex items-center justify-between p-5 border-b border-glass-border bg-glass-bg backdrop-blur-xl">
         <div className="flex items-center gap-3">
@@ -99,7 +106,7 @@ export function DevDashboardScreen() {
             <p className="text-xs text-muted-foreground">Local Developer Suite</p>
           </div>
         </div>
-        
+
         <div className="flex items-center gap-2">
           <Button variant="ghost" size="sm" onClick={() => void checkApiHealth()} className="p-2.5">
             <RefreshCw className={`w-4 h-4 ${apiStatus === 'checking' ? 'animate-spin' : ''}`} />
@@ -163,9 +170,9 @@ export function DevDashboardScreen() {
                 <p className="text-[10px] text-muted-foreground">E2E smoke tests</p>
               </div>
             </div>
-            <a 
-              href="https://vently-web-gamma.vercel.app" 
-              target="_blank" 
+            <a
+              href="https://vently-web-gamma.vercel.app"
+              target="_blank"
               rel="noreferrer"
               className="text-xs text-sky-400 underline hover:text-sky-300"
             >
@@ -200,7 +207,8 @@ export function DevDashboardScreen() {
             </Button>
           </motion.div>
           <p className="text-xs text-muted-foreground text-center">
-            Runs local Playwright tests and generates/updates <code className="bg-muted px-1.5 py-0.5 rounded text-white">bugs.md</code> on failures.
+            Runs local Playwright tests and generates/updates{' '}
+            <code className="bg-muted px-1.5 py-0.5 rounded text-white">bugs.md</code> on failures.
           </p>
         </div>
 
@@ -209,9 +217,11 @@ export function DevDashboardScreen() {
           <div className="flex items-center justify-between px-4 py-2 border-b border-glass-border bg-glass-bg">
             <div className="flex items-center gap-2">
               <Terminal className="w-4 h-4 text-purple-400" />
-              <span className="text-xs font-mono font-bold text-muted-foreground">Interactive Console Logs</span>
+              <span className="text-xs font-mono font-bold text-muted-foreground">
+                Interactive Console Logs
+              </span>
             </div>
-            
+
             <AnimatePresence>
               {exitCode !== null && (
                 <motion.div
@@ -236,10 +246,15 @@ export function DevDashboardScreen() {
 
           <div className="p-4 h-80 overflow-y-auto font-mono text-xs text-emerald-400 space-y-1.5 scrollbar-thin select-text">
             {logs.length === 0 ? (
-              <p className="text-muted-foreground italic">Console idle. Tap the Run button to start.</p>
+              <p className="text-muted-foreground italic">
+                Console idle. Tap the Run button to start.
+              </p>
             ) : (
               logs.map((log, idx) => (
-                <pre key={idx} className="whitespace-pre-wrap leading-relaxed select-text font-mono">
+                <pre
+                  key={idx}
+                  className="whitespace-pre-wrap leading-relaxed select-text font-mono"
+                >
                   {log}
                 </pre>
               ))

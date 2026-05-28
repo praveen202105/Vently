@@ -16,7 +16,10 @@ export class HealthController {
   async check() {
     const [pg, redis] = await Promise.all([
       this.prisma.$queryRaw`SELECT 1`.then(() => 'ok').catch(() => 'down'),
-      this.redis.ping().then(() => 'ok').catch(() => 'down'),
+      this.redis
+        .ping()
+        .then(() => 'ok')
+        .catch(() => 'down'),
     ]);
 
     const status = pg === 'ok' && redis === 'ok' ? 'ok' : 'degraded';

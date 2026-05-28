@@ -64,10 +64,7 @@ export class ChatGateway {
   }
 
   @SubscribeMessage(SocketEvents.CHAT_SEND)
-  async onSend(
-    @ConnectedSocket() socket: AuthedSocket,
-    @MessageBody() payload: ChatSendPayload,
-  ) {
+  async onSend(@ConnectedSocket() socket: AuthedSocket, @MessageBody() payload: ChatSendPayload) {
     const body = (payload.body ?? '').trim();
     const isAudio = body.startsWith('audio:');
     const maxLen = isAudio ? 2_000_000 : MAX_BODY_LEN;
@@ -103,7 +100,9 @@ export class ChatGateway {
 
     // Profanity check — severe terms are rejected outright; mild get flagged
     // after persist. Bypassed for audio base64 streams.
-    const profanity = isAudio ? { severity: 'CLEAN' as const, match: '' } : this.moderation.inspectMessage(body);
+    const profanity = isAudio
+      ? { severity: 'CLEAN' as const, match: '' }
+      : this.moderation.inspectMessage(body);
     if (profanity.severity === 'SEVERE') {
       await this.moderation.logRejection(user.userId, body, profanity);
       return { ok: false, error: 'Message violates content policy' };
@@ -148,13 +147,11 @@ export class ChatGateway {
             select: { senderId: true, body: true },
           });
           // Reverse so oldest-first, mark each as from-sender (peer) or not (viewer).
-          recentMessages = recent
-            .reverse()
-            .map((m) => ({
-              senderId: m.senderId,
-              body: m.body,
-              isFromSender: m.senderId === user.userId,
-            }));
+          recentMessages = recent.reverse().map((m) => ({
+            senderId: m.senderId,
+            body: m.body,
+            isFromSender: m.senderId === user.userId,
+          }));
         } catch {
           // Best-effort — if the DB call fails, fall back to single-message mode.
         }
@@ -207,10 +204,7 @@ export class ChatGateway {
   }
 
   @SubscribeMessage(SocketEvents.CHAT_READ)
-  async onRead(
-    @ConnectedSocket() socket: AuthedSocket,
-    @MessageBody() payload: ChatReadPayload,
-  ) {
+  async onRead(@ConnectedSocket() socket: AuthedSocket, @MessageBody() payload: ChatReadPayload) {
     const userId = socket.data.user.userId;
     if (!this.throttle.allow(userId, 'chat:read', READ_LIMIT, READ_WINDOW_MS)) return;
     await this.conversations.assertParticipant(payload.conversationId, userId);

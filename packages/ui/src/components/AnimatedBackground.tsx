@@ -4,7 +4,14 @@ import { motion } from 'motion/react';
 import { useEffect, useRef, useState } from 'react';
 
 // Mood categories that match @vently/shared MoodIntent
-export type MoodType = 'LONELY' | 'NEED_TO_TALK' | 'FRIENDSHIP' | 'LATE_NIGHT' | 'ADVICE' | 'FLIRTY' | 'VOICE_ONLY';
+export type MoodType =
+  | 'LONELY'
+  | 'NEED_TO_TALK'
+  | 'FRIENDSHIP'
+  | 'LATE_NIGHT'
+  | 'ADVICE'
+  | 'FLIRTY'
+  | 'VOICE_ONLY';
 
 interface AnimatedBackgroundProps {
   variant?: 'default' | 'welcome' | 'mood';
@@ -198,7 +205,7 @@ export function AnimatedBackground({ variant = 'default', mood = null }: Animate
         if (p.life >= p.maxLife || outOfBounds) {
           particles[idx] = createParticle(
             activeMood === 'LONELY' ? Math.random() * w : undefined,
-            activeMood === 'LONELY' ? -10 : h + 10
+            activeMood === 'LONELY' ? -10 : h + 10,
           );
           return;
         }
@@ -282,7 +289,8 @@ export function AnimatedBackground({ variant = 'default', mood = null }: Animate
       )}
 
       {/* Standard lightweight fallback particle boxes */}
-      {!reducedMotion && !activeMood && (
+      {!reducedMotion &&
+        !activeMood &&
         Array.from({ length: 15 }, (_, i) => ({
           left: ((i * 53) % 100) + Math.sin(i) * 5,
           top: ((i * 37) % 100) + Math.cos(i) * 5,
@@ -305,8 +313,7 @@ export function AnimatedBackground({ variant = 'default', mood = null }: Animate
             className="absolute w-1 h-1 bg-white rounded-full pointer-events-none"
             style={{ left: `${p.left}%`, top: `${p.top}%` }}
           />
-        ))
-      )}
+        ))}
 
       <div className="absolute inset-0 bg-[linear-gradient(rgba(255,255,255,0.02)_1px,transparent_1px),linear-gradient(90deg,rgba(255,255,255,0.02)_1px,transparent_1px)] bg-[size:50px_50px] [mask-image:radial-gradient(ellipse_80%_50%_at_50%_50%,black,transparent)] pointer-events-none" />
     </>

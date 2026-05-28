@@ -54,7 +54,8 @@ export function useRingtone(active: boolean, variant: Variant = 'outgoing') {
       // Lazily create the AudioContext. Reuse across mounts to avoid hitting
       // browser AudioContext quotas.
       const Ctx =
-        window.AudioContext ?? (window as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+        window.AudioContext ??
+        (window as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
       if (!Ctx) return;
       const ctx = ctxRef.current ?? new Ctx();
       ctxRef.current = ctx;

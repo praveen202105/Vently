@@ -4,7 +4,24 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 import { useRouter } from 'next/navigation';
 import { useInfiniteQuery, useQuery, useQueryClient } from '@tanstack/react-query';
 import { motion, AnimatePresence } from 'motion/react';
-import { AlertCircle, ArrowLeft, ArrowDown, Check, Phone, Reply, RotateCw, Search, Send, Trash2, UserPlus, Shield, Flag, X, Sparkles, Mic } from 'lucide-react';
+import {
+  AlertCircle,
+  ArrowLeft,
+  ArrowDown,
+  Check,
+  Phone,
+  Reply,
+  RotateCw,
+  Search,
+  Send,
+  Trash2,
+  UserPlus,
+  Shield,
+  Flag,
+  X,
+  Sparkles,
+  Mic,
+} from 'lucide-react';
 import { toast } from 'sonner';
 import { AudioBubble } from '@/components/chat/audio-bubble';
 import {
@@ -27,7 +44,12 @@ import { useAuthStore } from '@/stores/auth-store';
 import { useMatchStore } from '@/stores/match-store';
 import { useSocket } from '@/lib/socket/use-socket';
 import { useSocketEvent } from '@/lib/socket/use-socket-event';
-import { getConversation, listMessages, leaveConversation, searchMessages } from '@/lib/api/conversations';
+import {
+  getConversation,
+  listMessages,
+  leaveConversation,
+  searchMessages,
+} from '@/lib/api/conversations';
 import { respondToFriendRequest, sendFriendRequest } from '@/lib/api/friends';
 import { blockUser } from '@/lib/api/blocks';
 import { toggleReaction as apiToggleReaction } from '@/lib/api/messages';
@@ -43,7 +65,12 @@ import { TranslateButton } from '@/components/chat/translate-button';
 import { ReadReceipt, type ReadReceiptStatus } from '@/components/chat/read-receipt';
 import { QuoteReplyPreview } from '@/components/chat/quote-reply-preview';
 import { translateMessage, type TranslateResult } from '@/lib/api/translation';
-import { formatChatTime, shouldShowTimestamp, formatReunionRelative, formatDateTime } from '@/lib/utils/time';
+import {
+  formatChatTime,
+  shouldShowTimestamp,
+  formatReunionRelative,
+  formatDateTime,
+} from '@/lib/utils/time';
 import { useUnreadTabBadge } from '@/lib/hooks/use-unread-tab-badge';
 import { checkProfanityClient } from '@/lib/utils/profanity-client';
 
@@ -90,9 +117,8 @@ export function ChatScreen({ conversationId }: { conversationId: string }) {
   // chat sends a FRIEND_REQUEST. Drives the inline Accept/Reject UI above
   // the message list, which is more discoverable than a toast for a user
   // who's literally mid-conversation with the requester.
-  const [incomingFriendRequest, setIncomingFriendRequest] = useState<
-    FriendRequestEventPayload | null
-  >(null);
+  const [incomingFriendRequest, setIncomingFriendRequest] =
+    useState<FriendRequestEventPayload | null>(null);
   const [respondingToRequest, setRespondingToRequest] = useState(false);
   // Which message id (if any) is currently showing the reaction picker.
   const [pickerOpenForId, setPickerOpenForId] = useState<string | null>(null);
@@ -112,7 +138,11 @@ export function ChatScreen({ conversationId }: { conversationId: string }) {
   const [suggestions, setSuggestions] = useState<string[]>([]);
 
   // Quote-reply: which message (if any) the composer is replying to.
-  const [replyTarget, setReplyTarget] = useState<{ id: string; body: string; senderName: string } | null>(null);
+  const [replyTarget, setReplyTarget] = useState<{
+    id: string;
+    body: string;
+    senderName: string;
+  } | null>(null);
 
   // Which messages the peer has read (keyed by messageId). Fed by CHAT_READ_STATUS.
   const [peerReadIds, setPeerReadIds] = useState<ReadSet>(new Set());
@@ -300,7 +330,7 @@ export function ChatScreen({ conversationId }: { conversationId: string }) {
   const stopRecording = (shouldSend = true) => {
     if (recordingTimerRef.current) clearInterval(recordingTimerRef.current);
     if (recordAnimIdRef.current) cancelAnimationFrame(recordAnimIdRef.current);
-    
+
     if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
       if (!shouldSend) {
         mediaRecorderRef.current.onstop = () => {};
@@ -668,30 +698,30 @@ export function ChatScreen({ conversationId }: { conversationId: string }) {
   // the optimistic local toggle AND the inbound CHAT_REACTION broadcast.
   // De-duplicates by (emoji, userId) so a server broadcast of an action the
   // local user already applied optimistically doesn't create a duplicate.
-  const applyReactionChange = useCallback(
-    (payload: ChatReactionPayload) => {
-      setMessages((prev) =>
-        prev.map((m) => {
-          if (m.id !== payload.messageId) return m;
-          const existing: MessageReactionPublic[] = m.reactions ?? [];
-          if (payload.action === 'add') {
-            const dup = existing.some(
-              (r) => r.userId === payload.userId && r.emoji === payload.emoji,
-            );
-            if (dup) return m;
-            return { ...m, reactions: [...existing, { emoji: payload.emoji, userId: payload.userId }] };
-          }
+  const applyReactionChange = useCallback((payload: ChatReactionPayload) => {
+    setMessages((prev) =>
+      prev.map((m) => {
+        if (m.id !== payload.messageId) return m;
+        const existing: MessageReactionPublic[] = m.reactions ?? [];
+        if (payload.action === 'add') {
+          const dup = existing.some(
+            (r) => r.userId === payload.userId && r.emoji === payload.emoji,
+          );
+          if (dup) return m;
           return {
             ...m,
-            reactions: existing.filter(
-              (r) => !(r.userId === payload.userId && r.emoji === payload.emoji),
-            ),
+            reactions: [...existing, { emoji: payload.emoji, userId: payload.userId }],
           };
-        }),
-      );
-    },
-    [],
-  );
+        }
+        return {
+          ...m,
+          reactions: existing.filter(
+            (r) => !(r.userId === payload.userId && r.emoji === payload.emoji),
+          ),
+        };
+      }),
+    );
+  }, []);
 
   // Inbound reaction events from any participant. The server broadcasts to
   // the entire conversation room (including the originator) so all open
@@ -809,7 +839,9 @@ export function ChatScreen({ conversationId }: { conversationId: string }) {
 
   const sortedMessages = useMemo(
     () =>
-      [...messages].sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()),
+      [...messages].sort(
+        (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime(),
+      ),
     [messages],
   );
 
@@ -838,8 +870,7 @@ export function ChatScreen({ conversationId }: { conversationId: string }) {
       return;
     }
 
-    const nearBottom =
-      scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight < 150;
+    const nearBottom = scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight < 150;
 
     if (isLastMine || nearBottom) {
       scroller.scrollTo({ top: scroller.scrollHeight, behavior: 'smooth' });
@@ -871,9 +902,7 @@ export function ChatScreen({ conversationId }: { conversationId: string }) {
     const timer = setTimeout(() => {
       ackTimersRef.current.delete(clientId);
       setMessages((prev) =>
-        prev.map((m) =>
-          m.clientId === clientId ? { ...m, pending: undefined, failed: true } : m,
-        ),
+        prev.map((m) => (m.clientId === clientId ? { ...m, pending: undefined, failed: true } : m)),
       );
     }, ACK_TIMEOUT_MS);
     ackTimersRef.current.set(clientId, timer);
@@ -922,9 +951,7 @@ export function ChatScreen({ conversationId }: { conversationId: string }) {
       const failed = messages.find((m) => m.clientId === clientId && m.failed);
       if (!failed) return;
       setMessages((prev) =>
-        prev.map((m) =>
-          m.clientId === clientId ? { ...m, pending: true, failed: undefined } : m,
-        ),
+        prev.map((m) => (m.clientId === clientId ? { ...m, pending: true, failed: undefined } : m)),
       );
       socket.emit(SocketEvents.CHAT_SEND, {
         conversationId,
@@ -1038,8 +1065,7 @@ export function ChatScreen({ conversationId }: { conversationId: string }) {
 
   // Detect the viewer's browser locale (e.g. "en", "hi", "es-MX").
   // We pass the full BCP-47 tag to the API; Groq handles regional variants.
-  const viewerLocale =
-    typeof navigator !== 'undefined' ? navigator.language : 'en';
+  const viewerLocale = typeof navigator !== 'undefined' ? navigator.language : 'en';
 
   const handleTranslate = useCallback(
     async (messageId: string) => {
@@ -1100,7 +1126,7 @@ export function ChatScreen({ conversationId }: { conversationId: string }) {
       <header className="flex items-center gap-3 p-4 border-b border-glass-border bg-glass-bg backdrop-blur-xl sticky top-0 z-10">
         <button
           type="button"
-          onClick={() => searchOpen ? closeSearch() : router.push('/connections')}
+          onClick={() => (searchOpen ? closeSearch() : router.push('/connections'))}
           className="p-2 rounded-lg hover:bg-muted transition"
           aria-label={searchOpen ? 'Close search' : 'Back'}
         >
@@ -1124,9 +1150,7 @@ export function ChatScreen({ conversationId }: { conversationId: string }) {
             </div>
             <div className="flex-1 min-w-0">
               <p className="truncate">{peer?.nickname ?? 'Stranger'}</p>
-              <p className="text-xs text-muted-foreground">
-                {peer ? 'online' : '—'}
-              </p>
+              <p className="text-xs text-muted-foreground">{peer ? 'online' : '—'}</p>
             </div>
           </>
         )}
@@ -1137,9 +1161,7 @@ export function ChatScreen({ conversationId }: { conversationId: string }) {
             onClick={addFriend}
             disabled={!peer || requestSent}
             className={`p-2 rounded-lg transition disabled:opacity-50 ${
-              requestSent
-                ? 'text-muted-foreground'
-                : 'hover:bg-primary/20 text-primary'
+              requestSent ? 'text-muted-foreground' : 'hover:bg-primary/20 text-primary'
             }`}
             aria-label={requestSent ? 'Friend request sent' : 'Save as friend'}
             title={requestSent ? 'Friend request sent' : 'Save as friend'}
@@ -1194,7 +1216,7 @@ export function ChatScreen({ conversationId }: { conversationId: string }) {
 
         <button
           type="button"
-          onClick={() => searchOpen ? closeSearch() : setSearchOpen(true)}
+          onClick={() => (searchOpen ? closeSearch() : setSearchOpen(true))}
           className="p-2 rounded-lg hover:bg-primary/20 transition text-primary"
           aria-label="Search messages"
           title="Search"
@@ -1233,29 +1255,37 @@ export function ChatScreen({ conversationId }: { conversationId: string }) {
             ) : searchQuery.trim().length < 2 ? (
               <div className="flex flex-col items-center justify-center h-32 gap-2">
                 <Search className="w-8 h-8 text-muted-foreground/40" />
-                <p className="text-sm text-muted-foreground">Type at least 2 characters to search</p>
+                <p className="text-sm text-muted-foreground">
+                  Type at least 2 characters to search
+                </p>
               </div>
             ) : searchResults.length === 0 ? (
               <div className="flex flex-col items-center justify-center h-32 gap-2">
-                <p className="text-sm text-muted-foreground">No messages found for &ldquo;{searchQuery}&rdquo;</p>
+                <p className="text-sm text-muted-foreground">
+                  No messages found for &ldquo;{searchQuery}&rdquo;
+                </p>
               </div>
             ) : (
               <div className="p-4 space-y-2">
                 <p className="text-xs text-muted-foreground mb-3">
-                  {searchResults.length} result{searchResults.length !== 1 ? 's' : ''} for &ldquo;{searchQuery}&rdquo;
+                  {searchResults.length} result{searchResults.length !== 1 ? 's' : ''} for &ldquo;
+                  {searchQuery}&rdquo;
                 </p>
                 {searchResults.map((msg) => {
                   const mine = msg.senderId === me?.id;
                   const qi = msg.body.toLowerCase().indexOf(searchQuery.toLowerCase());
-                  const highlighted = qi >= 0 ? (
-                    <span>
-                      {msg.body.slice(0, qi)}
-                      <mark className="bg-yellow-400/30 text-foreground rounded px-0.5">
-                        {msg.body.slice(qi, qi + searchQuery.length)}
-                      </mark>
-                      {msg.body.slice(qi + searchQuery.length)}
-                    </span>
-                  ) : msg.body;
+                  const highlighted =
+                    qi >= 0 ? (
+                      <span>
+                        {msg.body.slice(0, qi)}
+                        <mark className="bg-yellow-400/30 text-foreground rounded px-0.5">
+                          {msg.body.slice(qi, qi + searchQuery.length)}
+                        </mark>
+                        {msg.body.slice(qi + searchQuery.length)}
+                      </span>
+                    ) : (
+                      msg.body
+                    );
 
                   return (
                     <motion.div
@@ -1264,13 +1294,17 @@ export function ChatScreen({ conversationId }: { conversationId: string }) {
                       animate={{ opacity: 1, y: 0 }}
                       className={`flex ${mine ? 'justify-end' : 'justify-start'}`}
                     >
-                      <div className={`px-4 py-2.5 rounded-2xl max-w-[80%] ${
-                        mine
-                          ? 'bg-gradient-to-br from-purple-600 via-pink-600 to-blue-600 text-white rounded-br-sm'
-                          : 'bg-glass-bg border border-glass-border rounded-bl-sm'
-                      }`}>
+                      <div
+                        className={`px-4 py-2.5 rounded-2xl max-w-[80%] ${
+                          mine
+                            ? 'bg-gradient-to-br from-purple-600 via-pink-600 to-blue-600 text-white rounded-br-sm'
+                            : 'bg-glass-bg border border-glass-border rounded-bl-sm'
+                        }`}
+                      >
                         <p className="text-sm break-words">{highlighted}</p>
-                        <p className="text-[10px] mt-1 opacity-60">{new Date(msg.createdAt).toLocaleString()}</p>
+                        <p className="text-[10px] mt-1 opacity-60">
+                          {new Date(msg.createdAt).toLocaleString()}
+                        </p>
                       </div>
                     </motion.div>
                   );
@@ -1394,234 +1428,248 @@ export function ChatScreen({ conversationId }: { conversationId: string }) {
           </p>
         ) : (
           <>
-          <IcebreakerBubble chunks={icebreakerChunks} done={icebreakerDone} />
+            <IcebreakerBubble chunks={icebreakerChunks} done={icebreakerDone} />
 
-          <AnimatePresence initial={false}>
-            {sortedMessages.map((msg, idx) => {
-              const isSystem = msg.type === 'SYSTEM';
-              const mine = !isSystem && msg.senderId === me?.id;
-              const prev = idx > 0 ? sortedMessages[idx - 1] : null;
-              const showTimestamp = shouldShowTimestamp(
-                prev?.createdAt ?? null,
-                msg.createdAt,
-                prev?.senderId ?? null,
-                msg.senderId,
-              );
+            <AnimatePresence initial={false}>
+              {sortedMessages.map((msg, idx) => {
+                const isSystem = msg.type === 'SYSTEM';
+                const mine = !isSystem && msg.senderId === me?.id;
+                const prev = idx > 0 ? sortedMessages[idx - 1] : null;
+                const showTimestamp = shouldShowTimestamp(
+                  prev?.createdAt ?? null,
+                  msg.createdAt,
+                  prev?.senderId ?? null,
+                  msg.senderId,
+                );
 
-              // System messages (ice-breaker, "You're now friends!") render
-              // centred and muted — they're not from either participant.
-              if (isSystem) {
+                // System messages (ice-breaker, "You're now friends!") render
+                // centred and muted — they're not from either participant.
+                if (isSystem) {
+                  return (
+                    <motion.div
+                      key={msg.id}
+                      initial={{ opacity: 0, y: 4 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      className="flex justify-center my-1"
+                    >
+                      <p className="text-xs text-muted-foreground bg-muted/40 rounded-full px-3 py-1 text-center max-w-xs">
+                        {msg.body}
+                      </p>
+                    </motion.div>
+                  );
+                }
+
                 return (
                   <motion.div
                     key={msg.id}
-                    initial={{ opacity: 0, y: 4 }}
+                    initial={{ opacity: 0, y: 8 }}
                     animate={{ opacity: 1, y: 0 }}
-                    className="flex justify-center my-1"
+                    className={`flex ${mine ? 'justify-end' : 'justify-start'}`}
                   >
-                    <p className="text-xs text-muted-foreground bg-muted/40 rounded-full px-3 py-1 text-center max-w-xs">
-                      {msg.body}
-                    </p>
-                  </motion.div>
-                );
-              }
-
-              return (
-                <motion.div
-                  key={msg.id}
-                  initial={{ opacity: 0, y: 8 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  className={`flex ${mine ? 'justify-end' : 'justify-start'}`}
-                >
-                  <div className={`flex flex-col gap-1 max-w-[80%] md:max-w-[60%] ${mine ? 'items-end' : 'items-start'}`}>
-                    {/* Cluster-aware timestamp above the first bubble of a
-                        sender run (or after a >5min gap). */}
-                    {showTimestamp && (
-                      <span className="text-[10px] text-muted-foreground px-1">
-                        {formatChatTime(msg.createdAt)}
-                      </span>
-                    )}
                     <div
-                      className="relative group overflow-visible"
-                      onMouseEnter={() =>
-                        window.matchMedia('(hover: hover)').matches && setPickerOpenForId(msg.id)
-                      }
-                      onMouseLeave={() =>
-                        window.matchMedia('(hover: hover)').matches && setPickerOpenForId(null)
-                      }
+                      className={`flex flex-col gap-1 max-w-[80%] md:max-w-[60%] ${mine ? 'items-end' : 'items-start'}`}
                     >
-                      {/* Swipe reply indicator background glow */}
-                      <div className="absolute left-2 top-1/2 -translate-y-1/2 flex items-center justify-center w-8 h-8 rounded-full bg-primary/20 text-primary opacity-0 group-active:opacity-100 transition-all duration-200 pointer-events-none z-0">
-                        <Reply className="w-4 h-4" />
-                      </div>
-                      <motion.div
-                        drag="x"
-                        dragConstraints={{ left: 0, right: 0 }}
-                        dragElastic={{ left: 0, right: 0.5 }}
-                        onDragEnd={(e, info) => {
-                          if (info.offset.x > 60) {
-                            if (typeof navigator !== 'undefined' && navigator.vibrate) {
-                              navigator.vibrate(10);
+                      {/* Cluster-aware timestamp above the first bubble of a
+                        sender run (or after a >5min gap). */}
+                      {showTimestamp && (
+                        <span className="text-[10px] text-muted-foreground px-1">
+                          {formatChatTime(msg.createdAt)}
+                        </span>
+                      )}
+                      <div
+                        className="relative group overflow-visible"
+                        onMouseEnter={() =>
+                          window.matchMedia('(hover: hover)').matches && setPickerOpenForId(msg.id)
+                        }
+                        onMouseLeave={() =>
+                          window.matchMedia('(hover: hover)').matches && setPickerOpenForId(null)
+                        }
+                      >
+                        {/* Swipe reply indicator background glow */}
+                        <div className="absolute left-2 top-1/2 -translate-y-1/2 flex items-center justify-center w-8 h-8 rounded-full bg-primary/20 text-primary opacity-0 group-active:opacity-100 transition-all duration-200 pointer-events-none z-0">
+                          <Reply className="w-4 h-4" />
+                        </div>
+                        <motion.div
+                          drag="x"
+                          dragConstraints={{ left: 0, right: 0 }}
+                          dragElastic={{ left: 0, right: 0.5 }}
+                          onDragEnd={(e, info) => {
+                            if (info.offset.x > 60) {
+                              if (typeof navigator !== 'undefined' && navigator.vibrate) {
+                                navigator.vibrate(10);
+                              }
+                              setReplyTarget({
+                                id: msg.id,
+                                body: msg.body,
+                                senderName: mine ? 'You' : (peer?.nickname ?? 'Peer'),
+                              });
                             }
-                            setReplyTarget({
-                              id: msg.id,
-                              body: msg.body,
-                              senderName: mine ? 'You' : (peer?.nickname ?? 'Peer'),
-                            });
-                          }
-                        }}
-                        onContextMenu={(e) => {
-                          e.preventDefault();
-                          setPickerOpenForId((id) => (id === msg.id ? null : msg.id));
-                          if (!msg.pending && !msg.failed && !msg.deletedAt) {
-                            setCtxMenuMessageId((id) => (id === msg.id ? null : msg.id));
-                          }
-                        }}
-                        onTouchStart={(e) => {
-                          const touch = e.touches[0];
-                          if (!touch) return;
-                          if (touchTimeoutRef.current) clearTimeout(touchTimeoutRef.current);
-                          touchStartRef.current = {
-                            x: touch.clientX,
-                            y: touch.clientY,
-                          };
-                          touchTimeoutRef.current = setTimeout(() => {
-                            if (typeof navigator !== 'undefined' && navigator.vibrate) {
-                              navigator.vibrate(15);
-                            }
-                            setPickerOpenForId(msg.id);
+                          }}
+                          onContextMenu={(e) => {
+                            e.preventDefault();
+                            setPickerOpenForId((id) => (id === msg.id ? null : msg.id));
                             if (!msg.pending && !msg.failed && !msg.deletedAt) {
-                              setCtxMenuMessageId(msg.id);
+                              setCtxMenuMessageId((id) => (id === msg.id ? null : msg.id));
                             }
-                          }, 500);
-                        }}
-                        onTouchMove={(e) => {
-                          const touch = e.touches[0];
-                          if (!touch || !touchStartRef.current) return;
-                          const dx = Math.abs(touch.clientX - touchStartRef.current.x);
-                          const dy = Math.abs(touch.clientY - touchStartRef.current.y);
-                          if (dx > 10 || dy > 10) {
+                          }}
+                          onTouchStart={(e) => {
+                            const touch = e.touches[0];
+                            if (!touch) return;
+                            if (touchTimeoutRef.current) clearTimeout(touchTimeoutRef.current);
+                            touchStartRef.current = {
+                              x: touch.clientX,
+                              y: touch.clientY,
+                            };
+                            touchTimeoutRef.current = setTimeout(() => {
+                              if (typeof navigator !== 'undefined' && navigator.vibrate) {
+                                navigator.vibrate(15);
+                              }
+                              setPickerOpenForId(msg.id);
+                              if (!msg.pending && !msg.failed && !msg.deletedAt) {
+                                setCtxMenuMessageId(msg.id);
+                              }
+                            }, 500);
+                          }}
+                          onTouchMove={(e) => {
+                            const touch = e.touches[0];
+                            if (!touch || !touchStartRef.current) return;
+                            const dx = Math.abs(touch.clientX - touchStartRef.current.x);
+                            const dy = Math.abs(touch.clientY - touchStartRef.current.y);
+                            if (dx > 10 || dy > 10) {
+                              if (touchTimeoutRef.current) clearTimeout(touchTimeoutRef.current);
+                              touchStartRef.current = null;
+                            }
+                          }}
+                          onTouchEnd={() => {
                             if (touchTimeoutRef.current) clearTimeout(touchTimeoutRef.current);
                             touchStartRef.current = null;
-                          }
-                        }}
-                        onTouchEnd={() => {
-                          if (touchTimeoutRef.current) clearTimeout(touchTimeoutRef.current);
-                          touchStartRef.current = null;
-                        }}
-                        onTouchCancel={() => {
-                          if (touchTimeoutRef.current) clearTimeout(touchTimeoutRef.current);
-                          touchStartRef.current = null;
-                        }}
-                        className={`px-4 py-2.5 rounded-2xl ${
-                          mine
-                            ? 'bg-gradient-to-br from-purple-600 via-pink-600 to-blue-600 text-white rounded-br-sm'
-                            : 'bg-glass-bg border border-glass-border rounded-bl-sm'
-                        } ${msg.pending ? 'opacity-60' : ''} ${msg.failed ? 'opacity-80 ring-1 ring-destructive/60' : ''}`}
-                      >
-                        {/* Quote-reply preview inside the bubble */}
-                        {msg.replyToBody && (
-                          <QuoteReplyPreview
-                            replyToBody={msg.replyToBody}
-                            replyToSenderName={
-                              msg.replyToMessageId && messages.find((m) => m.id === msg.replyToMessageId)?.senderId === me?.id
-                                ? 'You'
-                                : (peer?.nickname ?? 'Peer')
-                            }
-                            mine={mine}
-                          />
-                        )}
-                        {msg.deletedAt ? (
-                          <p className="text-sm italic opacity-50">This message was deleted</p>
-                        ) : msg.body.startsWith('audio:') ? (
-                          <AudioBubble src={msg.body} mine={mine} />
-                        ) : (
-                          <p
-                            className="text-sm break-words whitespace-pre-wrap"
-                            data-testid={showTranslatedIds.has(msg.id) ? 'translated-text' : undefined}
-                          >
-                            {showTranslatedIds.has(msg.id)
-                              ? (translatedMessages.get(msg.id)?.translated ?? msg.body)
-                              : msg.body}
-                          </p>
-                        )}
-                      </motion.div>
-                      {/* Context menu — reply & delete for everyone */}
-                      <AnimatePresence>
-                        {ctxMenuMessageId === msg.id && (
-                          <motion.div
-                            initial={{ opacity: 0, scale: 0.9, y: -4 }}
-                            animate={{ opacity: 1, scale: 1, y: 0 }}
-                            exit={{ opacity: 0, scale: 0.9, y: -4 }}
-                            className={`absolute ${mine ? 'right-0' : 'left-0'} top-full mt-1 z-30 rounded-2xl border border-glass-border bg-glass-bg backdrop-blur-xl shadow-xl overflow-hidden min-w-[160px]`}
-                          >
-                            <button
-                              type="button"
-                              onClick={() => setReplyTarget({ id: msg.id, body: msg.body, senderName: mine ? 'You' : (peer?.nickname ?? 'Peer') })}
-                              className="flex items-center gap-2 w-full px-4 py-2.5 text-sm hover:bg-muted/40 transition text-left"
+                          }}
+                          onTouchCancel={() => {
+                            if (touchTimeoutRef.current) clearTimeout(touchTimeoutRef.current);
+                            touchStartRef.current = null;
+                          }}
+                          className={`px-4 py-2.5 rounded-2xl ${
+                            mine
+                              ? 'bg-gradient-to-br from-purple-600 via-pink-600 to-blue-600 text-white rounded-br-sm'
+                              : 'bg-glass-bg border border-glass-border rounded-bl-sm'
+                          } ${msg.pending ? 'opacity-60' : ''} ${msg.failed ? 'opacity-80 ring-1 ring-destructive/60' : ''}`}
+                        >
+                          {/* Quote-reply preview inside the bubble */}
+                          {msg.replyToBody && (
+                            <QuoteReplyPreview
+                              replyToBody={msg.replyToBody}
+                              replyToSenderName={
+                                msg.replyToMessageId &&
+                                messages.find((m) => m.id === msg.replyToMessageId)?.senderId ===
+                                  me?.id
+                                  ? 'You'
+                                  : (peer?.nickname ?? 'Peer')
+                              }
+                              mine={mine}
+                            />
+                          )}
+                          {msg.deletedAt ? (
+                            <p className="text-sm italic opacity-50">This message was deleted</p>
+                          ) : msg.body.startsWith('audio:') ? (
+                            <AudioBubble src={msg.body} mine={mine} />
+                          ) : (
+                            <p
+                              className="text-sm break-words whitespace-pre-wrap"
+                              data-testid={
+                                showTranslatedIds.has(msg.id) ? 'translated-text' : undefined
+                              }
                             >
-                              <Reply className="w-3.5 h-3.5" />
-                              Reply
-                            </button>
-                            {mine && (
+                              {showTranslatedIds.has(msg.id)
+                                ? (translatedMessages.get(msg.id)?.translated ?? msg.body)
+                                : msg.body}
+                            </p>
+                          )}
+                        </motion.div>
+                        {/* Context menu — reply & delete for everyone */}
+                        <AnimatePresence>
+                          {ctxMenuMessageId === msg.id && (
+                            <motion.div
+                              initial={{ opacity: 0, scale: 0.9, y: -4 }}
+                              animate={{ opacity: 1, scale: 1, y: 0 }}
+                              exit={{ opacity: 0, scale: 0.9, y: -4 }}
+                              className={`absolute ${mine ? 'right-0' : 'left-0'} top-full mt-1 z-30 rounded-2xl border border-glass-border bg-glass-bg backdrop-blur-xl shadow-xl overflow-hidden min-w-[160px]`}
+                            >
                               <button
                                 type="button"
-                                onClick={() => deleteMessage(msg.id)}
-                                className="flex items-center gap-2 w-full px-4 py-2.5 text-sm text-destructive hover:bg-destructive/10 transition text-left"
+                                onClick={() =>
+                                  setReplyTarget({
+                                    id: msg.id,
+                                    body: msg.body,
+                                    senderName: mine ? 'You' : (peer?.nickname ?? 'Peer'),
+                                  })
+                                }
+                                className="flex items-center gap-2 w-full px-4 py-2.5 text-sm hover:bg-muted/40 transition text-left"
                               >
-                                <Trash2 className="w-3.5 h-3.5" />
-                                Delete for everyone
+                                <Reply className="w-3.5 h-3.5" />
+                                Reply
                               </button>
-                            )}
-                          </motion.div>
-                        )}
-                      </AnimatePresence>
-                      <ReactionPicker
-                        open={pickerOpenForId === msg.id && !msg.pending && !msg.failed}
-                        onPick={(emoji) => void toggleReaction(msg.id, emoji)}
-                        onClose={() => setPickerOpenForId(null)}
-                      />
-                    </div>
-                    {/* Translate button — only for peer messages that are persisted. */}
-                    {!mine && !msg.pending && !msg.failed && (
-                      <TranslateButton
-                        loading={translatingIds.has(msg.id)}
-                        showingTranslation={showTranslatedIds.has(msg.id)}
-                        detectedLanguage={translatedMessages.get(msg.id)?.detectedLanguage ?? null}
-                        onTranslate={() => void handleTranslate(msg.id)}
-                        onToggle={() => handleToggleTranslation(msg.id)}
-                      />
-                    )}
-                    {/* Pills below the bubble — clickable to toggle. */}
-                    <ReactionPills
-                      reactions={msg.reactions ?? []}
-                      meId={me?.id}
-                      mine={mine}
-                      onToggle={(emoji) => void toggleReaction(msg.id, emoji)}
-                    />
-                    {/* Read receipt ticks — only on own messages */}
-                    {mine && !msg.pending && !msg.failed && !msg.deletedAt && (
-                      <div className="flex justify-end pr-1">
-                        <ReadReceipt status={getReadReceiptStatus(msg)} />
+                              {mine && (
+                                <button
+                                  type="button"
+                                  onClick={() => deleteMessage(msg.id)}
+                                  className="flex items-center gap-2 w-full px-4 py-2.5 text-sm text-destructive hover:bg-destructive/10 transition text-left"
+                                >
+                                  <Trash2 className="w-3.5 h-3.5" />
+                                  Delete for everyone
+                                </button>
+                              )}
+                            </motion.div>
+                          )}
+                        </AnimatePresence>
+                        <ReactionPicker
+                          open={pickerOpenForId === msg.id && !msg.pending && !msg.failed}
+                          onPick={(emoji) => void toggleReaction(msg.id, emoji)}
+                          onClose={() => setPickerOpenForId(null)}
+                        />
                       </div>
-                    )}
-                    {mine && msg.failed && msg.clientId && (
-                      <button
-                        type="button"
-                        onClick={() => retryMessage(msg.clientId!)}
-                        className="flex items-center gap-1 text-xs text-destructive hover:text-destructive/80 transition px-1"
-                        aria-label="Retry sending message"
-                      >
-                        <AlertCircle className="w-3 h-3" />
-                        <span>Failed to send.</span>
-                        <RotateCw className="w-3 h-3" />
-                        <span className="underline">Tap to retry</span>
-                      </button>
-                    )}
-                  </div>
-                </motion.div>
-              );
-            })}
-          </AnimatePresence>
+                      {/* Translate button — only for peer messages that are persisted. */}
+                      {!mine && !msg.pending && !msg.failed && (
+                        <TranslateButton
+                          loading={translatingIds.has(msg.id)}
+                          showingTranslation={showTranslatedIds.has(msg.id)}
+                          detectedLanguage={
+                            translatedMessages.get(msg.id)?.detectedLanguage ?? null
+                          }
+                          onTranslate={() => void handleTranslate(msg.id)}
+                          onToggle={() => handleToggleTranslation(msg.id)}
+                        />
+                      )}
+                      {/* Pills below the bubble — clickable to toggle. */}
+                      <ReactionPills
+                        reactions={msg.reactions ?? []}
+                        meId={me?.id}
+                        mine={mine}
+                        onToggle={(emoji) => void toggleReaction(msg.id, emoji)}
+                      />
+                      {/* Read receipt ticks — only on own messages */}
+                      {mine && !msg.pending && !msg.failed && !msg.deletedAt && (
+                        <div className="flex justify-end pr-1">
+                          <ReadReceipt status={getReadReceiptStatus(msg)} />
+                        </div>
+                      )}
+                      {mine && msg.failed && msg.clientId && (
+                        <button
+                          type="button"
+                          onClick={() => retryMessage(msg.clientId!)}
+                          className="flex items-center gap-1 text-xs text-destructive hover:text-destructive/80 transition px-1"
+                          aria-label="Retry sending message"
+                        >
+                          <AlertCircle className="w-3 h-3" />
+                          <span>Failed to send.</span>
+                          <RotateCw className="w-3 h-3" />
+                          <span className="underline">Tap to retry</span>
+                        </button>
+                      )}
+                    </div>
+                  </motion.div>
+                );
+              })}
+            </AnimatePresence>
           </>
         )}
 
@@ -1666,7 +1714,10 @@ export function ChatScreen({ conversationId }: { conversationId: string }) {
             exit={{ opacity: 0, y: 10, scale: 0.95 }}
             onClick={() => {
               if (scrollRef.current) {
-                scrollRef.current.scrollTo({ top: scrollRef.current.scrollHeight, behavior: 'smooth' });
+                scrollRef.current.scrollTo({
+                  top: scrollRef.current.scrollHeight,
+                  behavior: 'smooth',
+                });
               }
               setShowNewMessageBadge(false);
             }}
@@ -1709,10 +1760,7 @@ export function ChatScreen({ conversationId }: { conversationId: string }) {
             onCancel={() => setReplyTarget(null)}
           />
         )}
-        <SuggestionChips
-          suggestions={suggestions}
-          onSelect={(text) => sendMessage(text)}
-        />
+        <SuggestionChips suggestions={suggestions} onSelect={(text) => sendMessage(text)} />
         <form
           onSubmit={(e) => {
             e.preventDefault();
@@ -1724,65 +1772,67 @@ export function ChatScreen({ conversationId }: { conversationId: string }) {
           }}
           className="p-3 flex items-end gap-2"
         >
-        {isRecording ? (
-          <div className="flex-1 bg-input rounded-2xl px-4 py-2.5 flex items-center justify-between border border-glass-border">
-            <div className="flex items-center gap-2">
-              <span className="w-2.5 h-2.5 rounded-full bg-destructive animate-pulse shrink-0" />
-              <span className="text-sm font-semibold font-mono text-destructive">
-                {Math.floor(recordingSeconds / 60).toString().padStart(2, '0')}:
-                {(recordingSeconds % 60).toString().padStart(2, '0')}
-              </span>
+          {isRecording ? (
+            <div className="flex-1 bg-input rounded-2xl px-4 py-2.5 flex items-center justify-between border border-glass-border">
+              <div className="flex items-center gap-2">
+                <span className="w-2.5 h-2.5 rounded-full bg-destructive animate-pulse shrink-0" />
+                <span className="text-sm font-semibold font-mono text-destructive">
+                  {Math.floor(recordingSeconds / 60)
+                    .toString()
+                    .padStart(2, '0')}
+                  :{(recordingSeconds % 60).toString().padStart(2, '0')}
+                </span>
+              </div>
+              <canvas
+                ref={recordCanvasRef}
+                className="w-[120px] h-[30px] rounded-lg pointer-events-none"
+              />
+              <button
+                type="button"
+                onClick={() => stopRecording(false)}
+                className="text-xs text-muted-foreground hover:text-destructive transition underline px-1 animate-pulse"
+              >
+                Cancel
+              </button>
             </div>
-            <canvas
-              ref={recordCanvasRef}
-              className="w-[120px] h-[30px] rounded-lg pointer-events-none"
+          ) : (
+            <textarea
+              value={draft}
+              onChange={(e) => onInputChange(e.target.value)}
+              placeholder="Type a message…"
+              rows={1}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && !e.shiftKey) {
+                  e.preventDefault();
+                  sendMessage();
+                }
+              }}
+              className="flex-1 bg-input rounded-2xl px-4 py-2.5 outline-none border border-glass-border resize-none max-h-32 focus:ring-2 focus:ring-primary/40"
             />
-            <button
-              type="button"
-              onClick={() => stopRecording(false)}
-              className="text-xs text-muted-foreground hover:text-destructive transition underline px-1 animate-pulse"
-            >
-              Cancel
-            </button>
-          </div>
-        ) : (
-          <textarea
-            value={draft}
-            onChange={(e) => onInputChange(e.target.value)}
-            placeholder="Type a message…"
-            rows={1}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter' && !e.shiftKey) {
-                e.preventDefault();
-                sendMessage();
-              }
-            }}
-            className="flex-1 bg-input rounded-2xl px-4 py-2.5 outline-none border border-glass-border resize-none max-h-32 focus:ring-2 focus:ring-primary/40"
-          />
-        )}
+          )}
 
-        {!draft.trim() && !isRecording ? (
-          <motion.button
-            type="button"
-            whileTap={{ scale: 0.95 }}
-            onClick={startRecording}
-            aria-label="Record voice note"
-            title="Record Voice Note"
-            className="p-3 rounded-full bg-gradient-to-br from-purple-600 via-pink-600 to-blue-600 text-white shadow-lg shadow-primary/30 active:scale-95 transition-transform"
-          >
-            <Mic className="w-5 h-5" />
-          </motion.button>
-        ) : (
-          <motion.button
-            type="submit"
-            whileTap={{ scale: 0.95 }}
-            disabled={!draft.trim() && !isRecording}
-            aria-label={isRecording ? 'Send voice note' : 'Send'}
-            className="p-3 rounded-full bg-gradient-to-br from-purple-600 via-pink-600 to-blue-600 text-white disabled:opacity-40 disabled:cursor-not-allowed shadow-lg shadow-primary/30"
-          >
-            <Send className="w-5 h-5" />
-          </motion.button>
-        )}
+          {!draft.trim() && !isRecording ? (
+            <motion.button
+              type="button"
+              whileTap={{ scale: 0.95 }}
+              onClick={startRecording}
+              aria-label="Record voice note"
+              title="Record Voice Note"
+              className="p-3 rounded-full bg-gradient-to-br from-purple-600 via-pink-600 to-blue-600 text-white shadow-lg shadow-primary/30 active:scale-95 transition-transform"
+            >
+              <Mic className="w-5 h-5" />
+            </motion.button>
+          ) : (
+            <motion.button
+              type="submit"
+              whileTap={{ scale: 0.95 }}
+              disabled={!draft.trim() && !isRecording}
+              aria-label={isRecording ? 'Send voice note' : 'Send'}
+              className="p-3 rounded-full bg-gradient-to-br from-purple-600 via-pink-600 to-blue-600 text-white disabled:opacity-40 disabled:cursor-not-allowed shadow-lg shadow-primary/30"
+            >
+              <Send className="w-5 h-5" />
+            </motion.button>
+          )}
         </form>
       </div>
 

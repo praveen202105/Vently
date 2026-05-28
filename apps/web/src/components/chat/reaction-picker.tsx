@@ -20,7 +20,13 @@ interface ReactionPickerProps {
  * bubble on hover (desktop) or long-press (mobile). Picks fire onPick AND
  * onClose so the parent can dismiss after a tap.
  */
-export function ReactionPicker({ open, onPick, onClose, position = 'top', align = 'center' }: ReactionPickerProps) {
+export function ReactionPicker({
+  open,
+  onPick,
+  onClose,
+  position = 'top',
+  align = 'center',
+}: ReactionPickerProps) {
   return (
     <AnimatePresence>
       {open && (
@@ -31,10 +37,12 @@ export function ReactionPicker({ open, onPick, onClose, position = 'top', align 
           transition={{ duration: 0.12 }}
           role="dialog"
           aria-label="Pick a reaction"
-          className={`absolute ${
-            position === 'top' ? '-top-12' : '-bottom-12'
-          } ${
-            align === 'left' ? 'left-0 translate-x-0' : align === 'right' ? 'right-0 translate-x-0' : 'left-1/2 -translate-x-1/2'
+          className={`absolute ${position === 'top' ? '-top-12' : '-bottom-12'} ${
+            align === 'left'
+              ? 'left-0 translate-x-0'
+              : align === 'right'
+                ? 'right-0 translate-x-0'
+                : 'left-1/2 -translate-x-1/2'
           } z-30 flex items-center gap-1 px-2 py-1.5 rounded-full bg-glass-bg backdrop-blur-xl border border-glass-border shadow-xl`}
           // Clicks inside the picker shouldn't propagate to the bubble (which
           // would re-toggle the picker open/closed).

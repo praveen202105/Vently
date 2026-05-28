@@ -101,7 +101,11 @@ describe('IcebreakerService', () => {
 
   it('skips VOICE_ONLY matches entirely', async () => {
     const { server, emit } = makeSocketServer();
-    await service.generate({ ...BASE_PARAMS, mood: 'VOICE_ONLY' as any, socketServer: server as any });
+    await service.generate({
+      ...BASE_PARAMS,
+      mood: 'VOICE_ONLY' as any,
+      socketServer: server as any,
+    });
     expect(emit).not.toHaveBeenCalled();
     expect(groqCreate).not.toHaveBeenCalled();
   });

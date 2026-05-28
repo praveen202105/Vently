@@ -2,8 +2,7 @@ import { request, type APIRequestContext, type BrowserContext, type Page } from 
 
 // Agent tests run against production by default but can be pointed elsewhere
 // via E2E_WEB_URL / E2E_API_URL.
-export const API_HOST =
-  process.env.E2E_API_URL ?? 'https://api-production-7fe02.up.railway.app';
+export const API_HOST = process.env.E2E_API_URL ?? 'https://api-production-7fe02.up.railway.app';
 export const WEB_HOST = process.env.E2E_WEB_URL ?? 'https://vently-web-gamma.vercel.app';
 
 const P = (path: string) => `/api${path}`;

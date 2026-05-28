@@ -131,9 +131,7 @@ export function ConnectionsScreen() {
       )}
 
       <section>
-        <h2 className="text-sm text-muted-foreground mb-3 uppercase tracking-wide">
-          Friends
-        </h2>
+        <h2 className="text-sm text-muted-foreground mb-3 uppercase tracking-wide">Friends</h2>
 
         {friendsLoading ? (
           <ConnectionSkeleton />

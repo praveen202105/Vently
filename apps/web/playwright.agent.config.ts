@@ -20,10 +20,7 @@ export default defineConfig({
   workers: 1,
   timeout: 90_000,
   expect: { timeout: 15_000 },
-  reporter: [
-    ['list'],
-    ['html', { outputFolder: 'agent-report', open: 'on-failure' }],
-  ],
+  reporter: [['list'], ['html', { outputFolder: 'agent-report', open: 'on-failure' }]],
   outputDir: 'agent-results',
   use: {
     baseURL: process.env.E2E_WEB_URL ?? 'https://vently-web-gamma.vercel.app',

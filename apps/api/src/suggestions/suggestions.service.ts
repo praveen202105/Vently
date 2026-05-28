@@ -7,13 +7,20 @@ import { SocketEvents } from '@vently/shared';
 
 function moodInstruction(mood: MoodIntent | null): string {
   switch (mood) {
-    case 'LONELY':       return 'warm, empathetic — create a sense of connection';
-    case 'NEED_TO_TALK': return 'open, supportive — invite them to share more';
-    case 'FRIENDSHIP':   return 'casual, fun — like chatting with a good friend';
-    case 'LATE_NIGHT':   return 'relaxed, thoughtful — cozy late-night vibes';
-    case 'ADVICE':       return 'engaged, thoughtful — show you are listening and care';
-    case 'FLIRTY':       return 'playful, light-hearted and flirty';
-    default:             return 'warm and natural';
+    case 'LONELY':
+      return 'warm, empathetic — create a sense of connection';
+    case 'NEED_TO_TALK':
+      return 'open, supportive — invite them to share more';
+    case 'FRIENDSHIP':
+      return 'casual, fun — like chatting with a good friend';
+    case 'LATE_NIGHT':
+      return 'relaxed, thoughtful — cozy late-night vibes';
+    case 'ADVICE':
+      return 'engaged, thoughtful — show you are listening and care';
+    case 'FLIRTY':
+      return 'playful, light-hearted and flirty';
+    default:
+      return 'warm and natural';
   }
 }
 
@@ -53,8 +60,9 @@ export class SuggestionsService implements OnModuleInit {
     // the model understands what has been said before (not just the last line).
     let userContent: string;
     if (recentMessages && recentMessages.length > 0) {
-      const thread = recentMessages
-        .map((m) => `${m.isFromSender ? 'Them' : 'You'}: "${m.body.slice(0, 150)}"`);
+      const thread = recentMessages.map(
+        (m) => `${m.isFromSender ? 'Them' : 'You'}: "${m.body.slice(0, 150)}"`,
+      );
       thread.push(`Them: "${lastMessage.slice(0, 300)}"`); // always end with the peer's latest
       userContent = `Conversation so far:\n${thread.join('\n')}\n\nGenerate 3 short replies for "You".`;
     } else {

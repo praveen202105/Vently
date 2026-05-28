@@ -98,9 +98,14 @@ export function AudioBubble({ src, mine }: AudioBubbleProps) {
         const x = i * (barWidth + spacing);
         const y = (canvas.height - h) / 2;
 
-        ctx.fillStyle = i <= progressIndex
-          ? (mine ? '#ffffff' : '#8b5cf6') // Active colors (white for me, purple for peer)
-          : (mine ? 'rgba(255,255,255,0.3)' : 'rgba(139,92,246,0.2)'); // Inactive colors
+        ctx.fillStyle =
+          i <= progressIndex
+            ? mine
+              ? '#ffffff'
+              : '#8b5cf6' // Active colors (white for me, purple for peer)
+            : mine
+              ? 'rgba(255,255,255,0.3)'
+              : 'rgba(139,92,246,0.2)'; // Inactive colors
 
         ctx.fillRect(x, y, barWidth, h);
       }
@@ -145,7 +150,7 @@ export function AudioBubble({ src, mine }: AudioBubbleProps) {
   return (
     <div className="flex items-center gap-3 py-1">
       {audioUrl && <audio ref={audioRef} src={audioUrl} className="hidden" />}
-      
+
       <button
         type="button"
         onClick={togglePlay}
@@ -156,7 +161,11 @@ export function AudioBubble({ src, mine }: AudioBubbleProps) {
         }`}
         aria-label={isPlaying ? 'Pause' : 'Play'}
       >
-        {isPlaying ? <Pause className="w-4 h-4 fill-current" /> : <Play className="w-4 h-4 fill-current ml-0.5" />}
+        {isPlaying ? (
+          <Pause className="w-4 h-4 fill-current" />
+        ) : (
+          <Play className="w-4 h-4 fill-current ml-0.5" />
+        )}
       </button>
 
       <div className="flex flex-col gap-1">

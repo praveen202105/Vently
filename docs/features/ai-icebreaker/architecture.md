@@ -82,10 +82,10 @@ The module is imported in `app.module.ts`. `IcebreakerService` is injected into
 
 Added to `packages/shared/src/socket-events.ts`:
 
-| Event | Direction | Payload |
-|---|---|---|
-| `chat:icebreaker:chunk` | s→c | `{ conversationId: string, chunk: string }` |
-| `chat:icebreaker:done` | s→c | `{ conversationId: string }` |
+| Event                   | Direction | Payload                                     |
+| ----------------------- | --------- | ------------------------------------------- |
+| `chat:icebreaker:chunk` | s→c       | `{ conversationId: string, chunk: string }` |
+| `chat:icebreaker:done`  | s→c       | `{ conversationId: string }`                |
 
 `chat:message` (existing) is still emitted once at the end with the persisted full text,
 so users who connect after the stream is done see the ice-breaker via the normal history
@@ -124,16 +124,19 @@ examples, or A/B test variants without touching service code.
 ## Frontend Changes
 
 ### New Zustand state (in `chatStore`)
+
 ```ts
-icebreakerBuffer: string;       // accumulates chunks
+icebreakerBuffer: string; // accumulates chunks
 icebreakerDone: boolean;
 ```
 
 ### Socket event handlers (in `chat-screen.tsx`)
+
 - On `chat:icebreaker:chunk` → append to `icebreakerBuffer`
 - On `chat:icebreaker:done` → set `icebreakerDone = true`, clear buffer
 
 ### Rendering
+
 A `<IcebreakerBubble>` component renders above the message list while streaming.
 It shows the accumulated buffer with an animated blinking cursor (`▋`) until
 `icebreakerDone` is true, then fades smoothly into the normal system message that
@@ -150,8 +153,8 @@ No schema change. We reuse `Message.type = SYSTEM` and leave `senderId = null`
 
 ## New Environment Variable
 
-| Key | Where | Value |
-|---|---|---|
+| Key            | Where               | Value                                        |
+| -------------- | ------------------- | -------------------------------------------- |
 | `GROQ_API_KEY` | Railway api service | From console.groq.com (free, no credit card) |
 
 `IcebreakerService` silently disables itself if the key is missing — local dev works
@@ -161,13 +164,13 @@ without VAPID or Groq keys, same pattern as `PushService`.
 
 ## Error Boundaries
 
-| Failure | Behavior |
-|---|---|
-| Claude API throws / times out | Catch in `generate()`, log warning, no emit — match unaffected |
-| Stream stalls > 8s | Abort via `AbortController` timeout, persist whatever was buffered |
-| Socket room empty (both users disconnected) | Emit silently fails; message persists for reconnect |
-| Claude returns inappropriate content | Run output through existing `ModerationService.check()` — SEVERE = discard, no emit |
-| `ANTHROPIC_API_KEY` not set | `this.enabled = false`, `generate()` is a no-op |
+| Failure                                     | Behavior                                                                            |
+| ------------------------------------------- | ----------------------------------------------------------------------------------- |
+| Claude API throws / times out               | Catch in `generate()`, log warning, no emit — match unaffected                      |
+| Stream stalls > 8s                          | Abort via `AbortController` timeout, persist whatever was buffered                  |
+| Socket room empty (both users disconnected) | Emit silently fails; message persists for reconnect                                 |
+| Claude returns inappropriate content        | Run output through existing `ModerationService.check()` — SEVERE = discard, no emit |
+| `ANTHROPIC_API_KEY` not set                 | `this.enabled = false`, `generate()` is a no-op                                     |
 
 ---
 
@@ -193,12 +196,12 @@ No new web dependencies. Streaming tokens arrive over the existing socket.
 
 ## Performance Budget
 
-| Operation | Expected latency |
-|---|---|
-| `generate()` called after `match:found` | Fire-and-forget; does not block match emit |
-| First token from Claude | ~400–800 ms (claude-sonnet-4-6, warm) |
-| Full stream (120 tokens) | ~0.3–0.6 s (Groq ~500 tok/s) |
-| Total time from match to first visible character | ~300–600 ms |
+| Operation                                        | Expected latency                           |
+| ------------------------------------------------ | ------------------------------------------ |
+| `generate()` called after `match:found`          | Fire-and-forget; does not block match emit |
+| First token from Claude                          | ~400–800 ms (claude-sonnet-4-6, warm)      |
+| Full stream (120 tokens)                         | ~0.3–0.6 s (Groq ~500 tok/s)               |
+| Total time from match to first visible character | ~300–600 ms                                |
 
 `max_tokens: 120` keeps the response short. Groq free tier: **$0/match** up to
 6000 matches/day. No cost until you need >6000 matches/day, at which point you

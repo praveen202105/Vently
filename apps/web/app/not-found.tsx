@@ -8,10 +8,7 @@ export default function NotFound() {
           Lost in the static
         </h1>
         <p className="text-muted-foreground mb-6">That page doesn&apos;t exist (or never did).</p>
-        <Link
-          href="/"
-          className="text-primary underline-offset-4 hover:underline"
-        >
+        <Link href="/" className="text-primary underline-offset-4 hover:underline">
           Back to Vently
         </Link>
       </div>

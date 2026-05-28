@@ -6,7 +6,7 @@ export interface LoginPayload {
   password: string;
 }
 
-export interface RegisterPayload extends LoginPayload {}
+export type RegisterPayload = LoginPayload;
 
 export function register(body: RegisterPayload) {
   return api<AuthResponse>('/auth/register', { method: 'POST', body });

@@ -32,18 +32,19 @@ message with a typing cursor animation**, so the first thing both users see is a
 contextually relevant, one-of-a-kind opener arriving live in their chat.
 
 Example output for two "Lonely" users:
-> *Both of you chose Lonely at 1am. Maybe start with: "What's been the hardest part of
-> your week?"*
+
+> _Both of you chose Lonely at 1am. Maybe start with: "What's been the hardest part of
+> your week?"_
 
 ## Success Criteria
 
-| Metric | Target |
-|---|---|
-| Ice-breaker appears after match | ≤ 3 seconds p95 |
-| Streaming visible to both users | Yes (token-by-token) |
-| Message persisted in DB | Yes (`Message.type = SYSTEM`) |
-| Zero match failures caused by this feature | 0 broken matches |
-| Graceful degradation on Claude API timeout | Skip silently, match still works |
+| Metric                                                                  | Target                                                 |
+| ----------------------------------------------------------------------- | ------------------------------------------------------ |
+| Ice-breaker appears after match                                         | ≤ 3 seconds p95                                        |
+| Streaming visible to both users                                         | Yes (token-by-token)                                   |
+| Message persisted in DB                                                 | Yes (`Message.type = SYSTEM`)                          |
+| Zero match failures caused by this feature                              | 0 broken matches                                       |
+| Graceful degradation on Claude API timeout                              | Skip silently, match still works                       |
 | First-message rate (users who send ≥1 message after seeing ice-breaker) | Qualitatively higher than baseline; can A/B test later |
 
 ## Out of Scope (v1)

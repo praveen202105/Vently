@@ -51,14 +51,15 @@ It's anonymous in the user-facing sense (no real names exposed) but accounts are
 
 ## 2. Live URLs + accounts
 
-| What | URL |
-|---|---|
-| **Web app** | <https://vently-web-gamma.vercel.app> |
-| **API** | <https://api-production-7fe02.up.railway.app> |
-| **Health** | <https://api-production-7fe02.up.railway.app/health> |
-| **GitHub** | <https://github.com/praveen202105/Vently> |
+| What        | URL                                                  |
+| ----------- | ---------------------------------------------------- |
+| **Web app** | <https://vently-web-gamma.vercel.app>                |
+| **API**     | <https://api-production-7fe02.up.railway.app>        |
+| **Health**  | <https://api-production-7fe02.up.railway.app/health> |
+| **GitHub**  | <https://github.com/praveen202105/Vently>            |
 
 Provider dashboards:
+
 - **Railway** (api + postgres + redis): <https://railway.com/project/5089630a-4313-46f8-bab8-7051c52b42f1>
 - **Vercel** (web): <https://vercel.com/coderpraveengupta-7886s-projects/vently-web>
 
@@ -68,37 +69,37 @@ Provider dashboards:
 
 ### Frontend ([apps/web](apps/web))
 
-| Tool | Why |
-|---|---|
-| **Next.js 15** (App Router) | React framework with SSR, server components, edge middleware. Each top-level folder under `app/` is a route. |
-| **React 19** | UI library. Client components are marked with `'use client'`; everything else is a Server Component by default. |
-| **TypeScript** | Strict mode. All shared types live in `packages/shared`. |
-| **Tailwind v4** | Utility-first CSS. Theme tokens (colors, radii) live in [globals.css](apps/web/src/styles/globals.css) via `@theme inline`. |
-| **shadcn/ui** | Re-export of Radix primitives + custom theming. Currently lighter usage — most components are hand-rolled. |
-| **Framer Motion** (`motion/react`) | Animation library used for the splash/welcome/matching screens. |
-| **Zustand** | State management. One store per concern: `authStore`, `matchStore`, `chatStore`, `callStore`. |
-| **TanStack Query (v5)** | Server-state cache for REST data (conversations, notifications, friends). |
-| **socket.io-client** | Real-time bidirectional events. Auth via JWT in handshake. |
-| **react-hook-form + Zod** | Form state + validation. Schemas live in `packages/shared/schemas`. |
-| **sonner** | Toast notifications. |
-| **lucide-react** | Icon set. |
+| Tool                               | Why                                                                                                                         |
+| ---------------------------------- | --------------------------------------------------------------------------------------------------------------------------- |
+| **Next.js 15** (App Router)        | React framework with SSR, server components, edge middleware. Each top-level folder under `app/` is a route.                |
+| **React 19**                       | UI library. Client components are marked with `'use client'`; everything else is a Server Component by default.             |
+| **TypeScript**                     | Strict mode. All shared types live in `packages/shared`.                                                                    |
+| **Tailwind v4**                    | Utility-first CSS. Theme tokens (colors, radii) live in [globals.css](apps/web/src/styles/globals.css) via `@theme inline`. |
+| **shadcn/ui**                      | Re-export of Radix primitives + custom theming. Currently lighter usage — most components are hand-rolled.                  |
+| **Framer Motion** (`motion/react`) | Animation library used for the splash/welcome/matching screens.                                                             |
+| **Zustand**                        | State management. One store per concern: `authStore`, `matchStore`, `chatStore`, `callStore`.                               |
+| **TanStack Query (v5)**            | Server-state cache for REST data (conversations, notifications, friends).                                                   |
+| **socket.io-client**               | Real-time bidirectional events. Auth via JWT in handshake.                                                                  |
+| **react-hook-form + Zod**          | Form state + validation. Schemas live in `packages/shared/schemas`.                                                         |
+| **sonner**                         | Toast notifications.                                                                                                        |
+| **lucide-react**                   | Icon set.                                                                                                                   |
 
 ### Backend ([apps/api](apps/api))
 
-| Tool | Why |
-|---|---|
-| **NestJS 10** | Opinionated Node framework with DI, decorators, modules. |
-| **TypeScript** | Strict mode. |
-| **Prisma** | Type-safe ORM + migrations. Schema is the single source of truth — see [packages/shared/prisma/schema.prisma](packages/shared/prisma/schema.prisma). |
-| **PostgreSQL** | Persistent data. All user, profile, message, friendship, etc. |
-| **Redis** | Matchmaking queues (sorted sets + Lua script), Socket.io adapter for horizontal scale, eventually cache + rate-limit storage. |
-| **Socket.io 4** | Realtime layer. Each feature module has its own Gateway (`@WebSocketGateway`). |
-| **Passport + JWT** | Auth strategy. Access token in `Authorization: Bearer` header. Rotating refresh token in httpOnly cookie. |
-| **bcryptjs** | Password hashing (cost 12). |
-| **class-validator + class-transformer** | Request DTO validation. |
-| **nestjs-pino** | Structured JSON logs. |
-| **@nestjs/throttler** | Rate limiting. |
-| **WebRTC** (browser native) | P2P 1:1 voice. Signaling over Socket.io. ICE servers from Open Relay (free) or Cloudflare/Metered. |
+| Tool                                    | Why                                                                                                                                                  |
+| --------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **NestJS 10**                           | Opinionated Node framework with DI, decorators, modules.                                                                                             |
+| **TypeScript**                          | Strict mode.                                                                                                                                         |
+| **Prisma**                              | Type-safe ORM + migrations. Schema is the single source of truth — see [packages/shared/prisma/schema.prisma](packages/shared/prisma/schema.prisma). |
+| **PostgreSQL**                          | Persistent data. All user, profile, message, friendship, etc.                                                                                        |
+| **Redis**                               | Matchmaking queues (sorted sets + Lua script), Socket.io adapter for horizontal scale, eventually cache + rate-limit storage.                        |
+| **Socket.io 4**                         | Realtime layer. Each feature module has its own Gateway (`@WebSocketGateway`).                                                                       |
+| **Passport + JWT**                      | Auth strategy. Access token in `Authorization: Bearer` header. Rotating refresh token in httpOnly cookie.                                            |
+| **bcryptjs**                            | Password hashing (cost 12).                                                                                                                          |
+| **class-validator + class-transformer** | Request DTO validation.                                                                                                                              |
+| **nestjs-pino**                         | Structured JSON logs.                                                                                                                                |
+| **@nestjs/throttler**                   | Rate limiting.                                                                                                                                       |
+| **WebRTC** (browser native)             | P2P 1:1 voice. Signaling over Socket.io. ICE servers from Open Relay (free) or Cloudflare/Metered.                                                   |
 
 ### Infra
 
@@ -269,6 +270,7 @@ pnpm dev    # web on :3000, api on :4000
 ```
 
 You should be able to:
+
 - Open <http://localhost:3000> — splash → welcome
 - `curl http://localhost:4000/health` → `{ status: "ok", … }`
 
@@ -293,17 +295,20 @@ For each feature: **what the user sees**, **where the code lives**, and **how it
 ### 6.1 Auth (register / login / refresh)
 
 #### What the user sees
+
 - `/register` — email + password form. Submit → land on `/onboarding`.
 - `/login` — email + password form. Submit → land on `/mood`.
 - After login, session persists for 30 days even after closing the tab.
 
 #### Files
+
 - Backend: [apps/api/src/auth/](apps/api/src/auth/) — [auth.controller.ts](apps/api/src/auth/auth.controller.ts), [auth.service.ts](apps/api/src/auth/auth.service.ts), [jwt.strategy.ts](apps/api/src/auth/strategies/jwt.strategy.ts), [session.repository.ts](apps/api/src/auth/repositories/session.repository.ts)
 - Frontend: [components/forms/login-form.tsx](apps/web/src/components/forms/login-form.tsx), [register-form.tsx](apps/web/src/components/forms/register-form.tsx), [lib/api/auth.ts](apps/web/src/lib/api/auth.ts), [lib/auth/refresh.ts](apps/web/src/lib/auth/refresh.ts), [stores/auth-store.ts](apps/web/src/stores/auth-store.ts), [lib/api/client.ts](apps/web/src/lib/api/client.ts)
 
 #### Under the hood
 
 **Tokens**:
+
 - **Access token** = JWT, signed with `JWT_ACCESS_SECRET`, **15 min** TTL. Sent in `Authorization: Bearer …` header. Kept in memory (Zustand) — never localStorage (XSS safety).
 - **Refresh token** = random 64-byte string. Hashed (`sha256`) and stored in `Session` row. Sent to the client as an **httpOnly Secure SameSite=None** cookie (`vently_refresh`). 30-day TTL.
 
@@ -336,33 +341,38 @@ A periodic timer also refreshes 30 s before the 15 min JWT expiry, so a long-ope
 ### 6.2 Onboarding + profile
 
 #### What the user sees
+
 - After register → `/onboarding` form: nickname (3-20 chars), gender (Male/Female), optional bio (≤280), and an 18+ checkbox.
 - Submit → `/mood`.
 - Later you can edit nickname from `/profile` (inline edit pencil).
 
 #### Files
+
 - Backend: [profiles.controller.ts](apps/api/src/profiles/profiles.controller.ts), [profiles.service.ts](apps/api/src/profiles/profiles.service.ts), [upsert-profile.dto.ts](apps/api/src/profiles/dto/upsert-profile.dto.ts)
 - Frontend: [components/forms/onboarding-form.tsx](apps/web/src/components/forms/onboarding-form.tsx), [components/screens/profile-screen.tsx](apps/web/src/components/screens/profile-screen.tsx)
 
 #### Under the hood
 
 The api has two endpoints:
+
 - `PUT /me/profile` — full upsert. Used by onboarding. Requires `ageConfirmed: true` (we re-validate on server, not just client-side, so an old/hacked client can't bypass the gate).
 - `PATCH /me/profile` — partial update. Used by the profile screen (just nickname).
 
 Avatar: there are **no image uploads**. The avatar is a deterministic gradient circle with the first letter of the nickname. `avatarSeed` is `sha1(nickname.toLowerCase()).slice(0, 16)` — used to seed gradient colors on the client. Cheap, anonymous, no S3 needed.
 
-The OnboardingForm uses [react-hook-form](https://react-hook-form.com/) + the Zod schema [`onboardingSchema`](packages/shared/src/schemas/profile.ts). The same schema is *also* enforced on the backend via class-validator + matching constraints — defense in depth.
+The OnboardingForm uses [react-hook-form](https://react-hook-form.com/) + the Zod schema [`onboardingSchema`](packages/shared/src/schemas/profile.ts). The same schema is _also_ enforced on the backend via class-validator + matching constraints — defense in depth.
 
 ### 6.3 Matchmaking
 
 #### What the user sees
+
 1. `/mood` — pick one of 7 moods (Lonely, Need to talk, Friendship, Late night, Advice, Flirty, Voice only).
 2. `/matching` — spinner + "Looking for someone…" status.
 3. Within seconds (if another user of opposite gender is on the same mood): "Match found!" → redirect to `/chat/[conversationId]`.
 4. If 60 s pass with no match: "No one's around right now" + "Pick another mood" button.
 
 #### Files
+
 - Backend: [matchmaking.service.ts](apps/api/src/matchmaking/matchmaking.service.ts), [matchmaking.gateway.ts](apps/api/src/matchmaking/matchmaking.gateway.ts)
 - Frontend: [mood-selection-screen.tsx](apps/web/src/components/screens/mood-selection-screen.tsx), [matching-screen.tsx](apps/web/src/components/screens/matching-screen.tsx), [stores/match-store.ts](apps/web/src/stores/match-store.ts)
 
@@ -384,6 +394,7 @@ return nil                                     -- queued
 ```
 
 After a match:
+
 1. Backend creates a `Conversation` row (`type=DIRECT`) + two `ConversationParticipant` rows.
 2. Emits `match:found` to both users' rooms with `{ conversationId, peer }`.
 3. Both sockets are joined to the `conv:<id>` room (already done server-side as part of the gateway flow).
@@ -393,15 +404,17 @@ Block enforcement: after popping a peer from Lua, the service checks the `Block`
 ### 6.4 Realtime chat
 
 #### What the user sees
+
 - **Realtime Text Exchange**: `/chat/[conversationId]` opens automatically on match. Sending messages is instantaneous.
 - **Dynamic Viewport Height (`dvh`)**: Root chat container scales automatically to perfectly fit mobile screens and dynamic keyboards without cutoffs or hidden composers.
 - **Bouncing Inline Typing Bubble**: A fluid inline bubble with three bouncing dots animates at the bottom of the chat list while the peer is actively typing, providing a gorgeous, native messaging feedback loop (replaces static header text).
 - **Haptic touch-long-press menus**: On touch-screen mobile devices, pressing a bubble for 500ms triggers a haptic vibration (`navigator.vibrate(15)`) and pops up the custom **Reply / Delete** context action overlay.
 - **Smart Scroll protection & "New Message 👇" badge**: Scroll-proximity limits prevent the view from violently auto-scrolling when a peer message arrives while you are reading historical messages. A glassmorphic button floats above the composer instead to let you jump back down, disappearing automatically when you scroll near the bottom.
-- **Reactive connection banner**: If the websocket loses connection, a top glassmorphic banner slides in indicating *"Connection lost. Reconnecting..."* with a pulsing yellow warning indicator, sliding out automatically when connection is restored.
+- **Reactive connection banner**: If the websocket loses connection, a top glassmorphic banner slides in indicating _"Connection lost. Reconnecting..."_ with a pulsing yellow warning indicator, sliding out automatically when connection is restored.
 - **Header Actions**: Clean online/offline peer state text, save-as-friend, voice-calling, blocking, and reporting triggers.
 
 #### Files
+
 - Backend: [chat.gateway.ts](apps/api/src/chat/chat.gateway.ts), [messages.service.ts](apps/api/src/messages/messages.service.ts), [conversations.service.ts](apps/api/src/conversations/conversations.service.ts)
 - Frontend: [chat-screen.tsx](apps/web/src/components/screens/chat-screen.tsx), [lib/socket/socket.ts](apps/web/src/lib/socket/socket.ts), [lib/socket/use-socket-event.ts](apps/web/src/lib/socket/use-socket-event.ts)
 
@@ -410,11 +423,13 @@ Block enforcement: after popping a peer from Lua, the service checks the `Block`
 All chat traffic flows over **Socket.io** (not REST), except the initial history load.
 
 **On chat-screen mount:**
+
 1. `GET /api/conversations/:id/messages?limit=30` to fetch the last page of messages (cursor-paginated, descending).
 2. Subscribe to socket events: `chat:message`, `chat:ack`, `chat:typing-status`, `chat:read-status`.
 3. Emit `chat:join { conversationId }` so the server adds this socket to the `conv:<id>` room (needed after a reconnect, since matchmaking only auto-joins once on initial match).
 
 **Send a message:**
+
 - Client generates a `clientId` (random) and emits `chat:send { conversationId, body, clientId }`.
 - The same `clientId` lets us instantly add the message to the UI as `{pending: true}` (optimistic update).
 - Server profanity-checks the body, persists a `Message` row, then emits:
@@ -422,16 +437,20 @@ All chat traffic flows over **Socket.io** (not REST), except the initial history
   - `chat:message { …fullMessage }` to the rest of the room → peer renders it.
 
 **Typing & Bouncing Indicators:**
+
 - Typing emits a debounced 300ms `chat:typing { isTyping: true }` event. Auto-stops 3s after last keystroke.
 - The inline typing bubble is rendered at the bottom of the list when `peerTyping` is true, and is wrapped inside `<AnimatePresence>` for beautiful exit fade transitions when typing stops.
 
 **Touch Handlers (Mobile Long-press):**
+
 - Coordinates tracked via `onTouchStart` and `onTouchMove` to ignore swipe movements. If touch persists for `500ms`, `navigator.vibrate(15)` fires, showing the contextual option card (Reply / Delete).
 
 **Scroll Management & Badge:**
+
 - Proximity checks compute `scrollHeight - scrollTop - clientHeight < 150`. If the user is scrolled up, incoming messages toggle `showNewMessageBadge` to true. Clicking the badge triggers smooth scrolling to bottom and clears the state. An `onScroll` handler on the container also clears the badge if the user manually scrolls back down.
 
 **Network Connectivity States:**
+
 - The socket instance hooks standard client events (`connect`, `disconnect`) to mirror connectivity state into a reactive local state hook, triggering a sliding header alert.
 
 **Read receipts:** when a message scrolls into view (IntersectionObserver), client emits `chat:read { conversationId, lastMessageId }`. Server upserts `MessageReceipt.readAt` for every prior message + emits `chat:read-status` to peer.
@@ -439,6 +458,7 @@ All chat traffic flows over **Socket.io** (not REST), except the initial history
 ### 6.5 Voice calling (WebRTC)
 
 #### What the user sees
+
 1. In a chat, click the Phone icon in the header → call screen opens, "Calling…" ringback tone plays.
 2. The user sees a modern, dynamic avatar surrounded by **glowing, concentric pulsing rings** using Framer Motion (`motion.div` keyframes) to represent connecting and dialer states.
 3. The other side gets a top-right banner with the ringtone + Accept/Reject buttons.
@@ -446,6 +466,7 @@ All chat traffic flows over **Socket.io** (not REST), except the initial history
 5. Either side hits the red phone button to hang up. Duration is saved as a `CallSession` row.
 
 #### Files
+
 - Backend: [calls.gateway.ts](apps/api/src/calls/calls.gateway.ts), [calls.service.ts](apps/api/src/calls/calls.service.ts), [webrtc/ice.service.ts](apps/api/src/webrtc/ice.service.ts)
 - Frontend: [voice-call-screen.tsx](apps/web/src/components/screens/voice-call-screen.tsx), [lib/webrtc/use-webrtc.ts](apps/web/src/lib/webrtc/use-webrtc.ts), [lib/webrtc/use-ringtone.ts](apps/web/src/lib/webrtc/use-ringtone.ts), [components/call/incoming-call-ringer.tsx](apps/web/src/components/call/incoming-call-ringer.tsx)
 
@@ -484,6 +505,7 @@ Caller                                           Callee
 **ICE candidates** start firing on each side once `setLocalDescription` is called and continue for a few seconds. Each side buffers candidates that arrive before its own `remoteDescription` is set, then drains the buffer right after.
 
 **ICE servers**: the client calls `GET /webrtc/ice-servers` (auth-guarded). Server returns:
+
 - Public **STUN** (Google's stun.l.google.com) — for finding your own public IP.
 - **TURN** — either real credentials from Cloudflare Calls / Metered if `TURN_PROVIDER` is set, or the free **Open Relay Project** servers as a no-config fallback. TURN is needed when both peers are behind strict NATs (mobile networks, corporate firewalls).
 
@@ -492,12 +514,14 @@ Caller                                           Callee
 ### 6.6 Friends + blocks
 
 #### What the user sees
+
 - During a chat, click the UserPlus icon → "Friend request sent" toast.
 - Peer's `/connections` page shows a pending request → Accept → both see "You're now friends!" system message in the chat.
 - Friends list shows online indicator + last-message preview. Tap → resume the original conversation.
 - Block: Shield icon in chat header → confirms → user can't be matched with you again, can't send you messages.
 
 #### Files
+
 - Backend: [friends.controller.ts](apps/api/src/friends/friends.controller.ts), [friends.service.ts](apps/api/src/friends/friends.service.ts), [blocks.service.ts](apps/api/src/blocks/blocks.service.ts)
 - Frontend: [connections-screen.tsx](apps/web/src/components/screens/connections-screen.tsx), [lib/api/friends.ts](apps/web/src/lib/api/friends.ts), [lib/api/blocks.ts](apps/web/src/lib/api/blocks.ts)
 
@@ -506,6 +530,7 @@ Caller                                           Callee
 **Friendship is a canonical pair**: rows are always stored with `userAId < userBId` (sorted). Lookups don't have to consider direction.
 
 **Send a request:**
+
 ```
 POST /friends/requests { toUserId }
   → creates FriendRequest(status=PENDING)
@@ -515,6 +540,7 @@ POST /friends/requests { toUserId }
 ```
 
 **Accept:**
+
 ```
 PATCH /friends/requests/:id { accept: true }
   → updates status=ACCEPTED + INSERT Friendship
@@ -525,6 +551,7 @@ PATCH /friends/requests/:id { accept: true }
 ```
 
 **Block** (table = `(blockerId, blockedId)`):
+
 - Enforced in `chat:send` (refuses if either side blocked the other)
 - Enforced in matchmaking (Lua-popped peer is skipped if blocked, up to 3 retries)
 - Enforced in `call:invite` (rejects)
@@ -533,17 +560,20 @@ PATCH /friends/requests/:id { accept: true }
 ### 6.7 Notifications
 
 #### What the user sees
+
 - Bell icon in the desktop sidebar with an unread badge.
 - Click → drawer opens with the list: "New friend request", "Friend request accepted", etc.
 - Click an item → marks as read.
 
 #### Files
+
 - Backend: [notifications.service.ts](apps/api/src/notifications/notifications.service.ts), [notifications.controller.ts](apps/api/src/notifications/notifications.controller.ts)
 - Frontend: [notification-bell.tsx](apps/web/src/components/notifications/notification-bell.tsx), [lib/api/notifications.ts](apps/web/src/lib/api/notifications.ts)
 
 #### Under the hood
 
 `NotificationsService.push(userId, type, payload)` does two things:
+
 1. INSERT a `Notification` row.
 2. Emit `notification:new` over the socket to that user's room.
 
@@ -554,12 +584,14 @@ Triggers wired so far: friend request, friend accepted. (Phase-6 backlog: missed
 ### 6.8 Safety: report + profanity
 
 #### Files
+
 - Backend: [reports.controller.ts](apps/api/src/reports/reports.controller.ts), [moderation/profanity.filter.ts](apps/api/src/moderation/profanity.filter.ts), [moderation.service.ts](apps/api/src/moderation/moderation.service.ts)
 - Frontend: [components/safety/report-dialog.tsx](apps/web/src/components/safety/report-dialog.tsx)
 
 #### Under the hood
 
 **Profanity** is a two-tier word-boundary regex check that runs in `chat:send` before the message is persisted:
+
 - `SEVERE` → reject the send (returns `{ok: false}` to the client), write a `ModerationFlag` row tagged `BLOCKED`.
 - `MILD` → message goes through, `ModerationFlag` row is written tagged `allowed` so we have a paper trail.
 - `CLEAN` → no-op.
@@ -601,33 +633,33 @@ ModerationFlag        — messageId?, reason, severity, action
 
 Base path: `/api`. All endpoints return JSON. Auth is `Authorization: Bearer <accessToken>` unless marked **public**.
 
-| Method | Path | Auth | Purpose |
-|---|---|---|---|
-| GET | `/health` | public | DB + Redis healthcheck |
-| POST | `/auth/register` | public | Create account |
-| POST | `/auth/login` | public | Sign in |
-| POST | `/auth/refresh` | cookie | Rotate tokens |
-| POST | `/auth/logout` | auth | Revoke session |
-| GET | `/me` | auth | Current user + profile |
-| PUT | `/me/profile` | auth | Onboarding upsert |
-| PATCH | `/me/profile` | auth | Partial update |
-| GET | `/conversations` | auth | List user's conversations |
-| DELETE | `/conversations/:id` | auth | Leave / end |
-| GET | `/conversations/:id/messages` | auth | Paginated history (`?cursor=&limit=`) |
-| GET | `/friends` | auth | List friendships |
-| GET | `/friends/requests` | auth | Incoming pending |
-| POST | `/friends/requests` | auth | Send request `{toUserId}` |
-| PATCH | `/friends/requests/:id` | auth | `{accept: boolean}` |
-| DELETE | `/friends/requests/:id` | auth | Cancel outgoing |
-| DELETE | `/friends/:userId` | auth | Unfriend |
-| GET | `/blocks` | auth | List blocked users |
-| POST | `/blocks` | auth | Block `{userId}` |
-| DELETE | `/blocks/:userId` | auth | Unblock |
-| GET | `/notifications` | auth | List recent |
-| PATCH | `/notifications/:id/read` | auth | Mark one read |
-| PATCH | `/notifications/read-all` | auth | Mark all read |
-| POST | `/reports` | auth | Submit `{reportedId, reason, details?}` |
-| GET | `/webrtc/ice-servers` | auth | STUN + TURN config |
+| Method | Path                          | Auth   | Purpose                                 |
+| ------ | ----------------------------- | ------ | --------------------------------------- |
+| GET    | `/health`                     | public | DB + Redis healthcheck                  |
+| POST   | `/auth/register`              | public | Create account                          |
+| POST   | `/auth/login`                 | public | Sign in                                 |
+| POST   | `/auth/refresh`               | cookie | Rotate tokens                           |
+| POST   | `/auth/logout`                | auth   | Revoke session                          |
+| GET    | `/me`                         | auth   | Current user + profile                  |
+| PUT    | `/me/profile`                 | auth   | Onboarding upsert                       |
+| PATCH  | `/me/profile`                 | auth   | Partial update                          |
+| GET    | `/conversations`              | auth   | List user's conversations               |
+| DELETE | `/conversations/:id`          | auth   | Leave / end                             |
+| GET    | `/conversations/:id/messages` | auth   | Paginated history (`?cursor=&limit=`)   |
+| GET    | `/friends`                    | auth   | List friendships                        |
+| GET    | `/friends/requests`           | auth   | Incoming pending                        |
+| POST   | `/friends/requests`           | auth   | Send request `{toUserId}`               |
+| PATCH  | `/friends/requests/:id`       | auth   | `{accept: boolean}`                     |
+| DELETE | `/friends/requests/:id`       | auth   | Cancel outgoing                         |
+| DELETE | `/friends/:userId`            | auth   | Unfriend                                |
+| GET    | `/blocks`                     | auth   | List blocked users                      |
+| POST   | `/blocks`                     | auth   | Block `{userId}`                        |
+| DELETE | `/blocks/:userId`             | auth   | Unblock                                 |
+| GET    | `/notifications`              | auth   | List recent                             |
+| PATCH  | `/notifications/:id/read`     | auth   | Mark one read                           |
+| PATCH  | `/notifications/read-all`     | auth   | Mark all read                           |
+| POST   | `/reports`                    | auth   | Submit `{reportedId, reason, details?}` |
+| GET    | `/webrtc/ice-servers`         | auth   | STUN + TURN config                      |
 
 Want to call them by hand? `curl -i -X GET https://api-production-7fe02.up.railway.app/api/me -H "Authorization: Bearer $ACCESS_TOKEN"`.
 
@@ -639,55 +671,55 @@ Single namespace `/`. Auth: `socket = io(URL, { auth: { token } })`. Server vali
 
 Names are constants in [`packages/shared/src/socket-events.ts`](packages/shared/src/socket-events.ts) — typed via `ClientToServerEvents` / `ServerToClientEvents` maps.
 
-| Event | Direction | Payload | When |
-|---|---|---|---|
-| `presence:online` | s→c | `{ userId }` | Any user comes online |
-| `presence:offline` | s→c | `{ userId }` | Any user goes offline |
-| `match:join` | c→s | `{ mood, preferredGender? }` | User entered `/matching` |
-| `match:cancel` | c→s | — | User left `/matching` |
-| `match:found` | s→c | `{ conversationId, peer }` | Both queued users paired |
-| `match:timeout` | s→c | — | (reserved — currently client-only timeout) |
-| `chat:join` | c→s | `{ conversationId }` | Re-join after reconnect |
-| `chat:send` | c→s | `{ conversationId, body, clientId }` | Sending a message |
-| `chat:message` | s→c | full Message | New message in your conversation |
-| `chat:ack` | s→c | `{ clientId, messageId }` | Server received + persisted your send |
-| `chat:typing` | c→s | `{ conversationId, isTyping }` | Typing indicator |
-| `chat:typing-status` | s→c | `{ userId, isTyping, conversationId }` | Peer's typing status |
-| `chat:read` | c→s | `{ conversationId, lastMessageId }` | Mark up to here as read |
-| `chat:read-status` | s→c | `{ userId, lastMessageId, conversationId }` | Peer marked read |
-| `friend:request` | s→c | `{ requestId, fromUserId, fromNickname }` | Someone sent you a request |
-| `friend:respond` | s→c | `{ requestId, accepted, byUserId }` | Your request was answered |
-| `call:invite` | c→s & s→c | `{ conversationId, fromUserId }` | Start of call signaling |
-| `call:accept` | c→s & s→c | same | Callee picked up |
-| `call:reject` | c→s & s→c | same | Callee declined |
-| `call:offer` | c→s↔c | `{ conversationId, sdp }` | WebRTC SDP offer |
-| `call:answer` | c→s↔c | `{ conversationId, sdp }` | WebRTC SDP answer |
-| `call:ice-candidate` | c→s↔c | `{ conversationId, candidate }` | Trickling ICE |
-| `call:hangup` | c→s & s→c | `{ conversationId, reason? }` | Either side ends |
-| `notification:new` | s→c | `{ id, type, payload, createdAt }` | New notification pushed |
+| Event                | Direction | Payload                                     | When                                       |
+| -------------------- | --------- | ------------------------------------------- | ------------------------------------------ |
+| `presence:online`    | s→c       | `{ userId }`                                | Any user comes online                      |
+| `presence:offline`   | s→c       | `{ userId }`                                | Any user goes offline                      |
+| `match:join`         | c→s       | `{ mood, preferredGender? }`                | User entered `/matching`                   |
+| `match:cancel`       | c→s       | —                                           | User left `/matching`                      |
+| `match:found`        | s→c       | `{ conversationId, peer }`                  | Both queued users paired                   |
+| `match:timeout`      | s→c       | —                                           | (reserved — currently client-only timeout) |
+| `chat:join`          | c→s       | `{ conversationId }`                        | Re-join after reconnect                    |
+| `chat:send`          | c→s       | `{ conversationId, body, clientId }`        | Sending a message                          |
+| `chat:message`       | s→c       | full Message                                | New message in your conversation           |
+| `chat:ack`           | s→c       | `{ clientId, messageId }`                   | Server received + persisted your send      |
+| `chat:typing`        | c→s       | `{ conversationId, isTyping }`              | Typing indicator                           |
+| `chat:typing-status` | s→c       | `{ userId, isTyping, conversationId }`      | Peer's typing status                       |
+| `chat:read`          | c→s       | `{ conversationId, lastMessageId }`         | Mark up to here as read                    |
+| `chat:read-status`   | s→c       | `{ userId, lastMessageId, conversationId }` | Peer marked read                           |
+| `friend:request`     | s→c       | `{ requestId, fromUserId, fromNickname }`   | Someone sent you a request                 |
+| `friend:respond`     | s→c       | `{ requestId, accepted, byUserId }`         | Your request was answered                  |
+| `call:invite`        | c→s & s→c | `{ conversationId, fromUserId }`            | Start of call signaling                    |
+| `call:accept`        | c→s & s→c | same                                        | Callee picked up                           |
+| `call:reject`        | c→s & s→c | same                                        | Callee declined                            |
+| `call:offer`         | c→s↔c     | `{ conversationId, sdp }`                   | WebRTC SDP offer                           |
+| `call:answer`        | c→s↔c     | `{ conversationId, sdp }`                   | WebRTC SDP answer                          |
+| `call:ice-candidate` | c→s↔c     | `{ conversationId, candidate }`             | Trickling ICE                              |
+| `call:hangup`        | c→s & s→c | `{ conversationId, reason? }`               | Either side ends                           |
+| `notification:new`   | s→c       | `{ id, type, payload, createdAt }`          | New notification pushed                    |
 
 ---
 
 ## 10. File map — where to find what
 
-| Looking for… | Look here |
-|---|---|
-| The login form UI | [apps/web/src/components/forms/login-form.tsx](apps/web/src/components/forms/login-form.tsx) |
-| The chat UI (bubbles, composer, typing) | [apps/web/src/components/screens/chat-screen.tsx](apps/web/src/components/screens/chat-screen.tsx) |
-| Where the JWT is signed | [apps/api/src/auth/auth.service.ts](apps/api/src/auth/auth.service.ts) — `issueTokens()` |
-| How the matchmaking queue works | [apps/api/src/matchmaking/matchmaking.service.ts](apps/api/src/matchmaking/matchmaking.service.ts) — `MATCH_SCRIPT` |
-| The socket auth middleware | [apps/api/src/realtime/realtime.gateway.ts](apps/api/src/realtime/realtime.gateway.ts) — `afterInit()` |
-| What columns the User table has | [packages/shared/prisma/schema.prisma](packages/shared/prisma/schema.prisma) |
-| The Tailwind theme tokens (colors) | [apps/web/src/styles/globals.css](apps/web/src/styles/globals.css) — `@theme inline` block |
-| Where api URL is configured for the web | [apps/web/.env.example](apps/web/.env.example) — `NEXT_PUBLIC_API_URL` |
-| Where the api env vars are documented | [apps/api/.env.example](apps/api/.env.example) |
-| The Docker build for the api | [apps/api/Dockerfile](apps/api/Dockerfile) |
-| Railway service config | [railway.toml](railway.toml) (root!) |
-| Vercel build config | [apps/web/vercel.json](apps/web/vercel.json) |
-| The E2E test suite | [apps/web/tests/e2e/](apps/web/tests/e2e/) |
-| CI pipeline | [.github/workflows/ci.yml](.github/workflows/ci.yml) |
-| The original architectural plan | [VENTLY_PLAN.md](VENTLY_PLAN.md) |
-| Deployment runbook | [DEPLOY.md](DEPLOY.md) |
+| Looking for…                            | Look here                                                                                                           |
+| --------------------------------------- | ------------------------------------------------------------------------------------------------------------------- |
+| The login form UI                       | [apps/web/src/components/forms/login-form.tsx](apps/web/src/components/forms/login-form.tsx)                        |
+| The chat UI (bubbles, composer, typing) | [apps/web/src/components/screens/chat-screen.tsx](apps/web/src/components/screens/chat-screen.tsx)                  |
+| Where the JWT is signed                 | [apps/api/src/auth/auth.service.ts](apps/api/src/auth/auth.service.ts) — `issueTokens()`                            |
+| How the matchmaking queue works         | [apps/api/src/matchmaking/matchmaking.service.ts](apps/api/src/matchmaking/matchmaking.service.ts) — `MATCH_SCRIPT` |
+| The socket auth middleware              | [apps/api/src/realtime/realtime.gateway.ts](apps/api/src/realtime/realtime.gateway.ts) — `afterInit()`              |
+| What columns the User table has         | [packages/shared/prisma/schema.prisma](packages/shared/prisma/schema.prisma)                                        |
+| The Tailwind theme tokens (colors)      | [apps/web/src/styles/globals.css](apps/web/src/styles/globals.css) — `@theme inline` block                          |
+| Where api URL is configured for the web | [apps/web/.env.example](apps/web/.env.example) — `NEXT_PUBLIC_API_URL`                                              |
+| Where the api env vars are documented   | [apps/api/.env.example](apps/api/.env.example)                                                                      |
+| The Docker build for the api            | [apps/api/Dockerfile](apps/api/Dockerfile)                                                                          |
+| Railway service config                  | [railway.toml](railway.toml) (root!)                                                                                |
+| Vercel build config                     | [apps/web/vercel.json](apps/web/vercel.json)                                                                        |
+| The E2E test suite                      | [apps/web/tests/e2e/](apps/web/tests/e2e/)                                                                          |
+| CI pipeline                             | [.github/workflows/ci.yml](.github/workflows/ci.yml)                                                                |
+| The original architectural plan         | [VENTLY_PLAN.md](VENTLY_PLAN.md)                                                                                    |
+| Deployment runbook                      | [DEPLOY.md](DEPLOY.md)                                                                                              |
 
 ---
 
@@ -750,6 +782,7 @@ Then on Railway: open the api service → Variables → paste in the new values 
 ### …enable Google OAuth?
 
 Not currently wired (deferred to V1). When you want it:
+
 1. Set `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `GOOGLE_CALLBACK_URL` in Railway.
 2. Add a `passport-google-oauth20` strategy under [apps/api/src/auth/strategies/](apps/api/src/auth/strategies/).
 3. Add `GET /auth/google` + `GET /auth/google/callback` controller routes.
@@ -773,6 +806,7 @@ railway logs --service api -f
 ```
 
 Common patterns:
+
 - 401s in clusters → JWT secret rotation issue.
 - Socket auth failures appear as `socket auth: ...` lines (we explicitly log them).
 - Stuck WebRTC calls → check `chrome://webrtc-internals` in the browser; verify a `relay` candidate is present once TURN is configured.
@@ -800,6 +834,7 @@ E2E_API_URL=https://api-production-7fe02.up.railway.app \
 ```
 
 Tests:
+
 - [01-auth.spec.ts](apps/web/tests/e2e/01-auth.spec.ts) — register flow, protected route gate, bad-creds toast
 - [02-chat-flow.spec.ts](apps/web/tests/e2e/02-chat-flow.spec.ts) — two browser contexts, real match + chat + friend
 - [03-safety.spec.ts](apps/web/tests/e2e/03-safety.spec.ts) — report endpoint + notification flow
@@ -809,7 +844,7 @@ Currently 8/8 passing locally and against production.
 
 ### 🤖 Testing agent (one command, full app)
 
-`pnpm test:agent` provisions **3 real accounts** (Alice MALE, Bob FEMALE, Charlie MALE), drives the entire app through 11 scenarios, and saves screenshots at every step. Works against **either** the live production deploy *or* a local stack — same suite, just flip an env var.
+`pnpm test:agent` provisions **3 real accounts** (Alice MALE, Bob FEMALE, Charlie MALE), drives the entire app through 11 scenarios, and saves screenshots at every step. Works against **either** the live production deploy _or_ a local stack — same suite, just flip an env var.
 
 ```bash
 # Drive PRODUCTION (default — vently-web-gamma.vercel.app + Railway api):
@@ -865,12 +900,14 @@ If you see a `⚠️ Alice ↔ Bob matched with strangers` warning when running 
 Full walkthrough in [DEPLOY.md](DEPLOY.md). Quick reference:
 
 **Web (Vercel)** — `apps/web/`:
+
 - Auto-deploys on push to `main` once the GitHub integration is connected in the Vercel project.
 - For manual: `vercel deploy --prod --yes` from the repo root.
 - Project settings: `Root Directory = apps/web` (already set via API call we did at setup).
 - Env vars: `NEXT_PUBLIC_API_URL`, `NEXT_PUBLIC_SOCKET_URL`.
 
 **API (Railway)** — Docker-based from [apps/api/Dockerfile](apps/api/Dockerfile):
+
 - For manual: `railway up --service api --detach` from the repo root.
 - Project settings: `railway.toml` (root) pins it to the Dockerfile builder.
 - Env vars: see [apps/api/.env.example](apps/api/.env.example) — at minimum `DATABASE_URL`, `REDIS_URL`, `JWT_ACCESS_SECRET`, `JWT_REFRESH_SECRET`, `NODE_ENV=production`, `CORS_ORIGIN=<your-vercel-url>`.
@@ -882,19 +919,19 @@ Full walkthrough in [DEPLOY.md](DEPLOY.md). Quick reference:
 
 ## 14. Troubleshooting
 
-| Symptom | Probable cause | Fix |
-|---|---|---|
-| `pnpm install` fails with peer-dep error | React 19 conflict | `pnpm install --no-strict-peer-dependencies` (already in `.npmrc`) |
-| `Prisma client missing` on api start | Migration not generated | `pnpm --filter @vently/shared exec prisma generate` |
-| `Cannot find module 'dist/main.js'` | API not built | `pnpm --filter @vently/api build` |
-| API logs say "Prisma failed to detect libssl/openssl" | Using Alpine Docker base | We're on `node:20-slim` with `apt-get install openssl` — make sure your Dockerfile changes preserve that |
-| Voice call stuck at "Connecting…" | Likely a regression of the SDP race bug — caller emitted offer before peer was ready | See [§6.5](#65-voice-calling-webrtc); flow is: caller waits for `call:accept` before emitting offer |
-| Matching never finds anyone | Other user's socket isn't connecting | Check `chrome://devtools` Network panel for the socket connection; ensure `transports: ['polling', 'websocket']` (not websocket-only) — some carriers block WSS |
-| Refresh on `/home` shows anonymous CTAs | `AuthBootstrap` not running on marketing | Should be in root layout. If it regresses, ensure [apps/web/app/layout.tsx](apps/web/app/layout.tsx) wraps children with `<AuthBootstrap>` |
-| Cookie not being sent cross-domain | `SameSite=Lax` in production | Must be `SameSite=None; Secure` when api ≠ web domain. See [auth.controller.ts](apps/api/src/auth/auth.controller.ts) `setRefreshCookie` |
-| CORS rejecting the web origin | `CORS_ORIGIN` env not updated | Update on Railway dashboard, no code change needed; the api re-reads on each request |
-| Tailwind classes not applying after edit | Tailwind v4 doesn't watch new files automatically in dev | Restart `pnpm dev` |
-| `next dev` SSR errors with "Unexpected end of JSON input" | next/font flaking with Google Fonts | We use system fonts now (see `apps/web/app/layout.tsx`). Don't reintroduce `next/font/google` without a local fallback. |
+| Symptom                                                   | Probable cause                                                                       | Fix                                                                                                                                                             |
+| --------------------------------------------------------- | ------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `pnpm install` fails with peer-dep error                  | React 19 conflict                                                                    | `pnpm install --no-strict-peer-dependencies` (already in `.npmrc`)                                                                                              |
+| `Prisma client missing` on api start                      | Migration not generated                                                              | `pnpm --filter @vently/shared exec prisma generate`                                                                                                             |
+| `Cannot find module 'dist/main.js'`                       | API not built                                                                        | `pnpm --filter @vently/api build`                                                                                                                               |
+| API logs say "Prisma failed to detect libssl/openssl"     | Using Alpine Docker base                                                             | We're on `node:20-slim` with `apt-get install openssl` — make sure your Dockerfile changes preserve that                                                        |
+| Voice call stuck at "Connecting…"                         | Likely a regression of the SDP race bug — caller emitted offer before peer was ready | See [§6.5](#65-voice-calling-webrtc); flow is: caller waits for `call:accept` before emitting offer                                                             |
+| Matching never finds anyone                               | Other user's socket isn't connecting                                                 | Check `chrome://devtools` Network panel for the socket connection; ensure `transports: ['polling', 'websocket']` (not websocket-only) — some carriers block WSS |
+| Refresh on `/home` shows anonymous CTAs                   | `AuthBootstrap` not running on marketing                                             | Should be in root layout. If it regresses, ensure [apps/web/app/layout.tsx](apps/web/app/layout.tsx) wraps children with `<AuthBootstrap>`                      |
+| Cookie not being sent cross-domain                        | `SameSite=Lax` in production                                                         | Must be `SameSite=None; Secure` when api ≠ web domain. See [auth.controller.ts](apps/api/src/auth/auth.controller.ts) `setRefreshCookie`                        |
+| CORS rejecting the web origin                             | `CORS_ORIGIN` env not updated                                                        | Update on Railway dashboard, no code change needed; the api re-reads on each request                                                                            |
+| Tailwind classes not applying after edit                  | Tailwind v4 doesn't watch new files automatically in dev                             | Restart `pnpm dev`                                                                                                                                              |
+| `next dev` SSR errors with "Unexpected end of JSON input" | next/font flaking with Google Fonts                                                  | We use system fonts now (see `apps/web/app/layout.tsx`). Don't reintroduce `next/font/google` without a local fallback.                                         |
 
 ---
 

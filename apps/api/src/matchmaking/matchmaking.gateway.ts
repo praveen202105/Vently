@@ -25,10 +25,7 @@ export class MatchmakingGateway {
   ) {}
 
   @SubscribeMessage(SocketEvents.MATCH_JOIN)
-  async onJoin(
-    @ConnectedSocket() socket: AuthedSocket,
-    @MessageBody() payload: MatchJoinPayload,
-  ) {
+  async onJoin(@ConnectedSocket() socket: AuthedSocket, @MessageBody() payload: MatchJoinPayload) {
     const user = socket.data.user;
     const result = await this.matchmaking.join({
       userId: user.userId,

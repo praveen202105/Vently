@@ -19,7 +19,9 @@ export function ResponsiveShell({ children }: { children: React.ReactNode }) {
   return (
     <>
       <DesktopSidebar />
-      <main id="main" className="md:pl-64 pb-20 md:pb-0 min-h-screen">{children}</main>
+      <main id="main" className="md:pl-64 pb-20 md:pb-0 min-h-screen">
+        {children}
+      </main>
       <MobileNavigation />
     </>
   );

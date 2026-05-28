@@ -13,6 +13,7 @@ Anonymous emotional chat + voice calling app. Migrate the existing Figma-generat
 **Outcome:** A Turborepo monorepo (`apps/web` + `apps/api` + `packages/shared` + `packages/ui` + `packages/config`) running on Vercel (web) + Railway (api/Postgres/Redis), with Cloudflare Calls/Metered for TURN, shipping a usable MVP (auth + matching + text chat + friends) in ~5 weeks and full V1 (voice + safety + notifications) by week 9.
 
 **Locked decisions** (confirmed with user):
+
 - Frontend: **Migrate to Next.js 15 App Router** (React 19, Tailwind v4, shadcn/ui, Framer Motion, Zustand, TanStack Query, react-hook-form + Zod).
 - Backend: **NestJS** + Prisma + PostgreSQL + Redis + Socket.io + Passport (JWT + Google OAuth).
 - Repo: **Turborepo monorepo** with pnpm workspaces.
@@ -55,19 +56,19 @@ vently/
 
 Three route groups under `app/`:
 
-| Current Vite route ([src/app/App.tsx](src/app/App.tsx)) | New App Router segment | Group | Type |
-|---|---|---|---|
-| `/` SplashScreen | `app/(marketing)/page.tsx` | marketing | Server + small client redirect |
-| `/welcome` WelcomeScreen | `app/(marketing)/welcome/page.tsx` | marketing | RSC (static) |
-| `/home` HomeScreen | `app/(marketing)/home/page.tsx` | marketing | RSC (static, indexable) |
-| (new) | `app/(auth)/login/page.tsx`, `register/page.tsx`, `forgot-password/page.tsx`, `auth/google/callback/page.tsx` | auth | Client (forms) |
-| `/onboarding` | `app/(app)/onboarding/page.tsx` | app | Client |
-| `/mood` MoodSelection | `app/(app)/mood/page.tsx` | app | Client |
-| `/matching` | `app/(app)/matching/page.tsx` | app | Client (sockets) |
-| `/chat` ChatScreen | `app/(app)/chat/[conversationId]/page.tsx` | app | Client (sockets) |
-| `/voice-call` | `app/(app)/call/[conversationId]/page.tsx` | app | Client (WebRTC) |
-| `/connections` | `app/(app)/connections/page.tsx` | app | Client (TanStack Query) |
-| `/profile` | `app/(app)/profile/page.tsx` | app | Client |
+| Current Vite route ([src/app/App.tsx](src/app/App.tsx)) | New App Router segment                                                                                        | Group     | Type                           |
+| ------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------- | --------- | ------------------------------ |
+| `/` SplashScreen                                        | `app/(marketing)/page.tsx`                                                                                    | marketing | Server + small client redirect |
+| `/welcome` WelcomeScreen                                | `app/(marketing)/welcome/page.tsx`                                                                            | marketing | RSC (static)                   |
+| `/home` HomeScreen                                      | `app/(marketing)/home/page.tsx`                                                                               | marketing | RSC (static, indexable)        |
+| (new)                                                   | `app/(auth)/login/page.tsx`, `register/page.tsx`, `forgot-password/page.tsx`, `auth/google/callback/page.tsx` | auth      | Client (forms)                 |
+| `/onboarding`                                           | `app/(app)/onboarding/page.tsx`                                                                               | app       | Client                         |
+| `/mood` MoodSelection                                   | `app/(app)/mood/page.tsx`                                                                                     | app       | Client                         |
+| `/matching`                                             | `app/(app)/matching/page.tsx`                                                                                 | app       | Client (sockets)               |
+| `/chat` ChatScreen                                      | `app/(app)/chat/[conversationId]/page.tsx`                                                                    | app       | Client (sockets)               |
+| `/voice-call`                                           | `app/(app)/call/[conversationId]/page.tsx`                                                                    | app       | Client (WebRTC)                |
+| `/connections`                                          | `app/(app)/connections/page.tsx`                                                                              | app       | Client (TanStack Query)        |
+| `/profile`                                              | `app/(app)/profile/page.tsx`                                                                                  | app       | Client                         |
 
 Route group layouts (`app/(app)/layout.tsx`) host the `<MobileNavigation>` + `<DesktopSidebar>` shell. `app/(marketing)/layout.tsx` and `app/(auth)/layout.tsx` have no app chrome. `middleware.ts` protects the `(app)` group: missing/invalid token → redirect to `/login`.
 
@@ -133,7 +134,9 @@ Singleton `io(API_URL, { auth: { token: accessToken } })`. Connect after auth, d
 
 ```ts
 useSocketEvent(SocketEvents.CHAT_MESSAGE, (msg) => {
-  queryClient.setQueryData(['conversations', msg.conversationId, 'messages'], (old) => append(old, msg));
+  queryClient.setQueryData(['conversations', msg.conversationId, 'messages'], (old) =>
+    append(old, msg),
+  );
 });
 ```
 
@@ -143,9 +146,15 @@ Hook signature:
 
 ```ts
 const {
-  localStream, remoteStream, callState,
-  startCall, acceptCall, rejectCall, hangup,
-  toggleMute, toggleSpeaker
+  localStream,
+  remoteStream,
+  callState,
+  startCall,
+  acceptCall,
+  rejectCall,
+  hangup,
+  toggleMute,
+  toggleSpeaker,
 } = useWebRTC({ conversationId, peerUserId });
 ```
 
@@ -154,6 +163,7 @@ State machine + signaling via socket (`call:offer`, `call:answer`, `call:ice-can
 ### 2.7 Component reuse plan
 
 Move from current Vite project into `packages/ui/`:
+
 - All [src/app/components/ui/](src/app/components/ui/) shadcn primitives → `packages/ui/primitives/`.
 - [src/app/components/Button.tsx](src/app/components/Button.tsx), [GlassCard.tsx](src/app/components/GlassCard.tsx), [AnimatedBackground.tsx](src/app/components/AnimatedBackground.tsx) → `packages/ui/components/`.
 - `Navigation.tsx` splits → moved into `apps/web/src/components/shell/` (app-specific routing logic stays in the web app).
@@ -163,6 +173,7 @@ New app-specific components live in `apps/web/src/components/` (chat, matching, 
 ### 2.8 Responsive shell
 
 Mobile-first Tailwind. Breakpoints sm 640 / md 768 / lg 1024 / xl 1280.
+
 - **<768:** Stacked, bottom tab bar, full-bleed.
 - **768–1024:** Wider bubbles, optional 2-pane on connections.
 - **≥1024:** 3-pane (`<SplitView>`): left sidebar rail, middle list, right active surface.
@@ -476,6 +487,7 @@ match:join → push ticket → run Lua:
 On match: create `Conversation` (type=DIRECT) + two `ConversationParticipant` rows → emit `match:found` to both user rooms.
 
 **Edge cases:**
+
 - 60s timeout sweeper (BullMQ) emits `match:timeout` and removes stale tickets.
 - Block-list filter: maintain `blocks:{userId}` Redis set; skip tickets where peer is in blocker's set or vice versa.
 - Recent-pair cooldown: 10-min Redis key `pair:{minId}:{maxId}` prevents instant rematch.
@@ -484,6 +496,7 @@ On match: create `Conversation` (type=DIRECT) + two `ConversationParticipant` ro
 ### 3.7 WebRTC signaling
 
 P2P mesh (1:1). Sequence:
+
 1. Caller emits `call:invite` → server forwards to callee's user room.
 2. Callee `call:accept` (or `call:reject` → server forwards, ends).
 3. Both clients `GET /webrtc/ice-servers` (Cloudflare/Metered creds, ~1h TTL).
@@ -577,6 +590,7 @@ Three services: `api` (Dockerfile multi-stage), `postgres`, `redis`. Migrations 
 ## 6. Phased MVP Roadmap
 
 **Phase 0 — Foundation (Week 1)**
+
 - Init Turborepo, pnpm workspaces, `apps/web` (Next.js 15), `apps/api` (NestJS), `packages/{shared,ui,config}`.
 - Move shadcn primitives + Button/GlassCard/AnimatedBackground to `packages/ui`.
 - Port 10 screens 1:1 to Next.js App Router (visual only, mocked data still). Visual parity confirmed.
@@ -584,35 +598,42 @@ Three services: `api` (Dockerfile multi-stage), `postgres`, `redis`. Migrations 
 - CI: typecheck/lint/build green on PR.
 
 **Phase 1 — Auth + Profile (Week 2)**
+
 - NestJS: `auth`, `users`, `profiles` modules. Register, login, refresh, logout, Google OAuth.
 - Web: `/login`, `/register`, `/forgot-password` (stub), `/onboarding` wired to API. `middleware.ts` protects `(app)`.
 - Zustand `authStore` + `lib/auth/refresh.ts` silent refresh.
 
 **Phase 2 — Realtime + Matchmaking + Chat (Weeks 3–4)**
+
 - NestJS: Socket.io gateway with Redis adapter, `presence`, `matchmaking` (Redis queue + Lua), `chat` (conversations + messages + receipts).
 - Web: `lib/socket/` client, `/mood` → `/matching` → `/chat/[id]` flow. Optimistic send, typing, read receipts. Connection-lost banner.
 - Bulk: persist 30 days of messages.
 
 **Phase 3 — Friends + Connections (Week 5)**
+
 - NestJS: `friends`, `blocks` modules + gateway events. FriendRequest, Friendship, Block tables wired.
 - Web: "Save as friend" in chat header, requests inbox, `/connections` resumable chats.
 - **MVP shippable here.**
 
 **Phase 4 — Voice calling (Weeks 6–7)**
+
 - TURN provider (Cloudflare Calls) setup; `GET /webrtc/ice-servers`.
 - NestJS: `calls`, `webrtc` modules + signaling events. `CallSession` persistence.
 - Web: `useWebRTC` hook, call invite UI, `/call/[id]` page, in-app ringer.
 
 **Phase 5 — Safety + Notifications (Week 8)**
+
 - `reports`, `moderation`, `notifications` modules. Profanity filter on chat:send. Rate limits per socket event.
 - Web: report/block dialogs, notification bell + drawer.
 
 **Phase 6 — Polish + Deploy V1 (Week 9)**
+
 - Error boundaries on every route, loading skeletons, empty states.
 - Accessibility audit (axe + manual): aria-live regions for chat/call/match, focus traps, color contrast.
 - Sentry on both apps. Production deploy: Railway + Vercel + domain + TLS. Smoke tests.
 
 **Post-V1 backlog**
+
 - Web push notifications (VAPID + service worker).
 - Email verification + password reset (Resend).
 - Admin moderation dashboard.
@@ -653,6 +674,7 @@ Backend-first per slice: every web feature depends on the API endpoint or socket
 ## 9. Critical files to modify or create (reference)
 
 **Reused from current Vite project** (copy/adapt, do NOT rewrite from scratch):
+
 - [src/app/components/Button.tsx](src/app/components/Button.tsx) → `packages/ui/components/Button.tsx`
 - [src/app/components/GlassCard.tsx](src/app/components/GlassCard.tsx) → `packages/ui/components/GlassCard.tsx`
 - [src/app/components/AnimatedBackground.tsx](src/app/components/AnimatedBackground.tsx) → `packages/ui/components/AnimatedBackground.tsx`
@@ -669,45 +691,53 @@ Backend-first per slice: every web feature depends on the API endpoint or socket
 ## 10. Verification
 
 **Phase 0 done when:**
+
 - `pnpm dev` brings up Next.js on :3000 and NestJS on :4000.
 - All 10 screens render visually identical to the current Vite app at the new App Router routes.
 - `docker-compose up` brings up Postgres + Redis; `pnpm --filter api prisma migrate dev` runs cleanly.
 - CI passes (lint + typecheck + build).
 
 **Phase 1 done when:**
+
 - Register a user via `/register`; login via `/login`; hit `/me` and get profile back.
 - Refresh works (kill access token, next call auto-refreshes).
 - Google OAuth round-trip lands the user on `/onboarding` for first-time accounts.
 - Hitting `/chat` without a token redirects to `/login`.
 
 **Phase 2 done when:**
+
 - Two browsers (different accounts) both pick a mood and get matched within 5s; both land in the same `/chat/[id]`.
 - Sending a message from one shows it on the other in <500ms.
 - Typing indicator + read receipt round-trip works.
 - Page refresh restores conversation history from API.
 
 **Phase 3 done when:**
+
 - Friend request from chat header is received by peer in real time.
 - Accept → both see "You're now friends!" system message; conversation now reachable from `/connections`.
 - Block hides peer from match pool and disables chat send.
 
 **Phase 4 done when:**
+
 - Voice call between two browsers (one on home network, one tethered to LTE — forces TURN) completes for ≥30s with bidirectional audio.
 - Mute and speaker toggles work.
 - Hangup writes a `CallSession` row with correct `durationSec`.
 
 **Phase 5 done when:**
+
 - Sending a message with profanity is rejected (or flagged) + a `ModerationFlag` row exists.
 - Report dialog creates a `Report` row.
 - Notification bell shows unread count; clicking marks read.
 
 **Phase 6 done when:**
+
 - App is live at the production domain.
 - Sentry dashboards show zero unhandled errors over 24h soak.
 - Lighthouse desktop ≥90 perf/accessibility/best-practices on marketing pages.
 - Smoke test script (Playwright) passes: register → onboard → match → chat → friend → call → block → report.
 
 **Manual test plan (E2E, run before each deploy):**
+
 1. Register two accounts in different browsers, complete onboarding.
 2. Pick complementary moods, get matched, exchange 5 messages with typing + read receipts.
 3. Send friend request, accept, verify reconnect from `/connections`.

@@ -20,22 +20,22 @@ linked to both.
 3. On the **api** service, set environment variables (copy from
    [apps/api/.env.example](apps/api/.env.example)):
 
-   | Variable                | Value                                       |
-   | ----------------------- | ------------------------------------------- |
-   | `DATABASE_URL`          | Reference: `${{ postgres.DATABASE_URL }}`   |
-   | `REDIS_URL`             | Reference: `${{ redis.REDIS_URL }}`         |
-   | `JWT_ACCESS_SECRET`     | `openssl rand -hex 32`                      |
-   | `JWT_REFRESH_SECRET`    | `openssl rand -hex 32` (different value)    |
-   | `JWT_ACCESS_TTL`        | `15m`                                       |
-   | `JWT_REFRESH_TTL`       | `30d`                                       |
-   | `CORS_ORIGIN`           | `https://<your-vercel-app>.vercel.app`      |
-   | `COOKIE_DOMAIN`         | leave blank, or your custom domain          |
-   | `NODE_ENV`              | `production`                                |
-   | `LOG_LEVEL`             | `info`                                      |
-   | `PORT`                  | `4000` (Railway sets this automatically)    |
-   | `TURN_PROVIDER`         | `cloudflare` or `metered`                   |
-   | `TURN_API_KEY`          | provider API key                            |
-   | `TURN_APP_ID`           | provider app/turn-key id                    |
+   | Variable             | Value                                     |
+   | -------------------- | ----------------------------------------- |
+   | `DATABASE_URL`       | Reference: `${{ postgres.DATABASE_URL }}` |
+   | `REDIS_URL`          | Reference: `${{ redis.REDIS_URL }}`       |
+   | `JWT_ACCESS_SECRET`  | `openssl rand -hex 32`                    |
+   | `JWT_REFRESH_SECRET` | `openssl rand -hex 32` (different value)  |
+   | `JWT_ACCESS_TTL`     | `15m`                                     |
+   | `JWT_REFRESH_TTL`    | `30d`                                     |
+   | `CORS_ORIGIN`        | `https://<your-vercel-app>.vercel.app`    |
+   | `COOKIE_DOMAIN`      | leave blank, or your custom domain        |
+   | `NODE_ENV`           | `production`                              |
+   | `LOG_LEVEL`          | `info`                                    |
+   | `PORT`               | `4000` (Railway sets this automatically)  |
+   | `TURN_PROVIDER`      | `cloudflare` or `metered`                 |
+   | `TURN_API_KEY`       | provider API key                          |
+   | `TURN_APP_ID`        | provider app/turn-key id                  |
 
 4. The Dockerfile runs `prisma migrate deploy` on container start, so the
    first deploy applies all pending migrations.
@@ -63,10 +63,10 @@ the same network but fails over cellular / strict NAT.
    `packageManager` in root `package.json`).
 4. Environment variables:
 
-   | Variable                  | Value                                     |
-   | ------------------------- | ----------------------------------------- |
-   | `NEXT_PUBLIC_API_URL`     | `https://<railway-api-url>/api`           |
-   | `NEXT_PUBLIC_SOCKET_URL`  | `https://<railway-api-url>`               |
+   | Variable                 | Value                           |
+   | ------------------------ | ------------------------------- |
+   | `NEXT_PUBLIC_API_URL`    | `https://<railway-api-url>/api` |
+   | `NEXT_PUBLIC_SOCKET_URL` | `https://<railway-api-url>`     |
 
 5. Once deployed, copy the Vercel URL back into Railway's `CORS_ORIGIN`
    variable and redeploy the api.

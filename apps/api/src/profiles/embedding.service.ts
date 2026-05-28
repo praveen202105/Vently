@@ -13,7 +13,7 @@ export class EmbeddingService implements OnModuleInit {
     const key = this.config.get<string>('GROQ_API_KEY');
     if (!key) {
       this.logger.warn(
-        'GROQ_API_KEY missing — bio embeddings will fall back to local token similarity.'
+        'GROQ_API_KEY missing — bio embeddings will fall back to local token similarity.',
       );
       return;
     }

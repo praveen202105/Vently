@@ -44,10 +44,7 @@ export class RealtimeGateway implements OnGatewayInit, OnGatewayConnection, OnGa
   // PushService's "skip if focused" check so users mid-chat don't get
   // duplicate push notifications for messages they're already reading.
   @SubscribeMessage(SocketEvents.PRESENCE_FOCUS)
-  onFocus(
-    @ConnectedSocket() socket: AuthedSocket,
-    @MessageBody() payload: PresenceFocusPayload,
-  ) {
+  onFocus(@ConnectedSocket() socket: AuthedSocket, @MessageBody() payload: PresenceFocusPayload) {
     this.focus.setFocus(socket.data.user.userId, payload.conversationId ?? null);
   }
 

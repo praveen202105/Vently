@@ -5,13 +5,20 @@ import type { MoodIntent } from '@prisma/client';
 
 function moodInstruction(mood: MoodIntent | null): string {
   switch (mood) {
-    case 'LONELY':       return 'warm, empathetic — create a sense of connection';
-    case 'NEED_TO_TALK': return 'open, supportive — invite them to share more';
-    case 'FRIENDSHIP':   return 'casual, fun — like chatting with a good friend';
-    case 'LATE_NIGHT':   return 'relaxed, thoughtful — cozy late-night vibes';
-    case 'ADVICE':       return 'engaged, thoughtful — show you are listening and care';
-    case 'FLIRTY':       return 'playful, light-hearted and flirty';
-    default:             return 'warm and natural';
+    case 'LONELY':
+      return 'warm, empathetic — create a sense of connection';
+    case 'NEED_TO_TALK':
+      return 'open, supportive — invite them to share more';
+    case 'FRIENDSHIP':
+      return 'casual, fun — like chatting with a good friend';
+    case 'LATE_NIGHT':
+      return 'relaxed, thoughtful — cozy late-night vibes';
+    case 'ADVICE':
+      return 'engaged, thoughtful — show you are listening and care';
+    case 'FLIRTY':
+      return 'playful, light-hearted and flirty';
+    default:
+      return 'warm and natural';
   }
 }
 

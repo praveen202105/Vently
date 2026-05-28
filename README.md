@@ -48,21 +48,22 @@ pnpm dev                                              # web :3000, api :4000
 ```
 
 Smoke test:
+
 - Open `http://localhost:3000` — Splash → Welcome.
 - Hit `http://localhost:4000/health` — `{ status: "ok", checks: { postgres, redis } }`.
 - Register two accounts in two browsers and walk through onboarding → mood → match → chat.
 
 ## Common scripts
 
-| Script              | What it does                                  |
-| ------------------- | --------------------------------------------- |
-| `pnpm dev`          | Run web (:3000) + api (:4000) in watch mode   |
-| `pnpm build`        | Production build for every workspace          |
-| `pnpm typecheck`    | TypeScript across the workspace               |
-| `pnpm lint`         | ESLint across the workspace                   |
-| `pnpm db:migrate`   | Apply Prisma migrations to local Postgres     |
-| `pnpm db:studio`    | Open Prisma Studio                            |
-| `pnpm format`       | Prettier write                                |
+| Script            | What it does                                |
+| ----------------- | ------------------------------------------- |
+| `pnpm dev`        | Run web (:3000) + api (:4000) in watch mode |
+| `pnpm build`      | Production build for every workspace        |
+| `pnpm typecheck`  | TypeScript across the workspace             |
+| `pnpm lint`       | ESLint across the workspace                 |
+| `pnpm db:migrate` | Apply Prisma migrations to local Postgres   |
+| `pnpm db:studio`  | Open Prisma Studio                          |
+| `pnpm format`     | Prettier write                              |
 
 ## Deploying
 

@@ -132,7 +132,11 @@ export function MatchingScreen() {
       (payload: MatchFoundPayload) => {
         if (timeoutRef.current) clearTimeout(timeoutRef.current);
         matchedMoodRef.current = payload.mood ?? null;
-        setMatched({ conversationId: payload.conversationId, peer: payload.peer, lastMetAt: payload.lastMetAt });
+        setMatched({
+          conversationId: payload.conversationId,
+          peer: payload.peer,
+          lastMetAt: payload.lastMetAt,
+        });
       },
       [setMatched],
     ),
@@ -193,10 +197,7 @@ export function MatchingScreen() {
 
         <div className="text-center max-w-sm">
           {status === 'matched' ? (
-            <motion.div
-              initial={{ opacity: 0, y: 10 }}
-              animate={{ opacity: 1, y: 0 }}
-            >
+            <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}>
               <h1 className="text-3xl mb-2 bg-gradient-to-r from-purple-400 via-pink-400 to-blue-400 bg-clip-text text-transparent">
                 Match found!
               </h1>
@@ -223,16 +224,19 @@ export function MatchingScreen() {
               <p className="text-muted-foreground text-sm mb-4">
                 Try a different mood or wait a moment and try again.
               </p>
-              <Button variant="gradient" size="md" className="w-full" onClick={() => router.push('/mood')}>
+              <Button
+                variant="gradient"
+                size="md"
+                className="w-full"
+                onClick={() => router.push('/mood')}
+              >
                 Pick another mood
               </Button>
             </GlassCard>
           ) : (
             <>
               <h1 className="text-2xl mb-1">
-                {mood === 'VOICE_ONLY'
-                  ? 'Finding someone to talk to…'
-                  : 'Looking for someone…'}
+                {mood === 'VOICE_ONLY' ? 'Finding someone to talk to…' : 'Looking for someone…'}
               </h1>
               <p className="text-muted-foreground text-sm">
                 {mood === 'VOICE_ONLY'

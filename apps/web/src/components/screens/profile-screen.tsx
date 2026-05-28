@@ -142,22 +142,20 @@ export function ProfileScreen() {
             <p className="text-xs text-muted-foreground">Calls</p>
           </div>
         </div>
-        <p className="text-xs text-muted-foreground text-center mt-4">
-          Stats arrive in Phase 5.
-        </p>
+        <p className="text-xs text-muted-foreground text-center mt-4">Stats arrive in Phase 5.</p>
       </GlassCard>
 
       <div className="space-y-3">
-        <Button
-          variant="outline"
-          size="md"
-          className="w-full"
-          onClick={() => router.push('/mood')}
-        >
+        <Button variant="outline" size="md" className="w-full" onClick={() => router.push('/mood')}>
           Change mood
         </Button>
 
-        <Button variant="ghost" size="md" className="w-full text-destructive hover:bg-destructive/10" onClick={() => setLogoutOpen(true)}>
+        <Button
+          variant="ghost"
+          size="md"
+          className="w-full text-destructive hover:bg-destructive/10"
+          onClick={() => setLogoutOpen(true)}
+        >
           <LogOut className="w-4 h-4" />
           Log out
         </Button>

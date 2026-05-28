@@ -49,7 +49,7 @@ describe('EmbeddingService', () => {
   describe('textSimilarity', () => {
     it('returns 1.0 Jaccard similarity for identical strings ignoring case and punctuation', () => {
       expect(
-        service.textSimilarity('Hello, World! I love coding.', 'hello world i love coding')
+        service.textSimilarity('Hello, World! I love coding.', 'hello world i love coding'),
       ).toBeCloseTo(1.0);
     });
 

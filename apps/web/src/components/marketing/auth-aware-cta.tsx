@@ -33,7 +33,9 @@ export function AuthAwareCta({ variant = 'hero' }: Props) {
   if (hydrated && user) {
     const target = profile ? '/mood' : '/onboarding';
     return (
-      <div className={variant === 'hero' ? 'flex flex-col sm:flex-row gap-3 justify-center mt-8' : ''}>
+      <div
+        className={variant === 'hero' ? 'flex flex-col sm:flex-row gap-3 justify-center mt-8' : ''}
+      >
         <Link href={target} className={`${baseGradient} ${size}`}>
           {profile ? `Continue as ${profile.nickname}` : 'Finish setting up'}
         </Link>
@@ -48,7 +50,9 @@ export function AuthAwareCta({ variant = 'hero' }: Props) {
 
   // Anonymous + the initial hydration-pending render.
   return (
-    <div className={variant === 'hero' ? 'flex flex-col sm:flex-row gap-3 justify-center mt-8' : ''}>
+    <div
+      className={variant === 'hero' ? 'flex flex-col sm:flex-row gap-3 justify-center mt-8' : ''}
+    >
       <Link href="/register" className={`${baseGradient} ${size}`}>
         {variant === 'hero' ? 'Get started' : 'Create your account'}
       </Link>

@@ -9,7 +9,11 @@ interface AuthState {
   profile: MeResponse['profile'];
   hydrated: boolean;
 
-  setAuth: (payload: { accessToken: string; user: MeResponse['user']; profile?: MeResponse['profile'] }) => void;
+  setAuth: (payload: {
+    accessToken: string;
+    user: MeResponse['user'];
+    profile?: MeResponse['profile'];
+  }) => void;
   setProfile: (profile: MeResponse['profile']) => void;
   setHydrated: () => void;
   clear: () => void;

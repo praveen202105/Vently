@@ -61,8 +61,7 @@ export function TranslateButton({
             {detectedLanguage && detectedLanguage !== 'unknown'
               ? ` from ${detectedLanguage.toUpperCase()}`
               : ''}
-            {' ·'}{' '}
-            <span className="underline underline-offset-2">Show original</span>
+            {' ·'} <span className="underline underline-offset-2">Show original</span>
           </span>
         </motion.button>
       ) : (

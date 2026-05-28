@@ -1,18 +1,10 @@
-import {
-  ConflictException,
-  Injectable,
-  Logger,
-  UnauthorizedException,
-} from '@nestjs/common';
+import { ConflictException, Injectable, Logger, UnauthorizedException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 import { Prisma, type Role, type User } from '@prisma/client';
 import bcrypt from 'bcryptjs';
 import { PrismaService } from '../prisma/prisma.service.js';
-import {
-  SessionRepository,
-  generateRefreshToken,
-} from './repositories/session.repository.js';
+import { SessionRepository, generateRefreshToken } from './repositories/session.repository.js';
 
 const BCRYPT_COST = 12;
 const ACCESS_TTL_SECONDS = 60 * 15; // 15 minutes
@@ -43,7 +35,10 @@ export class AuthService {
     private readonly sessions: SessionRepository,
   ) {}
 
-  async register(email: string, password: string): Promise<{ user: PublicUser; tokens: IssuedTokens }> {
+  async register(
+    email: string,
+    password: string,
+  ): Promise<{ user: PublicUser; tokens: IssuedTokens }> {
     const passwordHash = await bcrypt.hash(password, BCRYPT_COST);
     try {
       const user = await this.prisma.user.create({
@@ -60,7 +55,10 @@ export class AuthService {
     }
   }
 
-  async login(email: string, password: string): Promise<{ user: PublicUser; tokens: IssuedTokens }> {
+  async login(
+    email: string,
+    password: string,
+  ): Promise<{ user: PublicUser; tokens: IssuedTokens }> {
     const user = await this.prisma.user.findUnique({
       where: { email },
       select: { id: true, email: true, role: true, passwordHash: true, createdAt: true },

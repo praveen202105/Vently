@@ -35,9 +35,7 @@ function isPublic(pathname: string) {
 
 function requiresProfile(pathname: string) {
   if (isPublic(pathname)) return false;
-  return !NO_PROFILE_REQUIRED_PREFIXES.some(
-    (p) => pathname === p || pathname.startsWith(`${p}/`),
-  );
+  return !NO_PROFILE_REQUIRED_PREFIXES.some((p) => pathname === p || pathname.startsWith(`${p}/`));
 }
 
 export function useAuthBootstrap() {

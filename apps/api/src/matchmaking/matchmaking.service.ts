@@ -152,10 +152,10 @@ export class MatchmakingService {
       // Extract lastMetAt from past direct conversations
       const lastMetAt =
         pastConvos.length > 0
-          ? pastConvos
+          ? (pastConvos
               .map((c) => c.endedAt)
               .filter(Boolean)
-              .sort((a, b) => b!.getTime() - a!.getTime())[0] ?? null
+              .sort((a, b) => b!.getTime() - a!.getTime())[0] ?? null)
           : null;
 
       scoredCandidates.push({ peerId, score, lastMetAt });

@@ -241,7 +241,10 @@ export class FriendsService {
     }));
   }
 
-  async unfriend(userId: string, friendUserId: string): Promise<{ endedConversationIds: string[] }> {
+  async unfriend(
+    userId: string,
+    friendUserId: string,
+  ): Promise<{ endedConversationIds: string[] }> {
     const friendship = await this.repo.findFriendship(userId, friendUserId);
     if (!friendship) throw new NotFoundException('Not friends');
     await this.repo.deleteFriendship(userId, friendUserId);

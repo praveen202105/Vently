@@ -38,7 +38,12 @@ export class MessagesService {
     };
   }
 
-  async send(args: { conversationId: string; senderId: string; body: string; replyToMessageId?: string }) {
+  async send(args: {
+    conversationId: string;
+    senderId: string;
+    body: string;
+    replyToMessageId?: string;
+  }) {
     await this.conversations.assertParticipant(args.conversationId, args.senderId);
     const message = await this.repo.create(args);
     return this.shape(message);
@@ -118,15 +123,11 @@ export class MessagesService {
     if (!result) {
       return { ok: false, error: 'Message not found or already deleted' };
     }
-    this.realtime.emitToConversation(
-      args.conversationId,
-      SocketEvents.CHAT_DELETE_STATUS,
-      {
-        messageId: args.messageId,
-        conversationId: args.conversationId,
-        deletedAt: result.deletedAt.toISOString(),
-      },
-    );
+    this.realtime.emitToConversation(args.conversationId, SocketEvents.CHAT_DELETE_STATUS, {
+      messageId: args.messageId,
+      conversationId: args.conversationId,
+      deletedAt: result.deletedAt.toISOString(),
+    });
     return { ok: true };
   }
 }

@@ -53,9 +53,7 @@ export async function provisionUserViaApi(
   // The refresh cookie is set on the request-context — capture it for browser handoff.
   const cookies = await ctx.storageState();
   const refreshCookie = cookies.cookies.find((c) => c.name === 'vently_refresh');
-  const cookieHeader = refreshCookie
-    ? `${refreshCookie.name}=${refreshCookie.value}`
-    : '';
+  const cookieHeader = refreshCookie ? `${refreshCookie.name}=${refreshCookie.value}` : '';
 
   const profileRes = await ctx.put(P('/me/profile'), {
     data: { nickname, gender, ageConfirmed: true, mood: null },
@@ -80,12 +78,17 @@ export async function provisionUserViaApi(
  * login endpoint, storing the refresh cookie, and seeding the access token
  * into Zustand via a small page.evaluate.
  */
-export async function loginPage(page: Page, ctx: BrowserContext, user: { email: string; password: string }) {
+export async function loginPage(
+  page: Page,
+  ctx: BrowserContext,
+  user: { email: string; password: string },
+) {
   const apiCtx = await request.newContext({ baseURL: API_URL });
   const loginRes = await apiCtx.post(P('/auth/login'), {
     data: { email: user.email, password: user.password },
   });
-  if (!loginRes.ok()) throw new Error(`login failed: ${loginRes.status()} ${await loginRes.text()}`);
+  if (!loginRes.ok())
+    throw new Error(`login failed: ${loginRes.status()} ${await loginRes.text()}`);
   const login = (await loginRes.json()) as { accessToken: string };
 
   // Pass the cookies through with their original domain from the Set-Cookie

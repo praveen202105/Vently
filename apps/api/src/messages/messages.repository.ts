@@ -5,7 +5,12 @@ import { PrismaService } from '../prisma/prisma.service.js';
 export class MessagesRepository {
   constructor(private readonly prisma: PrismaService) {}
 
-  create(args: { conversationId: string; senderId: string; body: string; replyToMessageId?: string }) {
+  create(args: {
+    conversationId: string;
+    senderId: string;
+    body: string;
+    replyToMessageId?: string;
+  }) {
     return this.prisma.message.create({
       data: {
         conversationId: args.conversationId,

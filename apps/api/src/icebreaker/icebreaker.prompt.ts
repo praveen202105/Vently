@@ -8,7 +8,7 @@ function timeOfDay(): string {
   return 'evening';
 }
 
-const EMAIL_RE = /[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}/g;
+const EMAIL_RE = /[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+.[a-zA-Z]{2,}/g;
 const PHONE_RE = /\+?[\d\s\-().]{7,15}/g;
 
 function sanitizeBio(bio: string | null): string {

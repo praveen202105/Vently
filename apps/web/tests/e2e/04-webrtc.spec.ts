@@ -19,9 +19,7 @@ test.describe('Phase 4 — WebRTC', () => {
     expect(body.iceServers.length).toBeGreaterThan(0);
     // STUN is the public fallback; TURN comes from Open Relay (free) when no
     // paid provider is configured, or from Cloudflare/Metered when one is.
-    const flat = body.iceServers.flatMap((s) =>
-      Array.isArray(s.urls) ? s.urls : [s.urls],
-    );
+    const flat = body.iceServers.flatMap((s) => (Array.isArray(s.urls) ? s.urls : [s.urls]));
     expect(flat.some((u) => u.startsWith('stun:'))).toBe(true);
     expect(flat.some((u) => u.startsWith('turn:'))).toBe(true);
   });

@@ -75,7 +75,9 @@ test.describe('Phase 2/3 — Match + Chat + Friend', () => {
     await bobCtx.close();
   });
 
-  test('two strangers match, leave conversation, match again and see reunion banner', async ({ browser }) => {
+  test('two strangers match, leave conversation, match again and see reunion banner', async ({
+    browser,
+  }) => {
     test.setTimeout(60_000);
 
     const aliceUser = await provisionUserViaApi({ gender: 'MALE' });

@@ -53,9 +53,10 @@ export function QuoteReplyPreview({ replyToBody, replyToSenderName, mine, onCanc
     <div
       className={`
         mb-1 px-2 py-1.5 rounded-xl text-xs border-l-2 max-w-full
-        ${mine
-          ? 'bg-white/10 border-white/40 text-white/70'
-          : 'bg-muted/40 border-violet-400/60 text-muted-foreground'
+        ${
+          mine
+            ? 'bg-white/10 border-white/40 text-white/70'
+            : 'bg-muted/40 border-violet-400/60 text-muted-foreground'
         }
       `}
     >

@@ -32,7 +32,9 @@ export class IcebreakerService implements OnModuleInit {
   onModuleInit() {
     const key = this.config.get<string>('GROQ_API_KEY');
     if (!key) {
-      this.logger.warn('GROQ_API_KEY missing — ice-breaker disabled. Get a free key at https://console.groq.com');
+      this.logger.warn(
+        'GROQ_API_KEY missing — ice-breaker disabled. Get a free key at https://console.groq.com',
+      );
       return;
     }
     this.client = new Groq({ apiKey: key });
@@ -90,7 +92,9 @@ export class IcebreakerService implements OnModuleInit {
       clearTimeout(timeout);
     } catch (err) {
       clearTimeout(timeout);
-      this.logger.warn(`Ice-breaker stream failed (${Date.now() - startedAt}ms): ${(err as Error).message}`);
+      this.logger.warn(
+        `Ice-breaker stream failed (${Date.now() - startedAt}ms): ${(err as Error).message}`,
+      );
       if (!accumulated) return;
     }
 

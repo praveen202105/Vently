@@ -72,12 +72,7 @@ export function PushPermissionPrompt() {
                   We'll only notify you about chats, friend requests, and matches.
                 </p>
                 <div className="flex gap-2 mt-3">
-                  <Button
-                    variant="primary"
-                    size="sm"
-                    onClick={handleEnable}
-                    disabled={working}
-                  >
+                  <Button variant="primary" size="sm" onClick={handleEnable} disabled={working}>
                     {working ? '…' : 'Enable'}
                   </Button>
                   <Button variant="ghost" size="sm" onClick={handleDismiss}>

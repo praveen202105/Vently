@@ -30,13 +30,55 @@ interface MoodOption {
 }
 
 const MOODS: MoodOption[] = [
-  { id: 'LONELY', label: 'Feeling lonely', subtitle: 'Connect instantly', icon: HeartCrack, gradient: 'from-purple-500 to-pink-500' },
-  { id: 'NEED_TO_TALK', label: 'Need to talk', subtitle: 'Connect instantly', icon: MessageCircle, gradient: 'from-blue-500 to-cyan-500' },
-  { id: 'FRIENDSHIP', label: 'Friendship', subtitle: 'Connect instantly', icon: HandHelping, gradient: 'from-emerald-500 to-teal-500' },
-  { id: 'LATE_NIGHT', label: 'Late night talk', subtitle: 'Connect instantly', icon: CloudMoon, gradient: 'from-indigo-500 to-violet-500' },
-  { id: 'ADVICE', label: 'Need advice', subtitle: 'Connect instantly', icon: Coffee, gradient: 'from-amber-500 to-orange-500' },
-  { id: 'FLIRTY', label: 'Flirty chat', subtitle: 'Connect instantly', icon: Flame, gradient: 'from-rose-500 to-red-500' },
-  { id: 'VOICE_ONLY', label: 'Voice only', subtitle: 'Talk, don’t type', icon: Mic, gradient: 'from-sky-500 to-blue-500' },
+  {
+    id: 'LONELY',
+    label: 'Feeling lonely',
+    subtitle: 'Connect instantly',
+    icon: HeartCrack,
+    gradient: 'from-purple-500 to-pink-500',
+  },
+  {
+    id: 'NEED_TO_TALK',
+    label: 'Need to talk',
+    subtitle: 'Connect instantly',
+    icon: MessageCircle,
+    gradient: 'from-blue-500 to-cyan-500',
+  },
+  {
+    id: 'FRIENDSHIP',
+    label: 'Friendship',
+    subtitle: 'Connect instantly',
+    icon: HandHelping,
+    gradient: 'from-emerald-500 to-teal-500',
+  },
+  {
+    id: 'LATE_NIGHT',
+    label: 'Late night talk',
+    subtitle: 'Connect instantly',
+    icon: CloudMoon,
+    gradient: 'from-indigo-500 to-violet-500',
+  },
+  {
+    id: 'ADVICE',
+    label: 'Need advice',
+    subtitle: 'Connect instantly',
+    icon: Coffee,
+    gradient: 'from-amber-500 to-orange-500',
+  },
+  {
+    id: 'FLIRTY',
+    label: 'Flirty chat',
+    subtitle: 'Connect instantly',
+    icon: Flame,
+    gradient: 'from-rose-500 to-red-500',
+  },
+  {
+    id: 'VOICE_ONLY',
+    label: 'Voice only',
+    subtitle: 'Talk, don’t type',
+    icon: Mic,
+    gradient: 'from-sky-500 to-blue-500',
+  },
 ];
 
 export function MoodSelectionScreen() {
@@ -116,9 +158,7 @@ export function MoodSelectionScreen() {
                     <motion.div
                       // Pulsing mic for the voice tile makes the affordance feel
                       // alive — guarded by reduceMotion per the global rule.
-                      animate={
-                        isVoice && !reduceMotion ? { scale: [1, 1.08, 1] } : undefined
-                      }
+                      animate={isVoice && !reduceMotion ? { scale: [1, 1.08, 1] } : undefined}
                       transition={
                         isVoice && !reduceMotion
                           ? { duration: 1.6, repeat: Infinity, ease: 'easeInOut' }

@@ -120,9 +120,7 @@ export function NotificationBell() {
 
               <div className="flex-1 overflow-y-auto">
                 {!data || data.length === 0 ? (
-                  <p className="text-center text-muted-foreground text-sm p-8">
-                    Nothing yet.
-                  </p>
+                  <p className="text-center text-muted-foreground text-sm p-8">Nothing yet.</p>
                 ) : (
                   <ul className="divide-y divide-glass-border">
                     {data.map((n) => (

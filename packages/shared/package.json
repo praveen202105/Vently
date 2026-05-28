@@ -41,6 +41,7 @@
   },
   "devDependencies": {
     "@vently/config": "workspace:*",
+    "eslint": "^9.10.0",
     "prisma": "^5.20.0",
     "typescript": "^5.5.4"
   },

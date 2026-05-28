@@ -129,7 +129,7 @@ export function VoiceCallScreen({ conversationId }: { conversationId: string }) 
       audioCtx = new (window.AudioContext || (window as any).webkitAudioContext)();
       analyser = audioCtx.createAnalyser();
       analyser.fftSize = 64;
-      
+
       source = audioCtx.createMediaStreamSource(remoteStream);
       source.connect(analyser);
 
@@ -195,23 +195,19 @@ export function VoiceCallScreen({ conversationId }: { conversationId: string }) 
     callState === 'IDLE'
       ? 'Preparing…'
       : callState === 'DIALING'
-      ? 'Ringing…'
-      : callState === 'RINGING'
-      ? 'Incoming call'
-      : callState === 'CONNECTING'
-      ? 'Connecting…'
-      : callState === 'CONNECTED'
-      ? formatDuration(elapsed)
-      : 'Call ended';
+        ? 'Ringing…'
+        : callState === 'RINGING'
+          ? 'Incoming call'
+          : callState === 'CONNECTING'
+            ? 'Connecting…'
+            : callState === 'CONNECTED'
+              ? formatDuration(elapsed)
+              : 'Call ended';
 
   return (
     <div className="fixed inset-0 flex flex-col items-center justify-between p-6 text-center overflow-hidden bg-background">
       {voiceOnly ? (
-        <motion.div
-          initial={{ opacity: 0, y: -8 }}
-          animate={{ opacity: 1, y: 0 }}
-          className="mt-4"
-        >
+        <motion.div initial={{ opacity: 0, y: -8 }} animate={{ opacity: 1, y: 0 }} className="mt-4">
           <GlassCard className="px-4 py-2 flex items-center gap-2 text-xs">
             <AudioLines className="w-4 h-4 text-sky-400" />
             <span className="text-muted-foreground">Voice-only match</span>
@@ -223,9 +219,7 @@ export function VoiceCallScreen({ conversationId }: { conversationId: string }) 
 
       <div className="flex flex-col items-center gap-6">
         <motion.div
-          animate={
-            reduceMotion || callState !== 'CONNECTED' ? undefined : { scale: [1, 1.05, 1] }
-          }
+          animate={reduceMotion || callState !== 'CONNECTED' ? undefined : { scale: [1, 1.05, 1] }}
           transition={reduceMotion ? undefined : { duration: 2, repeat: Infinity }}
           className="relative"
         >

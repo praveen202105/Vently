@@ -44,10 +44,7 @@ export class ConversationsService {
     return part;
   }
 
-  async leave(
-    conversationId: string,
-    userId: string,
-  ): Promise<{ peerUserIds: string[] }> {
+  async leave(conversationId: string, userId: string): Promise<{ peerUserIds: string[] }> {
     const part = await this.repo.isParticipant(conversationId, userId);
     if (!part) throw new NotFoundException('Conversation not found');
 

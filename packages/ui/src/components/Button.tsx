@@ -22,8 +22,7 @@ const VARIANTS: Record<Variant, string> = {
     'bg-primary text-primary-foreground hover:bg-primary/90 shadow-lg shadow-primary/30 hover:shadow-xl hover:shadow-primary/40',
   secondary:
     'bg-secondary text-secondary-foreground hover:bg-secondary/90 shadow-lg shadow-secondary/30 hover:shadow-xl hover:shadow-secondary/40',
-  outline:
-    'border-2 border-primary text-primary hover:bg-primary/10 hover:border-primary/70',
+  outline: 'border-2 border-primary text-primary hover:bg-primary/10 hover:border-primary/70',
   ghost: 'text-muted-foreground hover:text-foreground hover:bg-muted',
   gradient:
     'bg-gradient-to-r from-gradient-purple via-gradient-pink to-gradient-blue text-white shadow-lg shadow-primary/30 hover:shadow-2xl hover:shadow-primary/50',

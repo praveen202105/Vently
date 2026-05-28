@@ -1,11 +1,4 @@
-import {
-  Body,
-  Controller,
-  NotFoundException,
-  Param,
-  Post,
-  UseGuards,
-} from '@nestjs/common';
+import { Body, Controller, NotFoundException, Param, Post, UseGuards } from '@nestjs/common';
 import { IsString, Length } from 'class-validator';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard.js';
 import { CurrentUser, type AuthUser } from '../common/decorators/current-user.decorator.js';

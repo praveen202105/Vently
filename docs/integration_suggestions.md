@@ -6,11 +6,12 @@ To make your verification workflow even more powerful, seamless, and automated, 
 
 ## 1. GitHub Actions (Continuous Integration)
 
-You can deploy the script to run automatically on every Pull Request or push to GitHub. 
+You can deploy the script to run automatically on every Pull Request or push to GitHub.
 
 Create a `.github/workflows/verify.yml` file. If the tests fail, the workflow can automatically comment the contents of `bugs.md` directly onto the Pull Request so you can see failures without leaving GitHub!
 
 ### Example GitHub Actions Workflow File:
+
 ```yaml
 name: Vently E2E Verification
 on:
@@ -53,6 +54,7 @@ You can prevent broken code from ever leaving your local computer by integrating
 - If it passes, the code is pushed safely.
 
 ### How to set it up:
+
 ```bash
 # Install Husky
 pnpm add -D husky
@@ -69,6 +71,7 @@ echo "node scripts/verify-feature.js --local-only" > .husky/pre-push
 Currently, Stage 4 of the script asks you to type `ok` once your Railway or Vercel build is deployed. We can upgrade this to **fully automated polling** using their APIs!
 
 The script can:
+
 1. Grab the latest git commit hash.
 2. Query the Vercel or Railway API for the deployment status of that hash.
 3. Keep polling in the background (showing a loading spinner).
@@ -79,5 +82,6 @@ The script can:
 ## 4. Chat Notifications (Slack / Discord)
 
 We can add webhook integration to the script. Whenever a verification loop starts, fails, or succeeds:
+
 - It sends a rich embed notification card (in red for failure, green for success) directly to your whatsapp messages.
 - It attaches the list of failures from `bugs.md` directly in the chat message so your team is instantly updated.

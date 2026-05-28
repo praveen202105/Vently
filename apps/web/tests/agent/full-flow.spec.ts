@@ -59,7 +59,9 @@ test.describe('🤖 Vently Testing Agent', () => {
     ]);
 
     // eslint-disable-next-line no-console
-    console.log(`   ✓ Provisioned: ${alice.nickname} (M), ${bob.nickname} (F), ${charlie.nickname} (M)`);
+    console.log(
+      `   ✓ Provisioned: ${alice.nickname} (M), ${bob.nickname} (F), ${charlie.nickname} (M)`,
+    );
 
     aliceCtx = await browser.newContext();
     bobCtx = await browser.newContext();
@@ -170,7 +172,10 @@ test.describe('🤖 Vently Testing Agent', () => {
     // Skip if Alice and Bob ended up in different conversations.
     const aliceConv = alicePage.url().split('/chat/')[1];
     const bobConv = bobPage.url().split('/chat/')[1];
-    test.skip(aliceConv !== bobConv, 'Alice & Bob matched with strangers — skipping cross-chat test');
+    test.skip(
+      aliceConv !== bobConv,
+      'Alice & Bob matched with strangers — skipping cross-chat test',
+    );
 
     step(`${alice.nickname} → ${bob.nickname}`);
     const aliceMsg = `agent-hi ${Date.now()}`;
@@ -247,7 +252,9 @@ test.describe('🤖 Vently Testing Agent', () => {
   // ────────────────────────────────────────────────────────────────────────
 
   test('8. Charlie + Alice match → Alice blocks Charlie → Charlie cannot re-match Alice', async () => {
-    step(`${charlie.nickname} (MALE) and ${alice.nickname} (MALE) cannot match with each other anyway (same gender) — instead use Charlie ↔ Bob`);
+    step(
+      `${charlie.nickname} (MALE) and ${alice.nickname} (MALE) cannot match with each other anyway (same gender) — instead use Charlie ↔ Bob`,
+    );
 
     step(`${charlie.nickname} blocks ${alice.nickname} via API`);
     // Test the block-API path directly (the UI block button is in chat header,
@@ -388,10 +395,9 @@ test.describe('🤖 Vently Testing Agent', () => {
     console.log(`   ✓ Re-opened friend conversation ${friendConvId}`);
 
     step('Verify via API that the FRIEND conversation is NOT ended');
-    const metaRes = await alicePage.request.get(
-      `${API_HOST}/api/conversations/${friendConvId}`,
-      { headers: { Authorization: `Bearer ${alice.accessToken}` } },
-    );
+    const metaRes = await alicePage.request.get(`${API_HOST}/api/conversations/${friendConvId}`, {
+      headers: { Authorization: `Bearer ${alice.accessToken}` },
+    });
     expect(metaRes.ok()).toBeTruthy();
     const meta = (await metaRes.json()) as { type: string; endedAt: string | null };
     expect(meta.type).toBe('FRIEND');
@@ -416,7 +422,10 @@ test.describe('🤖 Vently Testing Agent', () => {
     await alicePage.getByPlaceholder(/type a message/i).fill(reconnectMsg);
     await alicePage.keyboard.press('Enter');
     // Bob is on /connections — open the friend tile to verify.
-    await bobPage.getByRole('button', { name: new RegExp(alice.nickname, 'i') }).first().click();
+    await bobPage
+      .getByRole('button', { name: new RegExp(alice.nickname, 'i') })
+      .first()
+      .click();
     await bobPage.waitForURL(/\/chat\//, { timeout: 10_000 });
     await expect(bobPage.getByText(reconnectMsg)).toBeVisible({ timeout: 10_000 });
 
@@ -427,10 +436,9 @@ test.describe('🤖 Vently Testing Agent', () => {
     await alicePage.waitForURL(/\/connections/, { timeout: 5_000 });
 
     step('Conversation is STILL not ended after the Back press');
-    const metaRes2 = await alicePage.request.get(
-      `${API_HOST}/api/conversations/${friendConvId}`,
-      { headers: { Authorization: `Bearer ${alice.accessToken}` } },
-    );
+    const metaRes2 = await alicePage.request.get(`${API_HOST}/api/conversations/${friendConvId}`, {
+      headers: { Authorization: `Bearer ${alice.accessToken}` },
+    });
     const meta2 = (await metaRes2.json()) as { endedAt: string | null };
     expect(meta2.endedAt).toBeNull();
 
@@ -475,13 +483,10 @@ test.describe('🤖 Vently Testing Agent', () => {
     const messageId = target!.id;
 
     step('Alice reacts ❤️ to the target message');
-    const addRes = await alicePage.request.post(
-      `${API_HOST}/api/messages/${messageId}/reactions`,
-      {
-        data: { emoji: '❤️' },
-        headers: { Authorization: `Bearer ${alice.accessToken}` },
-      },
-    );
+    const addRes = await alicePage.request.post(`${API_HOST}/api/messages/${messageId}/reactions`, {
+      data: { emoji: '❤️' },
+      headers: { Authorization: `Bearer ${alice.accessToken}` },
+    });
     expect(addRes.ok()).toBeTruthy();
     const addBody = (await addRes.json()) as { action: 'add' | 'remove' };
     // The reaction may have been left from a prior run; either action is
@@ -559,12 +564,17 @@ test.describe('🤖 Vently Testing Agent', () => {
 
     step('Send a uniquely searchable message via API so we have something to find');
     const uniqueWord = `searchable_${Date.now()}`;
-    await alicePage.request.post(`${API_HOST}/api/conversations/${conversationId}/messages`, {
-      data: { body: `Hello this is a ${uniqueWord} message` },
-      headers: { Authorization: `Bearer ${alice.accessToken}`, 'Content-Type': 'application/json' },
-    }).catch(() => {
-      // Messages are sent via socket in production; skip if REST isn't exposed.
-    });
+    await alicePage.request
+      .post(`${API_HOST}/api/conversations/${conversationId}/messages`, {
+        data: { body: `Hello this is a ${uniqueWord} message` },
+        headers: {
+          Authorization: `Bearer ${alice.accessToken}`,
+          'Content-Type': 'application/json',
+        },
+      })
+      .catch(() => {
+        // Messages are sent via socket in production; skip if REST isn't exposed.
+      });
 
     step('Search endpoint returns results matching the query');
     const searchRes = await alicePage.request.get(
@@ -655,9 +665,9 @@ test.describe('🤖 Vently Testing Agent', () => {
     await bobPage.getByPlaceholder(/type a message/i).type('hell', { delay: 80 });
 
     // The header subtitle should show Bob's nickname followed by "is typing"
-    await expect(
-      alicePage.getByText(new RegExp(`${bob.nickname}.*is typing`, 'i')),
-    ).toBeVisible({ timeout: 6_000 });
+    await expect(alicePage.getByText(new RegExp(`${bob.nickname}.*is typing`, 'i'))).toBeVisible({
+      timeout: 6_000,
+    });
 
     await alicePage.screenshot({
       path: 'agent-results/16-typing-indicator-with-name.png',
@@ -708,10 +718,7 @@ test.describe('🤖 Vently Testing Agent', () => {
     await bobPage.keyboard.press('Enter');
 
     step("Alice's document title should update to '(N) Vently'");
-    await alicePage.waitForFunction(
-      () => document.title.startsWith('('),
-      { timeout: 8_000 },
-    );
+    await alicePage.waitForFunction(() => document.title.startsWith('('), { timeout: 8_000 });
     const title = await alicePage.evaluate(() => document.title);
     expect(title).toMatch(/^\(\d+\) Vently/);
 
@@ -728,10 +735,7 @@ test.describe('🤖 Vently Testing Agent', () => {
       });
       document.dispatchEvent(new Event('visibilitychange'));
     });
-    await alicePage.waitForFunction(
-      () => !document.title.startsWith('('),
-      { timeout: 5_000 },
-    );
+    await alicePage.waitForFunction(() => !document.title.startsWith('('), { timeout: 5_000 });
     const resetTitle = await alicePage.evaluate(() => document.title);
     expect(resetTitle).toBe('Vently');
   });

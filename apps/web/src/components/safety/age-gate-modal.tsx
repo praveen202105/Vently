@@ -55,10 +55,7 @@ export function AgeGateModal({ open, moodLabel, onConfirm, onCancel }: Props) {
                     <AlertTriangle className="w-5 h-5 text-rose-400" />
                   </div>
                   <div>
-                    <h2
-                      id="age-gate-title"
-                      className="text-base font-semibold text-foreground"
-                    >
+                    <h2 id="age-gate-title" className="text-base font-semibold text-foreground">
                       Content Advisory
                     </h2>
                     <p className="text-xs text-muted-foreground mt-0.5">{moodLabel} mode</p>
@@ -79,8 +76,13 @@ export function AgeGateModal({ open, moodLabel, onConfirm, onCancel }: Props) {
                 This mood may connect you with conversations of a mature or sensitive nature.
               </p>
               <ul className="text-sm text-muted-foreground space-y-1.5 mb-5 pl-4">
-                <li className="list-disc">You must be <span className="text-foreground font-medium">18 years or older</span> to continue.</li>
-                <li className="list-disc">Conversations are anonymous but not private from moderation.</li>
+                <li className="list-disc">
+                  You must be <span className="text-foreground font-medium">18 years or older</span>{' '}
+                  to continue.
+                </li>
+                <li className="list-disc">
+                  Conversations are anonymous but not private from moderation.
+                </li>
                 <li className="list-disc">You can report or block at any time.</li>
               </ul>
 

@@ -35,9 +35,7 @@ export class SocketThrottleService {
     }
 
     if (bucket.count >= limit) {
-      this.logger.warn(
-        `throttle: ${userId} hit ${event} cap (${limit}/${windowMs}ms) — dropping`,
-      );
+      this.logger.warn(`throttle: ${userId} hit ${event} cap (${limit}/${windowMs}ms) — dropping`);
       return false;
     }
 

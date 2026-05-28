@@ -43,7 +43,7 @@ export class ConversationsRepository {
 
     return convos.map((c) => ({
       conversation: c,
-      peer: c.participants[0] ? profileByUserId.get(c.participants[0].userId) ?? null : null,
+      peer: c.participants[0] ? (profileByUserId.get(c.participants[0].userId) ?? null) : null,
       lastMessage: c.messages[0] ?? null,
     }));
   }

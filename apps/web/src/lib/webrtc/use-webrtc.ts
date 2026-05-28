@@ -1,11 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-import {
-  SocketEvents,
-  type CallIceCandidatePayload,
-  type CallSdpPayload,
-} from '@vently/shared';
+import { SocketEvents, type CallIceCandidatePayload, type CallSdpPayload } from '@vently/shared';
 import { useSocket } from '@/lib/socket/use-socket';
 import { getIceServers } from './ice-servers';
 

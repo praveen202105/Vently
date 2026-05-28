@@ -17,7 +17,9 @@ export class SlackController {
     const slackUser = body.user_name || 'Anonymous';
     const commandText = (body.text || 'main').trim();
 
-    this.logger.log(`Slack Slash Command '/verify-vently' requested by @${slackUser} for branch: ${commandText}`);
+    this.logger.log(
+      `Slack Slash Command '/verify-vently' requested by @${slackUser} for branch: ${commandText}`,
+    );
 
     return {
       response_type: 'in_channel',
@@ -27,25 +29,25 @@ export class SlackController {
           text: {
             type: 'plain_text',
             text: '🛠️ Vently CI/CD Pipeline Dashboard',
-            emoji: true
-          }
+            emoji: true,
+          },
         },
         {
-          type: 'divider'
-        },
-        {
-          type: 'section',
-          text: {
-            type: 'mrkdwn',
-            text: `*Pipeline Action:* Ready to run local E2E verification, commit/push, and run production smoke tests.\n*Target Branch:* \`${commandText}\`\n*Requested By:* \`@${slackUser}\``
-          }
+          type: 'divider',
         },
         {
           type: 'section',
           text: {
             type: 'mrkdwn',
-            text: 'Click the primary button below to manually start the automated CI/CD pipeline:'
-          }
+            text: `*Pipeline Action:* Ready to run local E2E verification, commit/push, and run production smoke tests.\n*Target Branch:* \`${commandText}\`\n*Requested By:* \`@${slackUser}\``,
+          },
+        },
+        {
+          type: 'section',
+          text: {
+            type: 'mrkdwn',
+            text: 'Click the primary button below to manually start the automated CI/CD pipeline:',
+          },
         },
         {
           type: 'actions',
@@ -55,27 +57,27 @@ export class SlackController {
               text: {
                 type: 'plain_text',
                 text: `🚀 Run '${commandText}' Pipeline`,
-                emoji: true
+                emoji: true,
               },
               action_id: 'trigger_pipeline_action',
               value: commandText,
-              style: 'primary'
-            }
-          ]
+              style: 'primary',
+            },
+          ],
         },
         {
-          type: 'divider'
+          type: 'divider',
         },
         {
           type: 'context',
           elements: [
             {
               type: 'mrkdwn',
-              text: '⚡ *Vently CI/CD Integration Bot* • Remote dispatch ready'
-            }
-          ]
-        }
-      ]
+              text: '⚡ *Vently CI/CD Integration Bot* • Remote dispatch ready',
+            },
+          ],
+        },
+      ],
     };
   }
 
@@ -106,7 +108,9 @@ export class SlackController {
         this.logger.log(`Slack Interactive Button clicked by @${slackUser} for branch: ${branch}`);
 
         if (!githubToken) {
-          this.logger.error('GITHUB_TOKEN is missing in NestJS config — Slack interactivity dispatch aborted.');
+          this.logger.error(
+            'GITHUB_TOKEN is missing in NestJS config — Slack interactivity dispatch aborted.',
+          );
           if (responseUrl) {
             await this.updateSlackMessage(responseUrl, {
               text: '❌ Could not trigger the pipeline: `GITHUB_TOKEN` is not configured on the backend NestJS server.',
@@ -116,22 +120,25 @@ export class SlackController {
         }
 
         // Dispatch the workflow on GitHub
-        const dispatchRes = await fetch(`https://api.github.com/repos/${owner}/${repo}/dispatches`, {
-          method: 'POST',
-          headers: {
-            'Accept': 'application/vnd.github+json',
-            'Authorization': `Bearer ${githubToken}`,
-            'X-GitHub-Api-Version': '2022-11-28',
-            'User-Agent': 'Vently-NestJS-Backend',
-          },
-          body: JSON.stringify({
-            event_type: 'verify_pipeline',
-            client_payload: {
-              branch: branch,
-              triggered_by_slack: slackUser,
+        const dispatchRes = await fetch(
+          `https://api.github.com/repos/${owner}/${repo}/dispatches`,
+          {
+            method: 'POST',
+            headers: {
+              Accept: 'application/vnd.github+json',
+              Authorization: `Bearer ${githubToken}`,
+              'X-GitHub-Api-Version': '2022-11-28',
+              'User-Agent': 'Vently-NestJS-Backend',
             },
-          }),
-        });
+            body: JSON.stringify({
+              event_type: 'verify_pipeline',
+              client_payload: {
+                branch: branch,
+                triggered_by_slack: slackUser,
+              },
+            }),
+          },
+        );
 
         if (!dispatchRes.ok) {
           const errText = await dispatchRes.text();
@@ -155,45 +162,45 @@ export class SlackController {
                 text: {
                   type: 'plain_text',
                   text: '🚀 Vently Automation Pipeline Triggered',
-                  emoji: true
-                }
+                  emoji: true,
+                },
               },
               {
-                type: 'divider'
+                type: 'divider',
               },
               {
                 type: 'section',
                 text: {
                   type: 'mrkdwn',
-                  text: `*Pipeline Status:* ⌛ Remote Dispatch Initiated\n*Target Branch:* \`${branch}\`\n*Triggered By:* \`@${slackUser}\` (via Interactive Button)\n*Action:* GitHub Actions E2E verification loop started successfully! 🌐`
-                }
+                  text: `*Pipeline Status:* ⌛ Remote Dispatch Initiated\n*Target Branch:* \`${branch}\`\n*Triggered By:* \`@${slackUser}\` (via Interactive Button)\n*Action:* GitHub Actions E2E verification loop started successfully! 🌐`,
+                },
               },
               {
                 type: 'section',
                 fields: [
                   {
                     type: 'mrkdwn',
-                    text: `*Environment:*\nProduction`
+                    text: `*Environment:*\nProduction`,
                   },
                   {
                     type: 'mrkdwn',
-                    text: `*GitHub Repository:*\n\`${owner}/${repo}\``
-                  }
-                ]
+                    text: `*GitHub Repository:*\n\`${owner}/${repo}\``,
+                  },
+                ],
               },
               {
-                type: 'divider'
+                type: 'divider',
               },
               {
                 type: 'context',
                 elements: [
                   {
                     type: 'mrkdwn',
-                    text: '⚡ *Vently CI/CD Integration Bot* • Active monitoring in progress...'
-                  }
-                ]
-              }
-            ]
+                    text: '⚡ *Vently CI/CD Integration Bot* • Active monitoring in progress...',
+                  },
+                ],
+              },
+            ],
           });
         }
       }

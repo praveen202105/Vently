@@ -60,12 +60,12 @@ test.describe('06 Sprint 1 — Q1: Read Receipt Ticks', () => {
     test.setTimeout(300_000);
 
     const aliceUser = await provisionUserViaApi({ gender: 'MALE' });
-    const bobUser   = await provisionUserViaApi({ gender: 'FEMALE' });
+    const bobUser = await provisionUserViaApi({ gender: 'FEMALE' });
 
     const aliceCtx: BrowserContext = await browser.newContext();
-    const bobCtx: BrowserContext   = await browser.newContext();
+    const bobCtx: BrowserContext = await browser.newContext();
     const alice = await aliceCtx.newPage();
-    const bob   = await bobCtx.newPage();
+    const bob = await bobCtx.newPage();
 
     await loginPage(alice, aliceCtx, aliceUser);
     await loginPage(bob, bobCtx, bobUser);
@@ -83,7 +83,11 @@ test.describe('06 Sprint 1 — Q1: Read Receipt Ticks', () => {
     // ── 2. A receipt tick SVG with aria-label should appear under Alice's bubble.
     //    The server ack transitions the bubble from pending→sent in ~1s.
     //    We check for any valid receipt state (Sent, Delivered, or Read).
-    const receiptTick = alice.locator('[data-testid="receipt-sent"],[data-testid="receipt-delivered"],[data-testid="receipt-read"]').last();
+    const receiptTick = alice
+      .locator(
+        '[data-testid="receipt-sent"],[data-testid="receipt-delivered"],[data-testid="receipt-read"]',
+      )
+      .last();
     await expect(receiptTick).toBeVisible({ timeout: 15_000 });
 
     // ── 3. Bob sees the message, triggering a CHAT_READ event ────────────
@@ -108,11 +112,11 @@ test.describe('06 Sprint 1 — Q1: Read Receipt Ticks', () => {
     test.setTimeout(240_000);
 
     const aliceUser = await provisionUserViaApi({ gender: 'MALE' });
-    const bobUser   = await provisionUserViaApi({ gender: 'FEMALE' });
-    const aliceCtx  = await browser.newContext();
-    const bobCtx    = await browser.newContext();
-    const alice     = await aliceCtx.newPage();
-    const bob       = await bobCtx.newPage();
+    const bobUser = await provisionUserViaApi({ gender: 'FEMALE' });
+    const aliceCtx = await browser.newContext();
+    const bobCtx = await browser.newContext();
+    const alice = await aliceCtx.newPage();
+    const bob = await bobCtx.newPage();
 
     await loginPage(alice, aliceCtx, aliceUser);
     await loginPage(bob, bobCtx, bobUser);
@@ -122,7 +126,9 @@ test.describe('06 Sprint 1 — Q1: Read Receipt Ticks', () => {
     await alice.getByRole('button', { name: 'Send' }).click();
 
     // After send, the ack arrives quickly and the tick becomes Sent.
-    const sentTick = alice.locator('[data-testid="receipt-sent"],[data-testid="receipt-read"]').last();
+    const sentTick = alice
+      .locator('[data-testid="receipt-sent"],[data-testid="receipt-read"]')
+      .last();
     await expect(sentTick).toBeVisible({ timeout: 15_000 });
 
     await aliceCtx.close();
@@ -130,18 +136,19 @@ test.describe('06 Sprint 1 — Q1: Read Receipt Ticks', () => {
   });
 });
 
-
 // ─── Q3: Delete for Everyone ─────────────────────────────────────────────────
 test.describe('06 Sprint 1 — Q3: Delete for Everyone', () => {
-  test('right-clicking own message shows Delete option; peer sees "This message was deleted"', async ({ browser }) => {
+  test('right-clicking own message shows Delete option; peer sees "This message was deleted"', async ({
+    browser,
+  }) => {
     test.setTimeout(300_000);
 
     const aliceUser = await provisionUserViaApi({ gender: 'MALE' });
-    const bobUser   = await provisionUserViaApi({ gender: 'FEMALE' });
-    const aliceCtx  = await browser.newContext();
-    const bobCtx    = await browser.newContext();
-    const alice     = await aliceCtx.newPage();
-    const bob       = await bobCtx.newPage();
+    const bobUser = await provisionUserViaApi({ gender: 'FEMALE' });
+    const aliceCtx = await browser.newContext();
+    const bobCtx = await browser.newContext();
+    const alice = await aliceCtx.newPage();
+    const bob = await bobCtx.newPage();
 
     await loginPage(alice, aliceCtx, aliceUser);
     await loginPage(bob, bobCtx, bobUser);
@@ -158,7 +165,9 @@ test.describe('06 Sprint 1 — Q3: Delete for Everyone', () => {
 
     // ── 1. Right-click Alice's bubble → context menu appears ──────────────
     await alice.getByText(msg).click({ button: 'right' });
-    await expect(alice.getByRole('button', { name: /delete for everyone/i })).toBeVisible({ timeout: 5_000 });
+    await expect(alice.getByRole('button', { name: /delete for everyone/i })).toBeVisible({
+      timeout: 5_000,
+    });
 
     // ── 2. Click delete ───────────────────────────────────────────────────
     await alice.getByRole('button', { name: /delete for everyone/i }).click();
@@ -179,11 +188,11 @@ test.describe('06 Sprint 1 — Q3: Delete for Everyone', () => {
     test.setTimeout(240_000);
 
     const aliceUser = await provisionUserViaApi({ gender: 'MALE' });
-    const bobUser   = await provisionUserViaApi({ gender: 'FEMALE' });
-    const aliceCtx  = await browser.newContext();
-    const bobCtx    = await browser.newContext();
-    const alice     = await aliceCtx.newPage();
-    const bob       = await bobCtx.newPage();
+    const bobUser = await provisionUserViaApi({ gender: 'FEMALE' });
+    const aliceCtx = await browser.newContext();
+    const bobCtx = await browser.newContext();
+    const alice = await aliceCtx.newPage();
+    const bob = await bobCtx.newPage();
 
     await loginPage(alice, aliceCtx, aliceUser);
     await loginPage(bob, bobCtx, bobUser);
@@ -207,7 +216,7 @@ test.describe('06 Sprint 1 — Q3: Delete for Everyone', () => {
 
   test('DELETE /conversations/:cid/messages/:mid API — owner can delete, non-owner gets 403', async () => {
     const alice = await provisionUserViaApi({ gender: 'MALE' });
-    const bob   = await provisionUserViaApi({ gender: 'FEMALE' });
+    const bob = await provisionUserViaApi({ gender: 'FEMALE' });
 
     const ctx = await request.newContext({ baseURL: API_URL });
 
@@ -226,15 +235,17 @@ test.describe('06 Sprint 1 — Q3: Delete for Everyone', () => {
 
 // ─── Q5: Quote Reply ─────────────────────────────────────────────────────────
 test.describe('06 Sprint 1 — Q5: Quote Reply', () => {
-  test('right-clicking a message shows Reply; composer shows quoted preview; sent message includes quote', async ({ browser }) => {
+  test('right-clicking a message shows Reply; composer shows quoted preview; sent message includes quote', async ({
+    browser,
+  }) => {
     test.setTimeout(300_000);
 
     const aliceUser = await provisionUserViaApi({ gender: 'MALE' });
-    const bobUser   = await provisionUserViaApi({ gender: 'FEMALE' });
-    const aliceCtx  = await browser.newContext();
-    const bobCtx    = await browser.newContext();
-    const alice     = await aliceCtx.newPage();
-    const bob       = await bobCtx.newPage();
+    const bobUser = await provisionUserViaApi({ gender: 'FEMALE' });
+    const aliceCtx = await browser.newContext();
+    const bobCtx = await browser.newContext();
+    const alice = await aliceCtx.newPage();
+    const bob = await bobCtx.newPage();
 
     await loginPage(alice, aliceCtx, aliceUser);
     await loginPage(bob, bobCtx, bobUser);
@@ -256,7 +267,9 @@ test.describe('06 Sprint 1 — Q5: Quote Reply', () => {
     await expect(alice.getByText(original).last()).toBeVisible({ timeout: 5_000 });
 
     // Cancel button (aria-label="Cancel reply") should be present.
-    await expect(alice.getByRole('button', { name: /cancel reply/i })).toBeVisible({ timeout: 5_000 });
+    await expect(alice.getByRole('button', { name: /cancel reply/i })).toBeVisible({
+      timeout: 5_000,
+    });
 
     // ── 3. Alice types and sends the reply ────────────────────────────────
     const reply = `this is my reply ${Date.now()}`;
@@ -280,11 +293,11 @@ test.describe('06 Sprint 1 — Q5: Quote Reply', () => {
     test.setTimeout(240_000);
 
     const aliceUser = await provisionUserViaApi({ gender: 'MALE' });
-    const bobUser   = await provisionUserViaApi({ gender: 'FEMALE' });
-    const aliceCtx  = await browser.newContext();
-    const bobCtx    = await browser.newContext();
-    const alice     = await aliceCtx.newPage();
-    const bob       = await bobCtx.newPage();
+    const bobUser = await provisionUserViaApi({ gender: 'FEMALE' });
+    const aliceCtx = await browser.newContext();
+    const bobCtx = await browser.newContext();
+    const alice = await aliceCtx.newPage();
+    const bob = await bobCtx.newPage();
 
     await loginPage(alice, aliceCtx, aliceUser);
     await loginPage(bob, bobCtx, bobUser);
@@ -298,7 +311,9 @@ test.describe('06 Sprint 1 — Q5: Quote Reply', () => {
     // Right-click → Reply
     await alice.getByText(msg).click({ button: 'right' });
     await alice.getByRole('button', { name: /^reply$/i }).click();
-    await expect(alice.getByRole('button', { name: /cancel reply/i })).toBeVisible({ timeout: 5_000 });
+    await expect(alice.getByRole('button', { name: /cancel reply/i })).toBeVisible({
+      timeout: 5_000,
+    });
 
     // Click Cancel
     await alice.getByRole('button', { name: /cancel reply/i }).click();
@@ -317,11 +332,11 @@ test.describe('06 Sprint 1 — A4: Toxic Message Pre-warning', () => {
     test.setTimeout(240_000);
 
     const aliceUser = await provisionUserViaApi({ gender: 'MALE' });
-    const bobUser   = await provisionUserViaApi({ gender: 'FEMALE' });
-    const aliceCtx  = await browser.newContext();
-    const bobCtx    = await browser.newContext();
-    const alice     = await aliceCtx.newPage();
-    const bob       = await bobCtx.newPage();
+    const bobUser = await provisionUserViaApi({ gender: 'FEMALE' });
+    const aliceCtx = await browser.newContext();
+    const bobCtx = await browser.newContext();
+    const alice = await aliceCtx.newPage();
+    const bob = await bobCtx.newPage();
 
     await loginPage(alice, aliceCtx, aliceUser);
     await loginPage(bob, bobCtx, bobUser);
@@ -329,15 +344,13 @@ test.describe('06 Sprint 1 — A4: Toxic Message Pre-warning', () => {
 
     // ── 1. Type a mild profanity word → amber warning appears ────────────
     await alice.getByPlaceholder(/type a message/i).fill('what the shit');
-    await expect(
-      alice.getByText(/may be flagged by our moderation system/i),
-    ).toBeVisible({ timeout: 5_000 });
+    await expect(alice.getByText(/may be flagged by our moderation system/i)).toBeVisible({
+      timeout: 5_000,
+    });
 
     // ── 2. Clear the input → warning disappears ──────────────────────────
     await alice.getByPlaceholder(/type a message/i).fill('hello');
-    await expect(
-      alice.getByText(/may be flagged by our moderation system/i),
-    ).not.toBeVisible();
+    await expect(alice.getByText(/may be flagged by our moderation system/i)).not.toBeVisible();
 
     await aliceCtx.close();
     await bobCtx.close();
@@ -347,11 +360,11 @@ test.describe('06 Sprint 1 — A4: Toxic Message Pre-warning', () => {
     test.setTimeout(240_000);
 
     const aliceUser = await provisionUserViaApi({ gender: 'MALE' });
-    const bobUser   = await provisionUserViaApi({ gender: 'FEMALE' });
-    const aliceCtx  = await browser.newContext();
-    const bobCtx    = await browser.newContext();
-    const alice     = await aliceCtx.newPage();
-    const bob       = await bobCtx.newPage();
+    const bobUser = await provisionUserViaApi({ gender: 'FEMALE' });
+    const aliceCtx = await browser.newContext();
+    const bobCtx = await browser.newContext();
+    const alice = await aliceCtx.newPage();
+    const bob = await bobCtx.newPage();
 
     await loginPage(alice, aliceCtx, aliceUser);
     await loginPage(bob, bobCtx, bobUser);
@@ -359,9 +372,7 @@ test.describe('06 Sprint 1 — A4: Toxic Message Pre-warning', () => {
 
     // ── Type a severe word → red block warning ────────────────────────────
     await alice.getByPlaceholder(/type a message/i).fill('kys');
-    await expect(
-      alice.getByText(/violates our content policy/i),
-    ).toBeVisible({ timeout: 5_000 });
+    await expect(alice.getByText(/violates our content policy/i)).toBeVisible({ timeout: 5_000 });
 
     await aliceCtx.close();
     await bobCtx.close();
@@ -371,11 +382,11 @@ test.describe('06 Sprint 1 — A4: Toxic Message Pre-warning', () => {
     test.setTimeout(240_000);
 
     const aliceUser = await provisionUserViaApi({ gender: 'MALE' });
-    const bobUser   = await provisionUserViaApi({ gender: 'FEMALE' });
-    const aliceCtx  = await browser.newContext();
-    const bobCtx    = await browser.newContext();
-    const alice     = await aliceCtx.newPage();
-    const bob       = await bobCtx.newPage();
+    const bobUser = await provisionUserViaApi({ gender: 'FEMALE' });
+    const aliceCtx = await browser.newContext();
+    const bobCtx = await browser.newContext();
+    const alice = await aliceCtx.newPage();
+    const bob = await bobCtx.newPage();
 
     await loginPage(alice, aliceCtx, aliceUser);
     await loginPage(bob, bobCtx, bobUser);
@@ -397,11 +408,11 @@ test.describe('06 Sprint 1 — A4: Toxic Message Pre-warning', () => {
     test.setTimeout(240_000);
 
     const aliceUser = await provisionUserViaApi({ gender: 'MALE' });
-    const bobUser   = await provisionUserViaApi({ gender: 'FEMALE' });
-    const aliceCtx  = await browser.newContext();
-    const bobCtx    = await browser.newContext();
-    const alice     = await aliceCtx.newPage();
-    const bob       = await bobCtx.newPage();
+    const bobUser = await provisionUserViaApi({ gender: 'FEMALE' });
+    const aliceCtx = await browser.newContext();
+    const bobCtx = await browser.newContext();
+    const alice = await aliceCtx.newPage();
+    const bob = await bobCtx.newPage();
 
     await loginPage(alice, aliceCtx, aliceUser);
     await loginPage(bob, bobCtx, bobUser);
@@ -413,9 +424,15 @@ test.describe('06 Sprint 1 — A4: Toxic Message Pre-warning', () => {
     const convId = alice.url().split('/chat/')[1] ?? '';
     const severity = await alice.evaluate(async (conversationId: string) => {
       // @ts-expect-error accessing window socket for test
-      const socket = window.__ventlySocket as {
-        emit: (event: string, payload: unknown, cb?: (r: { ok: boolean; error?: string }) => void) => void;
-      } | undefined;
+      const socket = window.__ventlySocket as
+        | {
+            emit: (
+              event: string,
+              payload: unknown,
+              cb?: (r: { ok: boolean; error?: string }) => void,
+            ) => void;
+          }
+        | undefined;
       if (!socket) return 'no-socket';
       return new Promise<string>((resolve) => {
         socket.emit(
@@ -440,12 +457,14 @@ test.describe('06 Sprint 1 — A4: Toxic Message Pre-warning', () => {
 
 // ─── S4: Age Gate Modal ───────────────────────────────────────────────────────
 test.describe('06 Sprint 1 — S4: Age Gate for FLIRTY / LATE_NIGHT', () => {
-  test('clicking FLIRTY shows age gate modal; confirming proceeds to /matching', async ({ browser }) => {
+  test('clicking FLIRTY shows age gate modal; confirming proceeds to /matching', async ({
+    browser,
+  }) => {
     test.setTimeout(240_000);
 
     const aliceUser = await provisionUserViaApi({ gender: 'MALE' });
-    const aliceCtx  = await browser.newContext();
-    const alice     = await aliceCtx.newPage();
+    const aliceCtx = await browser.newContext();
+    const alice = await aliceCtx.newPage();
 
     await loginPage(alice, aliceCtx, aliceUser);
     await alice.goto('/mood', { waitUntil: 'networkidle' });
@@ -469,8 +488,8 @@ test.describe('06 Sprint 1 — S4: Age Gate for FLIRTY / LATE_NIGHT', () => {
     test.setTimeout(240_000);
 
     const aliceUser = await provisionUserViaApi({ gender: 'MALE' });
-    const aliceCtx  = await browser.newContext();
-    const alice     = await aliceCtx.newPage();
+    const aliceCtx = await browser.newContext();
+    const alice = await aliceCtx.newPage();
 
     await loginPage(alice, aliceCtx, aliceUser);
     await alice.goto('/mood', { waitUntil: 'networkidle' });
@@ -487,8 +506,8 @@ test.describe('06 Sprint 1 — S4: Age Gate for FLIRTY / LATE_NIGHT', () => {
     test.setTimeout(60_000);
 
     const aliceUser = await provisionUserViaApi({ gender: 'MALE' });
-    const aliceCtx  = await browser.newContext();
-    const alice     = await aliceCtx.newPage();
+    const aliceCtx = await browser.newContext();
+    const alice = await aliceCtx.newPage();
 
     await loginPage(alice, aliceCtx, aliceUser);
     await alice.goto('/mood', { waitUntil: 'networkidle' });
@@ -510,8 +529,8 @@ test.describe('06 Sprint 1 — S4: Age Gate for FLIRTY / LATE_NIGHT', () => {
     test.setTimeout(60_000);
 
     const aliceUser = await provisionUserViaApi({ gender: 'MALE' });
-    const aliceCtx  = await browser.newContext();
-    const alice     = await aliceCtx.newPage();
+    const aliceCtx = await browser.newContext();
+    const alice = await aliceCtx.newPage();
 
     await loginPage(alice, aliceCtx, aliceUser);
     await alice.goto('/mood', { waitUntil: 'networkidle' });
@@ -534,11 +553,11 @@ test.describe('06 Sprint 1 — A6: Context-aware Reply Chips', () => {
     test.setTimeout(240_000);
 
     const aliceUser = await provisionUserViaApi({ gender: 'MALE' });
-    const bobUser   = await provisionUserViaApi({ gender: 'FEMALE' });
-    const aliceCtx  = await browser.newContext();
-    const bobCtx    = await browser.newContext();
-    const alice     = await aliceCtx.newPage();
-    const bob       = await bobCtx.newPage();
+    const bobUser = await provisionUserViaApi({ gender: 'FEMALE' });
+    const aliceCtx = await browser.newContext();
+    const bobCtx = await browser.newContext();
+    const alice = await aliceCtx.newPage();
+    const bob = await bobCtx.newPage();
 
     await loginPage(alice, aliceCtx, aliceUser);
     await loginPage(bob, bobCtx, bobUser);
@@ -591,11 +610,11 @@ test.describe('06 Sprint 1 — A6: Context-aware Reply Chips', () => {
     test.setTimeout(300_000);
 
     const aliceUser = await provisionUserViaApi({ gender: 'MALE' });
-    const bobUser   = await provisionUserViaApi({ gender: 'FEMALE' });
-    const aliceCtx  = await browser.newContext();
-    const bobCtx    = await browser.newContext();
-    const alice     = await aliceCtx.newPage();
-    const bob       = await bobCtx.newPage();
+    const bobUser = await provisionUserViaApi({ gender: 'FEMALE' });
+    const aliceCtx = await browser.newContext();
+    const bobCtx = await browser.newContext();
+    const alice = await aliceCtx.newPage();
+    const bob = await bobCtx.newPage();
 
     await loginPage(alice, aliceCtx, aliceUser);
     await loginPage(bob, bobCtx, bobUser);
