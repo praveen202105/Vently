@@ -38,9 +38,13 @@ const FORBIDDEN_SUBSTRINGS = [
 ];
 const MAX_FILES_PER_ATTEMPT = 5;
 const MAX_FILE_BYTES = 120_000;
-const GEMINI_MODEL = process.env.GEMINI_MODEL || 'gemini-2.5-pro';
+const GEMINI_MODEL = process.env.GEMINI_MODEL || 'gemini-flash-latest';
 const GEMINI_ENDPOINT = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent`;
-const MAX_TURNS = 12;
+const MAX_TURNS = 8;
+// Free-tier gemini-flash allows ~10 RPM. Throttle to ~8 RPM to leave headroom.
+const MIN_DELAY_BETWEEN_CALLS_MS = 7500;
+
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 function safePath(workspaceRoot, relPath) {
   if (typeof relPath !== 'string' || relPath.length === 0) return null;
@@ -53,7 +57,7 @@ function safePath(workspaceRoot, relPath) {
   return { relative: normalized, absolute };
 }
 
-function gatherCandidateFiles(workspaceRoot) {
+function gatherCandidateFiles(workspaceRoot, failures) {
   let allFiles = [];
   try {
     const out = execSync(
@@ -64,7 +68,32 @@ function gatherCandidateFiles(workspaceRoot) {
   } catch {
     return [];
   }
-  return allFiles.slice(0, 400);
+
+  // Pull keywords from the failing test titles, e.g.
+  //   "16. Typing indicator shows peer nickname in chat header"
+  //   -> ['typing', 'indicator', 'peer', 'nickname', 'chat', 'header']
+  const STOPWORDS = new Set([
+    'the', 'and', 'with', 'shows', 'when', 'this', 'that', 'from', 'into',
+    'should', 'expect', 'test', 'tests', 'spec', 'agent', 'page', 'visible',
+    'timeout', 'click', 'error', 'failed', 'failure',
+  ]);
+  const keywords = new Set();
+  for (const f of failures || []) {
+    for (const raw of (f.title || '').split(/[^a-zA-Z]+/)) {
+      const w = raw.toLowerCase();
+      if (w.length >= 4 && !STOPWORDS.has(w)) keywords.add(w);
+    }
+  }
+
+  // Rank: files whose path contains any keyword bubble up first.
+  const scored = allFiles.map((p) => {
+    const lp = p.toLowerCase();
+    let score = 0;
+    for (const k of keywords) if (lp.includes(k)) score += 1;
+    return { p, score };
+  });
+  scored.sort((a, b) => b.score - a.score);
+  return scored.slice(0, 60).map((x) => x.p);
 }
 
 function readFileIfSafe(workspaceRoot, relPath) {
@@ -124,7 +153,7 @@ export async function tryAutoHeal({ failures, rawOutput, workspaceRoot, anthropi
     return { applied: false, reason: 'GEMINI_API_KEY not set', filesChanged: [] };
   }
 
-  const candidatePaths = gatherCandidateFiles(workspaceRoot);
+  const candidatePaths = gatherCandidateFiles(workspaceRoot, failures);
   if (candidatePaths.length === 0) {
     return { applied: false, reason: 'no candidate source files found', filesChanged: [] };
   }
@@ -134,15 +163,20 @@ export async function tryAutoHeal({ failures, rawOutput, workspaceRoot, anthropi
       {
         text: `You are an autonomous bug-fixing agent for the Vently chat app monorepo (Next.js + NestJS + Playwright).
 
-Your job: given a failing Playwright test and access to the source tree, find the smallest code change that will make the test pass without breaking other tests.
+Your job: given a failing Playwright test and the source tree, find the smallest code change that makes the test pass.
 
-Rules:
-- You MAY read any source file under apps/ or packages/ using the read_file function.
-- You MUST NOT modify test files, configs, package.json, or anything outside apps/ and packages/.
+Hard budget: you have at most ${MAX_TURNS} turns. Each call to the API counts. Be efficient.
+
+Process you MUST follow:
+1. Read at most 2-3 files: the file the test most likely targets (use keyword matching against the test name) and any helper it imports. DO NOT read more than 3 files.
+2. As soon as you understand the bug, call propose_patch.
+3. Each propose_patch entry must be the FULL new contents of the file. No diffs.
+
+Hard rules:
+- Touch only files under apps/ or packages/.
+- Never modify tests, configs, package.json, lockfiles, env files.
 - Prefer the smallest possible patch. Do not refactor unrelated code.
-- Read the most likely culprits FIRST (the test name usually hints at the component).
-- When ready, call propose_patch ONCE with full new contents of each file to overwrite.
-- If you cannot determine a safe fix, call propose_patch with an empty files array and an explanation in reason.`,
+- If the source code already looks correct and the failure is environmental (cache, deploy lag, flaky socket), call propose_patch with files: [] and explain in reason. Do NOT keep reading files looking for a bug that isn't there.`,
       },
     ],
   };
@@ -195,15 +229,25 @@ Rules:
 
   const initialPrompt =
     `# Failing Playwright tests\n\n${failureSummary}\n\n` +
-    `# Tail of test output\n\n\`\`\`\n${rawOutput.slice(-8000)}\n\`\`\`\n\n` +
-    `# Source files available (first 400 of ${candidatePaths.length})\n\n` +
-    candidatePaths.slice(0, 400).join('\n') +
-    `\n\nStart by calling read_file on the most likely culprits. Then call propose_patch exactly once with the final fix.`;
+    `# Tail of test output\n\n\`\`\`\n${rawOutput.slice(-6000)}\n\`\`\`\n\n` +
+    `# Top ${candidatePaths.length} source files (ranked by test-keyword match)\n\n` +
+    candidatePaths.join('\n') +
+    `\n\nRead AT MOST 2-3 files. Then call propose_patch.`;
 
   const contents = [{ role: 'user', parts: [{ text: initialPrompt }] }];
   let proposedPatch = null;
+  let lastCallAt = 0;
 
   for (let turn = 0; turn < MAX_TURNS; turn++) {
+    // Throttle to stay under the 10 RPM free-tier limit.
+    const elapsed = Date.now() - lastCallAt;
+    if (lastCallAt > 0 && elapsed < MIN_DELAY_BETWEEN_CALLS_MS) {
+      const waitMs = MIN_DELAY_BETWEEN_CALLS_MS - elapsed;
+      console.log(`  [heal turn ${turn + 1}] throttling ${waitMs}ms before next Gemini call`);
+      await sleep(waitMs);
+    }
+    lastCallAt = Date.now();
+
     let data;
     try {
       data = await callGemini({ apiKey, contents, systemInstruction, tools });

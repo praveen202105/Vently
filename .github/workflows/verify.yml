@@ -67,7 +67,7 @@ jobs:
           # either one to the Gemini API.
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-          GEMINI_MODEL: 'gemini-2.5-flash'
+          GEMINI_MODEL: 'gemini-flash-latest'
           MAX_HEAL_ATTEMPTS: '2'
           CI: 'true'
           GITHUB_REPOSITORY: ${{ github.repository }}
