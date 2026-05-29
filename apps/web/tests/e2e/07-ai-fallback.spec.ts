@@ -58,6 +58,10 @@ test.describe('AI Fallback Peer', () => {
 
       await page.goto(`/chat/${conversationId}`, { waitUntil: 'networkidle' });
       await page.waitForURL(/\/connections/, { timeout: 10_000 });
+
+      const nextConversationId = await waitForAIFallbackChat(page, /need to talk/i);
+      expect(nextConversationId).toMatch(/^ai_conv_/);
+      expect(nextConversationId).not.toBe(conversationId);
     } finally {
       await ctx.close();
     }

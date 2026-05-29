@@ -151,13 +151,21 @@ export class AIPeerService {
     return !!userId && userId.startsWith('ai_');
   }
 
-  /** Hard-evict an AI conversation. Called on socket disconnect or hangup. */
+  /** Hard-evict an AI conversation after the user ends it. */
   async evict(conversationId: string): Promise<void> {
     if (!conversationId.startsWith('ai_conv_')) return;
-    await this.redis.del(`aichat:conv:${conversationId}`);
-    // History key (managed by AIAgentRunner) is evicted too.
-    await this.redis.del(`aichat:hist:${conversationId}`);
-    await this.redis.del(`aichat:greeted:${conversationId}`);
+    const peer = await this.load(conversationId);
+    const keys = [
+      `aichat:conv:${conversationId}`,
+      // History key (managed by AIAgentRunner) is evicted too.
+      `aichat:hist:${conversationId}`,
+      `aichat:greeted:${conversationId}`,
+    ];
+    if (peer?.ownerUserId) {
+      // Ending the AI chat should let the same user search again immediately.
+      keys.push(`aichat:rl:${peer.ownerUserId}`);
+    }
+    await this.redis.del(...keys);
     this.logger.debug(`Evicted AI conv ${conversationId}`);
   }
 }
