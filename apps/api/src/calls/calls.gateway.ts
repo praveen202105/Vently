@@ -16,7 +16,6 @@ import { RealtimeGateway } from '../realtime/realtime.gateway.js';
 import { type AuthedSocket } from '../realtime/types.js';
 import { SocketThrottleService } from '../realtime/socket-throttle.service.js';
 import { CallsService } from './calls.service.js';
-import { AIPeerService } from '../ai-peer/ai-peer.service.js';
 
 // Caps for the noisy signaling events. Invite is human-paced so 3/min is
 // plenty; the SDP/ICE flow is bursty (~30 candidates in the first second)
@@ -35,7 +34,6 @@ export class CallsGateway {
     private readonly calls: CallsService,
     private readonly realtime: RealtimeGateway,
     private readonly throttle: SocketThrottleService,
-    private readonly aiPeer: AIPeerService,
   ) {}
 
   // Caller offers a call → wake the callee.

@@ -17,7 +17,7 @@ export type MoodIntent =
   | 'FLIRTY'
   | 'VOICE_ONLY';
 
-export type ConvType = 'DIRECT' | 'FRIEND';
+export type ConvType = 'DIRECT' | 'FRIEND' | 'AI_FALLBACK';
 
 export type MessageType = 'TEXT' | 'SYSTEM';
 

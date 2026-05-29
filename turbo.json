@@ -1,7 +1,7 @@
 {
   "$schema": "https://turbo.build/schema.json",
   "globalDependencies": [".env", ".env.local"],
-  "globalEnv": ["NODE_ENV"],
+  "globalEnv": ["NODE_ENV", "AI_FALLBACK_ENABLED", "AI_FALLBACK_MS", "AI_FALLBACK_TEST_MODE"],
   "tasks": {
     "build": {
       "dependsOn": ["^build"],
@@ -11,7 +11,10 @@
         "NEXT_PUBLIC_SOCKET_URL",
         "DATABASE_URL",
         "REDIS_URL",
-        "GROQ_API_KEY"
+        "GROQ_API_KEY",
+        "AI_FALLBACK_ENABLED",
+        "AI_FALLBACK_MS",
+        "AI_FALLBACK_TEST_MODE"
       ]
     },
     "dev": {

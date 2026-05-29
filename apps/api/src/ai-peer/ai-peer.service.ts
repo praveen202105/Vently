@@ -117,12 +117,7 @@ export class AIPeerService {
     //   aichat:conv:{conversationId} -> JSON-encoded VirtualPeer (60min TTL)
     //   aichat:rl:{userId}            -> throttle marker (10min TTL)
     await Promise.all([
-      this.redis.set(
-        `aichat:conv:${conversationId}`,
-        JSON.stringify(peer),
-        'EX',
-        3600,
-      ),
+      this.redis.set(`aichat:conv:${conversationId}`, JSON.stringify(peer), 'EX', 3600),
       this.redis.set(`aichat:rl:${args.userId}`, '1', 'EX', RATE_LIMIT_WINDOW_SEC),
     ]);
 
@@ -162,6 +157,7 @@ export class AIPeerService {
     await this.redis.del(`aichat:conv:${conversationId}`);
     // History key (managed by AIAgentRunner) is evicted too.
     await this.redis.del(`aichat:hist:${conversationId}`);
+    await this.redis.del(`aichat:greeted:${conversationId}`);
     this.logger.debug(`Evicted AI conv ${conversationId}`);
   }
 }

@@ -200,9 +200,6 @@ export class MatchmakingGateway implements OnGatewayDisconnect {
           isAIChat: true,
         });
 
-        // Open the conversation with a greeting after a humanlike delay.
-        void this.aiAgent.openConversation(virtualPeer, this.server);
-
         this.logger.log(
           `AI fallback fired for ${user.userId} mood=${payload.mood} persona=${virtualPeer.persona.id}`,
         );

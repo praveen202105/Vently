@@ -71,11 +71,12 @@ export class ChatGateway {
       if (!peer || peer.ownerUserId !== socket.data.user.userId) {
         return { ok: false, error: 'Conversation no longer available' };
       }
-      void socket.join(convRoom(payload.conversationId));
+      await socket.join(convRoom(payload.conversationId));
+      void this.aiAgent.openConversation(peer, this.server);
       return { ok: true };
     }
     await this.conversations.assertParticipant(payload.conversationId, socket.data.user.userId);
-    void socket.join(convRoom(payload.conversationId));
+    await socket.join(convRoom(payload.conversationId));
     return { ok: true };
   }
 
@@ -296,7 +297,10 @@ export class ChatGateway {
       type: 'TEXT' as const,
       createdAt: new Date().toISOString(),
       deletedAt: null,
+      reactions: [],
+      readReceiptAt: null,
       replyToMessageId: payload.replyToMessageId ?? null,
+      replyToBody: null,
     };
 
     socket.emit(SocketEvents.CHAT_ACK, { clientId: payload.clientId, messageId: msg.id });

@@ -460,16 +460,12 @@ export function ChatScreen({ conversationId }: { conversationId: string }) {
       // NestJS @SubscribeMessage handlers always support returning a value
       // via the ack callback, but our typed event map doesn't model it.
       // Cast to any to access the callback overload.
-      (socket as any).emit(
-        SocketEvents.CHAT_JOIN,
-        { conversationId },
-        (res: { ok: boolean }) => {
-          if (res && !res.ok) {
-            toast('This chat has ended.');
-            router.replace('/connections');
-          }
-        },
-      );
+      (socket as any).emit(SocketEvents.CHAT_JOIN, { conversationId }, (res: { ok: boolean }) => {
+        if (res && !res.ok) {
+          toast('This chat has ended.');
+          router.replace('/connections');
+        }
+      });
     } else {
       socket.emit(SocketEvents.CHAT_JOIN, { conversationId });
     }
@@ -1043,14 +1039,12 @@ export function ChatScreen({ conversationId }: { conversationId: string }) {
       router.push('/connections');
       return;
     }
-    // AI conversations are ephemeral with no DB row — skip the DELETE and
-    // just navigate away. The Redis session auto-evicts on socket disconnect.
-    if (!isAIChat) {
-      try {
-        await leaveConversation(conversationId);
-      } catch {
-        // best-effort
-      }
+    // AI conversations are ephemeral, but the API still accepts DELETE for
+    // them so it can evict the Redis session immediately.
+    try {
+      await leaveConversation(conversationId);
+    } catch {
+      // best-effort
     }
     router.push('/mood');
   };
@@ -1060,6 +1054,14 @@ export function ChatScreen({ conversationId }: { conversationId: string }) {
     if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current);
     if (!q || q.trim().length < 2) {
       setSearchResults([]);
+      return;
+    }
+    if (isAIChat) {
+      const needle = q.trim().toLowerCase();
+      setSearchResults(
+        messages.filter((msg) => !msg.deletedAt && msg.body.toLowerCase().includes(needle)),
+      );
+      setIsSearching(false);
       return;
     }
     setIsSearching(true);

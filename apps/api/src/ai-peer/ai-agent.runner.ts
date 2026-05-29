@@ -6,7 +6,7 @@ import type Redis from 'ioredis';
 import { SocketEvents } from '@vently/shared';
 import type { Server } from 'socket.io';
 import { REDIS_CLIENT } from '../redis/redis.module.js';
-import { AIPeerService, type VirtualPeer } from './ai-peer.service.js';
+import type { VirtualPeer } from './ai-peer.service.js';
 
 interface HistoryEntry {
   role: 'user' | 'assistant';
@@ -39,14 +39,20 @@ const TYPING_CAP_MS = 6_000;
 export class AIAgentRunner implements OnModuleInit {
   private readonly logger = new Logger(AIAgentRunner.name);
   private client: Groq | null = null;
+  private testMode = false;
 
   constructor(
     private readonly config: ConfigService,
     @Inject(REDIS_CLIENT) private readonly redis: Redis,
-    private readonly aiPeer: AIPeerService,
   ) {}
 
   onModuleInit() {
+    this.testMode = this.config.get<string>('AI_FALLBACK_TEST_MODE') === 'true';
+    if (this.testMode) {
+      this.logger.warn('AI fallback test mode enabled - using deterministic local replies.');
+      return;
+    }
+
     const key = this.config.get<string>('GROQ_API_KEY');
     if (!key) {
       this.logger.warn(
@@ -60,7 +66,7 @@ export class AIAgentRunner implements OnModuleInit {
 
   /** True when the agent can run. False when GROQ_API_KEY is missing. */
   isReady(): boolean {
-    return this.client !== null;
+    return this.testMode || this.client !== null;
   }
 
   /**
@@ -75,12 +81,9 @@ export class AIAgentRunner implements OnModuleInit {
    * Generate and emit an AI reply. Fire-and-forget — the caller should NOT
    * await this so the user's CHAT_ACK isn't blocked on Groq latency.
    */
-  async respond(
-    peer: VirtualPeer,
-    userMessage: string,
-    socketServer: Server,
-  ): Promise<void> {
-    if (!this.client) return;
+  async respond(peer: VirtualPeer, userMessage: string, socketServer: Server): Promise<void> {
+    if (!this.client && !this.testMode) return;
+    const client = this.client;
 
     const room = `conv:${peer.conversationId}`;
     const startedAt = Date.now();
@@ -93,35 +96,46 @@ export class AIAgentRunner implements OnModuleInit {
       isTyping: true,
     });
 
+    const userTurn = userMessage.trim();
     const history = await this.loadHistory(peer.conversationId);
+    const promptHistory =
+      userTurn && history[history.length - 1]?.content !== userTurn
+        ? [...history, { role: 'user' as const, content: userTurn }]
+        : history;
     const system = this.buildSystemPrompt(peer);
 
     let reply = '';
-    try {
-      const stream = await this.client.chat.completions.create({
-        model: 'llama-3.1-8b-instant',
-        max_tokens: MAX_REPLY_TOKENS,
-        temperature: 0.9,
-        messages: [
-          { role: 'system', content: system },
-          ...history.map((h) => ({ role: h.role, content: h.content })),
-        ],
-        stream: true,
-      });
+    if (this.testMode) {
+      reply = this.buildTestReply(peer, userTurn);
+    } else {
+      try {
+        const stream = await client!.chat.completions.create({
+          model: 'llama-3.1-8b-instant',
+          max_tokens: MAX_REPLY_TOKENS,
+          temperature: 0.9,
+          messages: [
+            { role: 'system', content: system },
+            ...promptHistory.map((h) => ({ role: h.role, content: h.content })),
+          ],
+          stream: true,
+        });
 
-      for await (const chunk of stream) {
-        const t = chunk.choices[0]?.delta?.content ?? '';
-        if (t) reply += t;
+        for await (const chunk of stream) {
+          const t = chunk.choices[0]?.delta?.content ?? '';
+          if (t) reply += t;
+        }
+      } catch (err) {
+        this.logger.warn(
+          `Groq stream failed for ${peer.conversationId}: ${(err as Error).message}`,
+        );
+        // Stop typing indicator on failure so the user isn't stuck watching dots forever.
+        socketServer.to(room).emit(SocketEvents.CHAT_TYPING_STATUS, {
+          conversationId: peer.conversationId,
+          userId: peer.userId,
+          isTyping: false,
+        });
+        return;
       }
-    } catch (err) {
-      this.logger.warn(`Groq stream failed for ${peer.conversationId}: ${(err as Error).message}`);
-      // Stop typing indicator on failure so the user isn't stuck watching dots forever.
-      socketServer.to(room).emit(SocketEvents.CHAT_TYPING_STATUS, {
-        conversationId: peer.conversationId,
-        userId: peer.userId,
-        isTyping: false,
-      });
-      return;
     }
 
     reply = reply.trim();
@@ -136,7 +150,9 @@ export class AIAgentRunner implements OnModuleInit {
 
     // Humanlike cadence: scale by reply length, add jitter, cap at TYPING_CAP_MS.
     const targetDelay = Math.min(
-      TYPING_BASE_MS + reply.length * TYPING_PER_CHAR_MS + Math.random() * TYPING_JITTER_MS,
+      this.testMode
+        ? 75
+        : TYPING_BASE_MS + reply.length * TYPING_PER_CHAR_MS + Math.random() * TYPING_JITTER_MS,
       TYPING_CAP_MS,
     );
     const elapsedSinceStart = Date.now() - startedAt;
@@ -155,7 +171,10 @@ export class AIAgentRunner implements OnModuleInit {
       type: 'TEXT' as const,
       createdAt: new Date().toISOString(),
       deletedAt: null,
+      reactions: [],
+      readReceiptAt: null,
       replyToMessageId: null,
+      replyToBody: null,
     };
 
     socketServer.to(room).emit(SocketEvents.CHAT_TYPING_STATUS, {
@@ -179,10 +198,33 @@ export class AIAgentRunner implements OnModuleInit {
    * opener like "[just matched]" so it produces a greeting in-character.
    */
   async openConversation(peer: VirtualPeer, socketServer: Server): Promise<void> {
-    if (!this.client) return;
+    if (!this.client && !this.testMode) return;
+    const claimed = await this.redis.set(
+      `aichat:greeted:${peer.conversationId}`,
+      '1',
+      'EX',
+      3600,
+      'NX',
+    );
+    if (claimed !== 'OK') return;
+
     // Short delay so the frontend has time to navigate to /chat/[id].
-    await new Promise((r) => setTimeout(r, 1500 + Math.random() * 1500));
-    await this.respond(peer, '[just matched — say hi in character, 1 short sentence]', socketServer);
+    const delay = this.testMode ? 1000 : 1500 + Math.random() * 1500;
+    await new Promise((r) => setTimeout(r, delay));
+    await this.respond(
+      peer,
+      '[just matched - say hi in character, 1 short sentence]',
+      socketServer,
+    );
+  }
+
+  private buildTestReply(peer: VirtualPeer, userMessage: string): string {
+    if (userMessage.includes('[just matched')) {
+      return `hey, i'm ${peer.nickname}. glad we matched.`;
+    }
+    const cleaned = userMessage.replace(/\s+/g, ' ').trim();
+    const echo = cleaned.length > 42 ? `${cleaned.slice(0, 39)}...` : cleaned;
+    return `hmm i hear you${echo ? ` about "${echo}"` : ''}. tell me more?`;
   }
 
   private buildSystemPrompt(peer: VirtualPeer): string {

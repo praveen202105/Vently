@@ -1,8 +1,18 @@
-import { Controller, Delete, Get, HttpCode, HttpStatus, Param, UseGuards } from '@nestjs/common';
+import {
+  Controller,
+  Delete,
+  Get,
+  HttpCode,
+  HttpStatus,
+  NotFoundException,
+  Param,
+  UseGuards,
+} from '@nestjs/common';
 import { SocketEvents } from '@vently/shared';
 import { CurrentUser, type AuthUser } from '../common/decorators/current-user.decorator.js';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard.js';
 import { RealtimeGateway } from '../realtime/realtime.gateway.js';
+import { AIPeerService } from '../ai-peer/ai-peer.service.js';
 import { ConversationsService } from './conversations.service.js';
 
 @Controller('conversations')
@@ -14,6 +24,7 @@ export class ConversationsController {
   constructor(
     private readonly conversations: ConversationsService,
     private readonly realtime: RealtimeGateway,
+    private readonly aiPeer: AIPeerService,
   ) {}
 
   @Get()
@@ -38,6 +49,15 @@ export class ConversationsController {
   @Delete(':id')
   @HttpCode(HttpStatus.NO_CONTENT)
   async leave(@CurrentUser() user: AuthUser, @Param('id') id: string) {
+    if (id.startsWith('ai_conv_')) {
+      const peer = await this.aiPeer.load(id);
+      if (!peer || peer.ownerUserId !== user.userId) {
+        throw new NotFoundException('Conversation not found');
+      }
+      await this.aiPeer.evict(id);
+      return;
+    }
+
     const { peerUserIds } = await this.conversations.leave(id, user.userId);
     // Notify every other participant that the conversation is over so their
     // chat screens redirect instead of letting them type into a dead room.

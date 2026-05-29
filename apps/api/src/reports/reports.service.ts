@@ -10,10 +10,14 @@ export class ReportsService {
     if (dto.reportedId === reporterId) {
       throw new BadRequestException("You can't report yourself");
     }
+    const conversationId = dto.conversationId?.startsWith('ai_conv_')
+      ? undefined
+      : dto.conversationId;
+
     return this.repo.create({
       reporterId,
       reportedId: dto.reportedId,
-      conversationId: dto.conversationId,
+      conversationId,
       reason: dto.reason,
       details: dto.details,
     });
