@@ -1151,11 +1151,7 @@ export function ChatScreen({ conversationId }: { conversationId: string }) {
             <div className="flex-1 min-w-0">
               <p className="truncate">{peer?.nickname ?? 'Stranger'}</p>
               <p className="text-xs text-muted-foreground">
-                {peerTyping && peer?.nickname
-                  ? `${peer.nickname} is typing…`
-                  : peer
-                    ? 'online'
-                    : '—'}
+                {peerTyping && peer?.nickname ? `${peer.nickname} is typing…` : (peer ? 'online' : '—')}
               </p>
             </div>
           </>
