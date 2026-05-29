@@ -143,6 +143,15 @@ export function MatchingScreen() {
     ),
   );
 
+  useSocketEvent(
+    SocketEvents.MATCH_TIMEOUT,
+    useCallback(() => {
+      if (timeoutRef.current) clearTimeout(timeoutRef.current);
+      socket?.emit(SocketEvents.MATCH_CANCEL);
+      markTimeout();
+    }, [markTimeout, socket]),
+  );
+
   // Navigate as soon as we transition to matched (small delay for the "found!"
   // celebration to be visible). VOICE_ONLY matches skip the chat screen and
   // go straight to /call/[id] with a flag the call screen reads to pick its

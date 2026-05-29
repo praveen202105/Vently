@@ -94,4 +94,27 @@ test.describe('AI Fallback Peer', () => {
       await ctx.close();
     }
   });
+
+  test('shows no-match state when AI fallback is unavailable instead of hanging on looking', async ({
+    browser,
+  }) => {
+    test.setTimeout(60_000);
+
+    const { ctx, page } = await createLoggedInPage(browser, 'MALE');
+    try {
+      await waitForAIFallbackChat(page, /need to talk/i);
+
+      // Simulate the user leaving the AI chat without ending it. The backend
+      // still has the per-user AI cooldown, so the next fallback spawn is
+      // refused; the UI should receive match:timeout instead of spinning.
+      await page.goto('/mood', { waitUntil: 'networkidle' });
+      await page.getByRole('button', { name: /need to talk/i }).click();
+      await page.waitForURL(/\/matching/);
+      await expect(page.getByText(/no one's around right now/i)).toBeVisible({
+        timeout: 15_000,
+      });
+    } finally {
+      await ctx.close();
+    }
+  });
 });

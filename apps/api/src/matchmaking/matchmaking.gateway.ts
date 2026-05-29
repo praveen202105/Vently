@@ -173,15 +173,11 @@ export class MatchmakingGateway implements OnGatewayDisconnect {
           myGender: user.gender,
         });
         if (!virtualPeer) {
-          // Spawn refused (rate-limited or no persona). Re-queue the user so
-          // they still have a chance at a real match — they just don't get
-          // the AI fallback this round.
-          await this.matchmaking.join({
-            userId: user.userId,
-            gender: user.gender,
-            mood: payload.mood,
-            preferredGender: payload.preferredGender,
-          });
+          // Spawn refused (rate-limited or no persona). Don't leave the
+          // client staring at "Looking..." until its local watchdog fires.
+          await this.matchmaking.cancel(user.userId);
+          this.server.to(userRoom(user.userId)).emit(SocketEvents.MATCH_TIMEOUT);
+          this.logger.warn(`AI fallback unavailable for ${user.userId} mood=${payload.mood}`);
           return;
         }
 
