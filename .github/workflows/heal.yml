@@ -1,0 +1,189 @@
+name: Vently Auto-Heal Pipeline
+
+# Fired when the user clicks a heal button in Slack. The button payload
+# (mode + commit + run_id) arrives via repository_dispatch.
+on:
+  repository_dispatch:
+    types: [heal_pipeline]
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: 'Heal mode'
+        required: true
+        type: choice
+        options: [same_branch, new_branch]
+        default: same_branch
+      commit:
+        description: 'Failing commit SHA (optional, defaults to HEAD)'
+        required: false
+        default: ''
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  heal:
+    name: Gemini Heal (${{ github.event.client_payload.mode || inputs.mode }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    env:
+      MODE: ${{ github.event.client_payload.mode || inputs.mode }}
+      FAILING_COMMIT: ${{ github.event.client_payload.commit || inputs.commit || github.sha }}
+      ORIGIN_RUN_ID: ${{ github.event.client_payload.run_id || '' }}
+      TRIGGERED_BY: ${{ github.event.client_payload.triggered_by_slack || 'workflow_dispatch' }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          # Always heal off main HEAD — the failing commit's tree is the
+          # same as main HEAD when the user clicks Fix immediately after
+          # the failure, and rewinding would just discard newer work.
+          ref: main
+          token: ${{ secrets.GITHUB_TOKEN }}
+          fetch-depth: 0
+
+      - name: Configure Git identity
+        run: |
+          git config user.email "vently-bot@users.noreply.github.com"
+          git config user.name "Vently CI Bot"
+
+      - name: Create target branch (new_branch mode only)
+        if: env.MODE == 'new_branch'
+        run: |
+          SHORT_SHA=$(echo "${FAILING_COMMIT:-${{ github.sha }}}" | cut -c1-7)
+          BRANCH_NAME="auto-heal/${SHORT_SHA}-$(date +%s)"
+          git checkout -b "$BRANCH_NAME"
+          echo "HEAL_BRANCH=$BRANCH_NAME" >> $GITHUB_ENV
+
+      - name: Resolve target branch (same_branch mode)
+        if: env.MODE != 'new_branch'
+        run: echo "HEAL_BRANCH=main" >> $GITHUB_ENV
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9.12.0
+
+      - name: Setup Node.js (v20)
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'pnpm'
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Generate Prisma Client & Build Shared Packages
+        run: |
+          pnpm --filter @vently/shared prisma generate
+          pnpm --filter @vently/shared build
+
+      - name: Install Playwright Browsers
+        run: pnpm --filter @vently/web exec playwright install chromium --with-deps
+
+      - name: Run Gemini heal
+        id: heal
+        env:
+          FORCE_COLOR: '1'
+          CI: 'true'
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          GEMINI_MODEL: 'gemini-flash-latest'
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          GITHUB_RUN_ID: ${{ github.run_id }}
+          GITHUB_SERVER_URL: ${{ github.server_url }}
+          NEXT_PUBLIC_API_URL: http://localhost:4000/api
+          NEXT_PUBLIC_SOCKET_URL: http://localhost:4000
+          NEXT_PUBLIC_VAPID_PUBLIC_KEY: placeholder_vapid_key_for_build
+          DATABASE_URL: postgresql://placeholder:placeholder@localhost:5432/placeholder
+          REDIS_URL: redis://localhost:6379
+        run: node scripts/heal-runner.js
+
+      - name: Commit + push patched files
+        id: commit
+        if: steps.heal.outputs.applied == 'true'
+        run: |
+          if [ -z "$(git status --porcelain)" ]; then
+            echo "::warning::Heal reported applied=true but git status is clean. Nothing to commit."
+            echo "pushed=false" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+          git add .
+          MSG="fix(auto-heal): patch failing E2E via Gemini (${MODE}) [triggered by @${TRIGGERED_BY}]"
+          git commit -m "$MSG"
+          git push origin "HEAD:${HEAL_BRANCH}"
+          echo "pushed=true" >> $GITHUB_OUTPUT
+          echo "commit_sha=$(git rev-parse HEAD)" >> $GITHUB_OUTPUT
+
+      - name: Open pull request (new_branch mode)
+        if: env.MODE == 'new_branch' && steps.commit.outputs.pushed == 'true'
+        id: pr
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          PR_URL=$(gh pr create \
+            --base main \
+            --head "$HEAL_BRANCH" \
+            --title "fix(auto-heal): Gemini patch for failing E2E" \
+            --body "Automated Gemini fix triggered by @${TRIGGERED_BY} from Slack.
+
+          Failing commit: \`${FAILING_COMMIT}\`
+          Origin run: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${ORIGIN_RUN_ID}
+
+          Review the diff, then merge to deploy.")
+          echo "pr_url=$PR_URL" >> $GITHUB_OUTPUT
+
+      - name: Notify Slack — heal complete
+        if: always()
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+        run: |
+          if [ -z "$SLACK_WEBHOOK_URL" ]; then
+            echo "SLACK_WEBHOOK_URL not set, skipping notification"
+            exit 0
+          fi
+          APPLIED="${{ steps.heal.outputs.applied }}"
+          REASON="${{ steps.heal.outputs.reason }}"
+          PR_URL="${{ steps.pr.outputs.pr_url }}"
+          RUN_URL="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+          if [ "$APPLIED" = "true" ]; then
+            if [ -n "$PR_URL" ]; then
+              TITLE="✅ Auto-Heal PR opened"
+              TEXT="Gemini patched the source on \`${HEAL_BRANCH}\`. PR: ${PR_URL}"
+              COLOR="#2eb886"
+            else
+              TITLE="✅ Auto-Heal pushed to \`${HEAL_BRANCH}\`"
+              TEXT="Gemini patched the source and pushed. Vercel will redeploy shortly."
+              COLOR="#2eb886"
+            fi
+          else
+            TITLE="❌ Auto-Heal could not patch"
+            TEXT="Gemini refused to make a code change. Reason: \`${REASON:-unknown}\`. See ${RUN_URL} for the per-turn log."
+            COLOR="#a30200"
+          fi
+          curl -sS -X POST -H 'Content-Type: application/json' "$SLACK_WEBHOOK_URL" -d "{
+            \"attachments\": [{
+              \"color\": \"$COLOR\",
+              \"title\": \"Vently Pipeline: $TITLE\",
+              \"text\": \"$TEXT\",
+              \"footer\": \"Vently CI/CD Bot · Auto-Heal\",
+              \"ts\": $(date +%s)
+            }]
+          }"
+
+      - name: Upload Playwright artefacts on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: heal-artifacts
+          path: |
+            apps/web/agent-results/
+            apps/web/agent-report/
+            apps/web/playwright-report/
+            bugs.md
+          retention-days: 7
+          if-no-files-found: ignore

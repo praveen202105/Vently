@@ -62,13 +62,9 @@ jobs:
         env:
           FORCE_COLOR: '1'
           SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
-          # Auto-heal model key. GEMINI_API_KEY is the new name; we still pass
-          # ANTHROPIC_API_KEY for backwards compatibility — heal-bug.js routes
-          # either one to the Gemini API.
-          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
-          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-          GEMINI_MODEL: 'gemini-flash-latest'
-          MAX_HEAL_ATTEMPTS: '2'
+          # Auto-heal moved to .github/workflows/heal.yml. The verify pipeline
+          # now just posts a Slack button card on failure; the user clicks a
+          # button to dispatch the heal workflow with the chosen mode.
           CI: 'true'
           GITHUB_REPOSITORY: ${{ github.repository }}
           GITHUB_RUN_ID: ${{ github.run_id }}

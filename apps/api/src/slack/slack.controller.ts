@@ -99,6 +99,112 @@ export class SlackController {
       const slackUser = payload.user?.name || 'Anonymous';
       const responseUrl = payload.response_url;
 
+      // Heal-strategy buttons posted by verify-feature.js on test failure.
+      // Two action_ids share the same dispatch path; only the `mode` field
+      // (decoded from the button value) tells heal.yml whether to land
+      // the patch on `main` or on a fresh auto-heal branch + PR.
+      if (
+        action &&
+        (action.action_id === 'heal_same_branch' || action.action_id === 'heal_new_branch')
+      ) {
+        const githubToken = this.config.get<string>('GITHUB_TOKEN');
+        const owner = this.config.get<string>('GITHUB_OWNER') || 'praveen202105';
+        const repo = this.config.get<string>('GITHUB_REPO') || 'Vently';
+
+        let ctx: { mode?: string; commit?: string; run_id?: string; phase?: string } = {};
+        try {
+          ctx = JSON.parse(Buffer.from(action.value || '', 'base64').toString('utf8'));
+        } catch {
+          this.logger.error(`Could not decode heal button value: ${action.value}`);
+        }
+        const mode = ctx.mode || 'same_branch';
+
+        this.logger.log(
+          `Slack heal button clicked by @${slackUser} mode=${mode} commit=${ctx.commit}`,
+        );
+
+        if (!githubToken) {
+          this.logger.error('GITHUB_TOKEN missing — cannot dispatch heal workflow.');
+          if (responseUrl) {
+            await this.updateSlackMessage(responseUrl, {
+              text: '❌ Heal aborted: `GITHUB_TOKEN` is not configured on the backend.',
+            });
+          }
+          return;
+        }
+
+        const dispatchRes = await fetch(
+          `https://api.github.com/repos/${owner}/${repo}/dispatches`,
+          {
+            method: 'POST',
+            headers: {
+              Accept: 'application/vnd.github+json',
+              Authorization: `Bearer ${githubToken}`,
+              'X-GitHub-Api-Version': '2022-11-28',
+              'User-Agent': 'Vently-NestJS-Backend',
+            },
+            body: JSON.stringify({
+              event_type: 'heal_pipeline',
+              client_payload: {
+                mode,
+                commit: ctx.commit || '',
+                run_id: ctx.run_id || '',
+                phase: ctx.phase || '',
+                triggered_by_slack: slackUser,
+              },
+            }),
+          },
+        );
+
+        if (!dispatchRes.ok) {
+          const errText = await dispatchRes.text();
+          this.logger.error(`Heal dispatch failed: ${dispatchRes.status} - ${errText}`);
+          if (responseUrl) {
+            await this.updateSlackMessage(responseUrl, {
+              text: `❌ Heal dispatch failed (${dispatchRes.status}): \`${errText}\``,
+            });
+          }
+          return;
+        }
+
+        if (responseUrl) {
+          const branchLabel = mode === 'new_branch' ? '`auto-heal/<sha>` (new branch)' : '`main`';
+          await this.updateSlackMessage(responseUrl, {
+            response_type: 'in_channel',
+            replace_original: true,
+            blocks: [
+              {
+                type: 'header',
+                text: { type: 'plain_text', text: '🤖 Heal Pipeline Triggered', emoji: true },
+              },
+              { type: 'divider' },
+              {
+                type: 'section',
+                text: {
+                  type: 'mrkdwn',
+                  text:
+                    `*Strategy:* ${mode === 'new_branch' ? 'create new branch + open PR' : 'patch in-place on main'}\n` +
+                    `*Target:* ${branchLabel}\n` +
+                    `*Failing commit:* \`${(ctx.commit || 'unknown').slice(0, 7)}\`\n` +
+                    `*Triggered by:* \`@${slackUser}\``,
+                },
+              },
+              { type: 'divider' },
+              {
+                type: 'context',
+                elements: [
+                  {
+                    type: 'mrkdwn',
+                    text: '⚡ Gemini is reading the source. Status update will follow.',
+                  },
+                ],
+              },
+            ],
+          });
+        }
+        return;
+      }
+
       if (action && action.action_id === 'trigger_pipeline_action') {
         const branch = (action.value || 'main').trim();
         const githubToken = this.config.get<string>('GITHUB_TOKEN');
