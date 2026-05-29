@@ -17,6 +17,18 @@ on:
         description: 'Failing commit SHA (optional, defaults to HEAD)'
         required: false
         default: ''
+      ref:
+        description: 'Branch / tag / sha to check out and heal against (default: main)'
+        required: false
+        default: 'main'
+      demo_failure_title:
+        description: 'DEMO MODE: stub the failing test title and skip prod-test capture'
+        required: false
+        default: ''
+      demo_failure_detail:
+        description: 'DEMO MODE: optional failure detail to attach to the stub'
+        required: false
+        default: ''
 
 permissions:
   contents: write
@@ -33,15 +45,15 @@ jobs:
       FAILING_COMMIT: ${{ github.event.client_payload.commit || inputs.commit || github.sha }}
       ORIGIN_RUN_ID: ${{ github.event.client_payload.run_id || '' }}
       TRIGGERED_BY: ${{ github.event.client_payload.triggered_by_slack || 'workflow_dispatch' }}
+      HEAL_REF: ${{ github.event.client_payload.ref || inputs.ref || 'main' }}
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
-          # Always heal off main HEAD — the failing commit's tree is the
-          # same as main HEAD when the user clicks Fix immediately after
-          # the failure, and rewinding would just discard newer work.
-          ref: main
+          # Default heals off main HEAD; demo runs can target any branch
+          # via the `ref` input.
+          ref: ${{ github.event.client_payload.ref || inputs.ref || 'main' }}
           token: ${{ secrets.GITHUB_TOKEN }}
           fetch-depth: 0
 
@@ -60,7 +72,7 @@ jobs:
 
       - name: Resolve target branch (same_branch mode)
         if: env.MODE != 'new_branch'
-        run: echo "HEAL_BRANCH=main" >> $GITHUB_ENV
+        run: echo "HEAL_BRANCH=${HEAL_REF}" >> $GITHUB_ENV
 
       - name: Install pnpm
         uses: pnpm/action-setup@v4
@@ -96,6 +108,8 @@ jobs:
           GITHUB_REPOSITORY: ${{ github.repository }}
           GITHUB_RUN_ID: ${{ github.run_id }}
           GITHUB_SERVER_URL: ${{ github.server_url }}
+          DEMO_FAILURE_TITLE: ${{ github.event.client_payload.demo_failure_title || inputs.demo_failure_title || '' }}
+          DEMO_FAILURE_DETAIL: ${{ github.event.client_payload.demo_failure_detail || inputs.demo_failure_detail || '' }}
           NEXT_PUBLIC_API_URL: http://localhost:4000/api
           NEXT_PUBLIC_SOCKET_URL: http://localhost:4000
           NEXT_PUBLIC_VAPID_PUBLIC_KEY: placeholder_vapid_key_for_build

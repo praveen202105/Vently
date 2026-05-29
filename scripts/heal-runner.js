@@ -105,27 +105,52 @@ async function main() {
     process.exit(1);
   }
 
-  // 1. Reproduce the failure to capture fresh output for Gemini.
-  console.log(`${YELLOW}Running production agent suite to capture failure...${RESET}`);
-  const { code, stdout, stderr } = await runProdTests();
+  // Demo / dry-run mode: skip the prod-test capture and use a stubbed
+  // failure description provided via env. Used by .github/workflows/heal.yml
+  // when triggered with `synthetic_failure` input — proves the patch +
+  // commit + PR chain works against a branch that has a real source bug,
+  // without needing the live Vercel build to be broken.
+  const stubTitle = process.env.DEMO_FAILURE_TITLE;
+  const stubDetail = process.env.DEMO_FAILURE_DETAIL;
+  let stdout = '';
+  let stderr = '';
+  let failureList;
 
-  if (code === 0) {
-    console.log(`\n${GREEN}${BOLD}✔ Production tests now pass — nothing to heal.${RESET}`);
-    setOutput('applied', 'false');
-    setOutput('reason', 'tests passed on re-run; no patch needed');
-    return;
+  if (stubTitle) {
+    console.log(`${BLUE}${BOLD}[DEMO MODE] Skipping prod-test capture.${RESET}`);
+    console.log(`  Stub failure title: ${stubTitle}`);
+    if (stubDetail) console.log(`  Stub failure detail: ${stubDetail}`);
+    failureList = [
+      {
+        title: stubTitle,
+        details: [stubDetail || `Error: ${stubTitle}`],
+      },
+    ];
+  } else {
+    // 1. Reproduce the failure to capture fresh output for Gemini.
+    console.log(`${YELLOW}Running production agent suite to capture failure...${RESET}`);
+    const result = await runProdTests();
+    stdout = result.stdout;
+    stderr = result.stderr;
+
+    if (result.code === 0) {
+      console.log(`\n${GREEN}${BOLD}✔ Production tests now pass — nothing to heal.${RESET}`);
+      setOutput('applied', 'false');
+      setOutput('reason', 'tests passed on re-run; no patch needed');
+      return;
+    }
+
+    const failures = parseFailures(stdout + '\n' + stderr);
+    failureList =
+      failures.length > 0
+        ? failures
+        : [
+            {
+              title: 'Production E2E Suite Failure',
+              details: ['Playwright execution failed. See workflow log for full output.'],
+            },
+          ];
   }
-
-  const failures = parseFailures(stdout + '\n' + stderr);
-  const failureList =
-    failures.length > 0
-      ? failures
-      : [
-          {
-            title: 'Production E2E Suite Failure',
-            details: ['Playwright execution failed. See workflow log for full output.'],
-          },
-        ];
 
   console.log(
     `\n${YELLOW}${BOLD}Captured ${failureList.length} failure(s). Invoking Gemini...${RESET}\n`,
