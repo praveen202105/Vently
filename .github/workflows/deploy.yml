@@ -42,6 +42,18 @@ jobs:
             echo "skip=false" >> $GITHUB_OUTPUT
           fi
 
+      - name: Ensure AI fallback production variables
+        if: steps.gate.outputs.skip != 'true'
+        env:
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+        run: |
+          railway variable set \
+            AI_FALLBACK_ENABLED=true \
+            AI_FALLBACK_MS=8000 \
+            AI_FALLBACK_TEST_MODE=false \
+            --service api \
+            --skip-deploys
+
       - name: Deploy to Railway
         if: steps.gate.outputs.skip != 'true'
         env:
