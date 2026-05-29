@@ -9,7 +9,8 @@ jobs:
     name: Deploy API → Railway
     runs-on: ubuntu-latest
     timeout-minutes: 15
-    if: false # Enable once Railway project + RAILWAY_TOKEN secret are set.
+    # Gate on the secret existing so unconfigured forks don't fail noisily.
+    if: ${{ vars.DEPLOY_ENABLED == 'true' || github.repository == 'praveen202105/Vently' }}
     steps:
       - uses: actions/checkout@v4
 
@@ -29,9 +30,46 @@ jobs:
       - name: Install Railway CLI
         run: npm i -g @railway/cli
 
-      - name: Deploy
+      - name: Skip if RAILWAY_TOKEN not configured
+        id: gate
+        run: |
+          if [ -z "${{ secrets.RAILWAY_TOKEN }}" ]; then
+            echo "::warning::RAILWAY_TOKEN secret is not set — skipping deploy. Add it at https://github.com/${{ github.repository }}/settings/secrets/actions"
+            echo "skip=true" >> $GITHUB_OUTPUT
+          else
+            echo "skip=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Deploy to Railway
+        if: steps.gate.outputs.skip != 'true'
         env:
           RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
         run: railway up --service api --detach
+
+      - name: Notify Slack on deploy
+        if: steps.gate.outputs.skip != 'true' && always()
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+        run: |
+          if [ -z "$SLACK_WEBHOOK_URL" ]; then
+            exit 0
+          fi
+          STATUS="${{ job.status }}"
+          if [ "$STATUS" = "success" ]; then
+            TITLE="🚂 Railway API deploy ✅"
+            COLOR="#2eb886"
+          else
+            TITLE="🚂 Railway API deploy ❌"
+            COLOR="#a30200"
+          fi
+          curl -sS -X POST -H 'Content-Type: application/json' "$SLACK_WEBHOOK_URL" -d "{
+            \"attachments\": [{
+              \"color\": \"$COLOR\",
+              \"title\": \"$TITLE\",
+              \"text\": \"Commit ${{ github.sha }} pushed to main\",
+              \"footer\": \"Vently CI/CD Bot\",
+              \"ts\": $(date +%s)
+            }]
+          }"
 
   # Web is deployed by Vercel's git integration automatically — no GH Action needed.

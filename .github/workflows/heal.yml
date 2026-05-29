@@ -62,17 +62,8 @@ jobs:
           git config user.email "vently-bot@users.noreply.github.com"
           git config user.name "Vently CI Bot"
 
-      - name: Create target branch (new_branch mode only)
-        if: env.MODE == 'new_branch'
-        run: |
-          SHORT_SHA=$(echo "${FAILING_COMMIT:-${{ github.sha }}}" | cut -c1-7)
-          BRANCH_NAME="auto-heal/${SHORT_SHA}-$(date +%s)"
-          git checkout -b "$BRANCH_NAME"
-          echo "HEAL_BRANCH=$BRANCH_NAME" >> $GITHUB_ENV
-
-      - name: Resolve target branch (same_branch mode)
-        if: env.MODE != 'new_branch'
-        run: echo "HEAL_BRANCH=${HEAL_REF}" >> $GITHUB_ENV
+      # Branch creation moved AFTER the heal step so the branch name can
+      # use the failing-test slug instead of just <sha>-<timestamp>.
 
       - name: Install pnpm
         uses: pnpm/action-setup@v4
@@ -116,6 +107,21 @@ jobs:
           DATABASE_URL: postgresql://placeholder:placeholder@localhost:5432/placeholder
           REDIS_URL: redis://localhost:6379
         run: node scripts/heal-runner.js
+
+      - name: Resolve heal target branch
+        if: steps.heal.outputs.applied == 'true'
+        run: |
+          SHORT_SHA=$(echo "${FAILING_COMMIT:-${{ github.sha }}}" | cut -c1-7)
+          SLUG="${{ steps.heal.outputs.failure_slug }}"
+          SLUG="${SLUG:-auto-heal}"
+          if [ "$MODE" = "new_branch" ]; then
+            BRANCH_NAME="auto-heal/${SLUG}-${SHORT_SHA}"
+            git checkout -b "$BRANCH_NAME"
+            echo "HEAL_BRANCH=$BRANCH_NAME" >> $GITHUB_ENV
+          else
+            echo "HEAL_BRANCH=${HEAL_REF}" >> $GITHUB_ENV
+          fi
+          echo "Resolved heal target branch: $(grep HEAL_BRANCH $GITHUB_ENV | tail -1)"
 
       - name: Commit + push patched files
         id: commit

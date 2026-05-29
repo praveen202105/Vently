@@ -178,6 +178,21 @@ async function main() {
   setOutput('applied', 'true');
   setOutput('reason', healResult.reason || 'patch applied');
   setOutput('files', healResult.filesChanged.join(','));
+
+  // Branch-name slug: derive from the failing test title so branches/PRs
+  // are scannable in GitHub instead of `auto-heal/<sha>-<timestamp>`.
+  // Example: "16. Typing indicator shows peer nickname in chat header"
+  //  -> "typing-indicator-shows-peer-nickname"
+  const firstTitle = failureList[0]?.title || 'unknown-failure';
+  const slug = firstTitle
+    .toLowerCase()
+    .replace(/^\d+[.)\s]+/, '') // strip "16. " / "1) " leaders
+    .replace(/[^a-z0-9]+/g, '-') // non-alphanumerics -> dash
+    .replace(/^-+|-+$/g, '') // trim dashes
+    .slice(0, 40) // cap length
+    .replace(/-+$/, ''); // re-trim if slice cut mid-dash-run
+  setOutput('failure_slug', slug || 'auto-heal');
+  console.log(`  branch slug: ${slug}`);
 }
 
 main().catch((err) => {
