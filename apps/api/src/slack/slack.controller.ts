@@ -97,6 +97,11 @@ export class SlackController {
       const payload = JSON.parse(body.payload);
       const action = payload.actions?.[0];
       const slackUser = payload.user?.name || 'Anonymous';
+      // Diagnostic: log every interactivity hit so we can tell from Railway
+      // logs whether button clicks are actually reaching this endpoint.
+      this.logger.log(
+        `[slack/interactivity] action_id=${action?.action_id || 'none'} user=@${slackUser} build=heal-v2`,
+      );
       const responseUrl = payload.response_url;
 
       // Heal-strategy buttons posted by verify-feature.js on test failure.
