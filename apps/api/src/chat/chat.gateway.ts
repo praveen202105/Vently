@@ -218,7 +218,8 @@ export class ChatGateway {
     @ConnectedSocket() socket: AuthedSocket,
     @MessageBody() payload: ChatTypingPayload,
   ) {
-    const userId = socket.data.user.userId;
+    const user = socket.data.user;
+    const userId = user.userId;
     if (!this.throttle.allow(userId, 'chat:typing', TYPING_LIMIT, TYPING_WINDOW_MS)) return;
     // AI conversations have no DB rows; skip assertParticipant. The AI peer
     // doesn't care about the user's typing state, but we still bounce it to
@@ -229,6 +230,7 @@ export class ChatGateway {
     socket.to(convRoom(payload.conversationId)).emit(SocketEvents.CHAT_TYPING_STATUS, {
       ...payload,
       userId,
+      nickname: user.nickname,
     });
   }
 
