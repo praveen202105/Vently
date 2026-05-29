@@ -105,6 +105,7 @@ export function ChatScreen({ conversationId }: { conversationId: string }) {
   const qc = useQueryClient();
   const me = useAuthStore((s) => s.user);
   const storePeer = useMatchStore((s) => s.peer);
+  const storeIsAIChat = useMatchStore((s) => s.isAIChat);
 
   const [messages, setMessages] = useState<PendingMessage[]>([]);
   const [draft, setDraft] = useState('');
@@ -371,12 +372,23 @@ export function ChatScreen({ conversationId }: { conversationId: string }) {
   // Conversation metadata — drives the End-vs-Back button label + the
   // "Save as friend" visibility (hidden when already FRIEND type). Fetched
   // once on mount; the type/peer don't change during a session.
+  // AI conversations are ephemeral with no DB row — skip the query entirely
+  // so we don't fire a 404 against /conversations/:id.
+  const isAIConversationId = conversationId.startsWith('ai_conv_');
   const { data: conversation } = useQuery({
     queryKey: ['conversations', conversationId, 'meta'],
     queryFn: () => getConversation(conversationId),
     staleTime: 60_000,
+    enabled: !isAIConversationId,
   });
   const isFriendConvo = conversation?.type === 'FRIEND';
+
+  // True when the current chat partner is an AI fallback peer. We check
+  // three signals for resilience: the match store flag (set on fresh
+  // navigation from the matching screen), the conversationId prefix, and
+  // the peer.userId prefix. Any one is sufficient.
+  const isAIChat =
+    storeIsAIChat || isAIConversationId || (storePeer?.userId?.startsWith('ai_') ?? false);
 
   const storeLastMetAt = useMatchStore((s) => s.lastMetAt);
   const lastMetAt = conversation?.lastMetAt || storeLastMetAt;
@@ -401,6 +413,9 @@ export function ChatScreen({ conversationId }: { conversationId: string }) {
     initialPageParam: undefined as string | undefined,
     getNextPageParam: (last) => last.nextCursor ?? undefined,
     staleTime: 0,
+    // AI conversations are ephemeral — all messages arrive via CHAT_MESSAGE
+    // socket events and live in local state only. No DB rows to fetch.
+    enabled: !isAIConversationId,
   });
 
   // Page-count tracker so we know whether `pages` updated because of
@@ -436,11 +451,29 @@ export function ChatScreen({ conversationId }: { conversationId: string }) {
     lastPageCountRef.current = newCount;
   }, [pages]);
 
-  // Re-join the conversation room on socket reconnect.
+  // Re-join the conversation room on socket reconnect. For AI conversations,
+  // the server checks Redis — if the session has expired (60min TTL or
+  // hard-evict), it returns ok:false. Redirect gracefully in that case.
   useEffect(() => {
     if (!socket || !conversationId) return;
-    socket.emit(SocketEvents.CHAT_JOIN, { conversationId });
-  }, [socket, conversationId]);
+    if (isAIConversationId) {
+      // NestJS @SubscribeMessage handlers always support returning a value
+      // via the ack callback, but our typed event map doesn't model it.
+      // Cast to any to access the callback overload.
+      (socket as any).emit(
+        SocketEvents.CHAT_JOIN,
+        { conversationId },
+        (res: { ok: boolean }) => {
+          if (res && !res.ok) {
+            toast('This chat has ended.');
+            router.replace('/connections');
+          }
+        },
+      );
+    } else {
+      socket.emit(SocketEvents.CHAT_JOIN, { conversationId });
+    }
+  }, [socket, conversationId, isAIConversationId, router]);
 
   // Tell the server which conversation we're focused on, so it can suppress
   // push notifications for messages we're already reading. "Focused" means
@@ -1010,10 +1043,14 @@ export function ChatScreen({ conversationId }: { conversationId: string }) {
       router.push('/connections');
       return;
     }
-    try {
-      await leaveConversation(conversationId);
-    } catch {
-      // best-effort
+    // AI conversations are ephemeral with no DB row — skip the DELETE and
+    // just navigate away. The Redis session auto-evicts on socket disconnect.
+    if (!isAIChat) {
+      try {
+        await leaveConversation(conversationId);
+      } catch {
+        // best-effort
+      }
     }
     router.push('/mood');
   };
@@ -1161,7 +1198,7 @@ export function ChatScreen({ conversationId }: { conversationId: string }) {
           </>
         )}
 
-        {!searchOpen && !isFriendConvo && (
+        {!searchOpen && !isFriendConvo && !isAIChat && (
           <button
             type="button"
             onClick={addFriend}
@@ -1178,14 +1215,16 @@ export function ChatScreen({ conversationId }: { conversationId: string }) {
 
         {!searchOpen && (
           <>
-            <button
-              type="button"
-              onClick={() => router.push(`/call/${conversationId}`)}
-              className="p-2 rounded-lg hover:bg-primary/20 transition text-primary"
-              aria-label="Start voice call"
-            >
-              <Phone className="w-5 h-5" />
-            </button>
+            {!isAIChat && (
+              <button
+                type="button"
+                onClick={() => router.push(`/call/${conversationId}`)}
+                className="p-2 rounded-lg hover:bg-primary/20 transition text-primary"
+                aria-label="Start voice call"
+              >
+                <Phone className="w-5 h-5" />
+              </button>
+            )}
             <button
               type="button"
               onClick={() => setReportOpen(true)}

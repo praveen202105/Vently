@@ -209,6 +209,21 @@ export class MatchmakingService {
     return this.removeFromAllQueues(userId);
   }
 
+  /**
+   * Atomically remove a user from a specific (mood, gender) queue.
+   * Returns true if the user was still in the queue, false if they had
+   * already been matched / cancelled. Used by the AI-fallback timer to
+   * avoid racing a real match that landed at the same moment.
+   */
+  async removeFromQueueIfPresent(
+    userId: string,
+    mood: MoodIntent,
+    gender: Gender,
+  ): Promise<boolean> {
+    const removed = await this.redis.zrem(queueKey(mood, gender), userId);
+    return removed === 1;
+  }
+
   async removeFromAllQueues(userId: string) {
     const pipeline = this.redis.pipeline();
     for (const mood of MOODS) {

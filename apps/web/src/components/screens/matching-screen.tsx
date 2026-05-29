@@ -136,6 +136,7 @@ export function MatchingScreen() {
           conversationId: payload.conversationId,
           peer: payload.peer,
           lastMetAt: payload.lastMetAt,
+          isAIChat: payload.isAIChat,
         });
       },
       [setMatched],

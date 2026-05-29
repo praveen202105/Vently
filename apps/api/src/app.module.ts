@@ -27,6 +27,7 @@ import { IcebreakerModule } from './icebreaker/icebreaker.module.js';
 import { SuggestionsModule } from './suggestions/suggestions.module.js';
 import { TranslationModule } from './translation/translation.module.js';
 import { SlackModule } from './slack/slack.module.js';
+import { AIPeerModule } from './ai-peer/ai-peer.module.js';
 
 @Module({
   imports: [
@@ -80,6 +81,7 @@ import { SlackModule } from './slack/slack.module.js';
     SuggestionsModule,
     TranslationModule,
     SlackModule,
+    AIPeerModule,
   ],
   providers: [
     {

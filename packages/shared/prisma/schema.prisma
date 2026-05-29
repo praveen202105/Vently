@@ -279,6 +279,7 @@ enum MoodIntent {
 enum ConvType {
   DIRECT
   FRIEND
+  AI_FALLBACK
 }
 
 enum MessageType {

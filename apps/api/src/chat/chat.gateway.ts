@@ -14,6 +14,7 @@ import {
   type ChatSendPayload,
   type ChatTypingPayload,
 } from '@vently/shared';
+import { randomUUID } from 'crypto';
 import { ConversationsService } from '../conversations/conversations.service.js';
 import { MessagesService } from '../messages/messages.service.js';
 import { BlocksService } from '../blocks/blocks.service.js';
@@ -24,6 +25,8 @@ import { SocketThrottleService } from '../realtime/socket-throttle.service.js';
 import { FocusService } from '../realtime/focus.service.js';
 import { PushService } from '../push/push.service.js';
 import { SuggestionsService } from '../suggestions/suggestions.service.js';
+import { AIPeerService } from '../ai-peer/ai-peer.service.js';
+import { AIAgentRunner } from '../ai-peer/ai-agent.runner.js';
 
 const MAX_BODY_LEN = 2000;
 // Per-user-per-event caps. Values are deliberately generous so a real
@@ -50,6 +53,8 @@ export class ChatGateway {
     private readonly focus: FocusService,
     private readonly push: PushService,
     private readonly suggestions: SuggestionsService,
+    private readonly aiPeer: AIPeerService,
+    private readonly aiAgent: AIAgentRunner,
   ) {}
 
   // Lets a reconnected/refreshed client re-join its conversation room.
@@ -58,6 +63,17 @@ export class ChatGateway {
     @ConnectedSocket() socket: AuthedSocket,
     @MessageBody() payload: { conversationId: string },
   ) {
+    // AI conversations have no DB-backed Conversation row, so the regular
+    // participant assertion would throw. Allow the user to join the room
+    // iff Redis still has the AI session active (60min TTL).
+    if (payload.conversationId.startsWith('ai_conv_')) {
+      const peer = await this.aiPeer.load(payload.conversationId);
+      if (!peer || peer.ownerUserId !== socket.data.user.userId) {
+        return { ok: false, error: 'Conversation no longer available' };
+      }
+      void socket.join(convRoom(payload.conversationId));
+      return { ok: true };
+    }
     await this.conversations.assertParticipant(payload.conversationId, socket.data.user.userId);
     void socket.join(convRoom(payload.conversationId));
     return { ok: true };
@@ -74,6 +90,13 @@ export class ChatGateway {
 
     if (!this.throttle.allow(user.userId, 'chat:send', SEND_LIMIT, SEND_WINDOW_MS)) {
       return { ok: false, error: 'Slow down — sending too fast' };
+    }
+
+    // AI fallback conversations are ephemeral: no DB rows, no moderation
+    // log writes, no suggestions/push. Shunt early so the regular DB-backed
+    // pipeline below is untouched.
+    if (payload.conversationId.startsWith('ai_conv_')) {
+      return this.handleAIMessage(socket, payload, body);
     }
 
     // Membership check FIRST — without this, an attacker who knows a
@@ -196,7 +219,12 @@ export class ChatGateway {
   ) {
     const userId = socket.data.user.userId;
     if (!this.throttle.allow(userId, 'chat:typing', TYPING_LIMIT, TYPING_WINDOW_MS)) return;
-    await this.conversations.assertParticipant(payload.conversationId, userId);
+    // AI conversations have no DB rows; skip assertParticipant. The AI peer
+    // doesn't care about the user's typing state, but we still bounce it to
+    // the room so multi-tab UX stays consistent.
+    if (!payload.conversationId.startsWith('ai_conv_')) {
+      await this.conversations.assertParticipant(payload.conversationId, userId);
+    }
     socket.to(convRoom(payload.conversationId)).emit(SocketEvents.CHAT_TYPING_STATUS, {
       ...payload,
       userId,
@@ -207,6 +235,9 @@ export class ChatGateway {
   async onRead(@ConnectedSocket() socket: AuthedSocket, @MessageBody() payload: ChatReadPayload) {
     const userId = socket.data.user.userId;
     if (!this.throttle.allow(userId, 'chat:read', READ_LIMIT, READ_WINDOW_MS)) return;
+    // AI conversations: no MessageReceipt rows to persist, no peer to notify.
+    // Silently no-op so the client's auto-read pings don't spam errors.
+    if (payload.conversationId.startsWith('ai_conv_')) return;
     await this.conversations.assertParticipant(payload.conversationId, userId);
     await this.messages.markRead({ ...payload, userId });
     socket.to(convRoom(payload.conversationId)).emit(SocketEvents.CHAT_READ_STATUS, {
@@ -221,6 +252,10 @@ export class ChatGateway {
     @ConnectedSocket() socket: AuthedSocket,
     @MessageBody() payload: ChatDeletePayload,
   ) {
+    // No DB-backed messages for AI conversations, nothing to soft-delete.
+    if (payload.conversationId.startsWith('ai_conv_')) {
+      return { ok: false, error: 'Cannot delete in this conversation' };
+    }
     const userId = socket.data.user.userId;
     const result = await this.messages.deleteForEveryone({
       messageId: payload.messageId,
@@ -228,5 +263,51 @@ export class ChatGateway {
       conversationId: payload.conversationId,
     });
     return result;
+  }
+
+  /**
+   * AI-conversation hot path. Skips DB persist + suggestions + push. Echoes
+   * the user's message back via CHAT_MESSAGE (so the UI renders identically
+   * to a real chat), records it in Redis history, then fires the agent
+   * response loop.
+   */
+  private async handleAIMessage(
+    socket: AuthedSocket,
+    payload: ChatSendPayload,
+    body: string,
+  ): Promise<{ ok: boolean; messageId?: string; error?: string }> {
+    const user = socket.data.user;
+    const peer = await this.aiPeer.load(payload.conversationId);
+    if (!peer || peer.ownerUserId !== user.userId) {
+      return { ok: false, error: 'Conversation no longer available' };
+    }
+
+    // Profanity check is still useful so we don't feed obvious slurs to Groq.
+    const profanity = this.moderation.inspectMessage(body);
+    if (profanity.severity === 'SEVERE') {
+      return { ok: false, error: 'Message violates content policy' };
+    }
+
+    const msg = {
+      id: randomUUID(),
+      conversationId: payload.conversationId,
+      senderId: user.userId,
+      body,
+      type: 'TEXT' as const,
+      createdAt: new Date().toISOString(),
+      deletedAt: null,
+      replyToMessageId: payload.replyToMessageId ?? null,
+    };
+
+    socket.emit(SocketEvents.CHAT_ACK, { clientId: payload.clientId, messageId: msg.id });
+    socket.emit(SocketEvents.CHAT_MESSAGE, msg);
+    // Other tabs of the same user receive it via the room broadcast.
+    socket.to(convRoom(payload.conversationId)).emit(SocketEvents.CHAT_MESSAGE, msg);
+
+    void this.aiAgent.recordUserMessage(payload.conversationId, body);
+    // Fire-and-forget so the user's ack isn't blocked on Groq latency.
+    void this.aiAgent.respond(peer, body, this.server);
+
+    return { ok: true, messageId: msg.id };
   }
 }

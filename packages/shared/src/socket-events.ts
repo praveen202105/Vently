@@ -85,6 +85,11 @@ export interface MatchFoundPayload {
   // every other mood goes to /chat/[id].
   mood: MoodIntent;
   lastMetAt?: string | null;
+  // Set true when the matchmaking timeout fired and the user was paired
+  // with an AI fallback peer instead of a real human. Frontend uses this
+  // (and the `ai_` prefix on peer.userId) to disable voice/friend
+  // affordances. Omitted/false for real matches.
+  isAIChat?: boolean;
 }
 
 export interface ChatSendPayload {

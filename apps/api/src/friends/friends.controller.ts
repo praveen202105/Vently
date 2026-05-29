@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   Body,
   Controller,
   Delete,
@@ -43,6 +44,14 @@ export class FriendsController {
 
   @Post('requests')
   async create(@CurrentUser() user: AuthUser, @Body() dto: CreateFriendRequestDto) {
+    // AI fallback peers can't accept friend requests — reject early so the
+    // user gets a clear 400 instead of a confusing "user not found" from the
+    // friendship lookup. Defence in depth: the frontend hides the button, but
+    // a raw API call could still reach here.
+    if (dto.toUserId.startsWith('ai_')) {
+      throw new BadRequestException({ code: 'PEER_UNAVAILABLE' });
+    }
+
     const result = await this.friends.sendRequest(user.userId, dto.toUserId);
 
     if (result.kind === 'requested') {
