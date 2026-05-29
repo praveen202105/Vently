@@ -51,5 +51,12 @@ export const useMatchStore = create<MatchState>((set) => ({
     }),
   setTimeout: () => set({ status: 'timeout' }),
   reset: () =>
-    set({ status: 'idle', mood: null, conversationId: null, peer: null, lastMetAt: null, isAIChat: false }),
+    set({
+      status: 'idle',
+      mood: null,
+      conversationId: null,
+      peer: null,
+      lastMetAt: null,
+      isAIChat: false,
+    }),
 }));

@@ -81,10 +81,10 @@ A virtual peer is constructed in memory:
 
 ```ts
 type VirtualPeer = {
-  userId: `ai_${string}`;   // e.g. ai_persona7_conv9af3
-  nickname: string;          // from persona pool
+  userId: `ai_${string}`; // e.g. ai_persona7_conv9af3
+  nickname: string; // from persona pool
   gender: 'MALE' | 'FEMALE';
-  avatarSeed: string;        // DiceBear or similar
+  avatarSeed: string; // DiceBear or similar
   isOnline: true;
 };
 ```
@@ -112,7 +112,11 @@ const fallbackTimer = setTimeout(async () => {
   const stillQueued = await matchmakingService.removeFromQueue(userId, mood, gender);
   if (!stillQueued) return;
   const virtualPeer = await aiPeerService.spawn({ userId, mood, gender, prefersGender });
-  socket.emit(SocketEvents.MATCH_FOUND, { peer: virtualPeer, conversationId: virtualPeer.conversationId, isAIChat: true });
+  socket.emit(SocketEvents.MATCH_FOUND, {
+    peer: virtualPeer,
+    conversationId: virtualPeer.conversationId,
+    isAIChat: true,
+  });
   aiAgentRunner.attach({ userId, virtualPeer, mood });
 }, AI_FALLBACK_MS);
 
@@ -143,7 +147,12 @@ Hand-crafted JSON, 20–40 entries to start, sliced by mood + gender. Each entry
   "ageBucket": "22-25",
   "moods": ["SAD", "ANXIOUS"],
   "backstory": "design student, mid-college, lives away from family for the first time. talks gentle.",
-  "voiceTraits": ["lowercase only", "short sentences", "'hmm'/'i guess' fillers", "occasional typos like 'teh' or 'jsut'"]
+  "voiceTraits": [
+    "lowercase only",
+    "short sentences",
+    "'hmm'/'i guess' fillers",
+    "occasional typos like 'teh' or 'jsut'"
+  ]
 }
 ```
 
@@ -165,7 +174,7 @@ On every inbound `CHAT_MESSAGE` from the user:
 3. Emit `CHAT_TYPING_STATUS { conversationId, isTyping: true }`.
 4. Stream Groq completion with the persona system prompt + history.
 5. After delay (or stream completion, whichever later), emit `CHAT_TYPING_STATUS
-   { isTyping: false }` then `CHAT_MESSAGE { body }`.
+{ isTyping: false }` then `CHAT_MESSAGE { body }`.
 
 System prompt template (Groq llama-3.1-8b):
 
@@ -208,11 +217,11 @@ const isAIChat = peer?.userId?.startsWith('ai_') ?? false;
 
 Apply at three buttons:
 
-| Line  | Button         | Change |
-|-------|----------------|--------|
-| ~1165 | Add Friend     | Hide entirely (set `hidden`) when `isAIChat`. |
-| ~1181 | Voice Call     | Hide entirely when `isAIChat`. |
-| ~1148 | Chat header    | No change — `peer.nickname` already shows. |
+| Line  | Button      | Change                                        |
+| ----- | ----------- | --------------------------------------------- |
+| ~1165 | Add Friend  | Hide entirely (set `hidden`) when `isAIChat`. |
+| ~1181 | Voice Call  | Hide entirely when `isAIChat`.                |
+| ~1148 | Chat header | No change — `peer.nickname` already shows.    |
 
 Hiding (not just disabling) is intentional — disabled grey-out is a tell that AI
 chats look different from real ones. Real chats with deeply offline peers also keep
@@ -233,6 +242,7 @@ to `/connections` with a soft toast.
 AI fallback shouldn't fire for voice). Skew toward common moods.
 
 Curated, not generated. Each persona needs:
+
 - nickname (lowercase, plausibly Indian since that's Vently's audience based on the
   user examples — Aarav, Riya, Kavya, Aditi, etc.)
 - backstory (~30 words)
@@ -288,22 +298,22 @@ flow via mocked Groq response (or live, behind a feature flag).
 
 ## Critical files to modify (summary)
 
-| File | Change |
-|---|---|
-| `packages/shared/prisma/schema.prisma` | Add `AI_FALLBACK` to `ConversationType` enum |
-| `packages/shared/src/socket-events.ts` | Add `isAIChat?: boolean` to `MatchFoundPayload` |
-| `apps/api/src/matchmaking/matchmaking.gateway.ts` | Wire fallback timer + dispatch |
-| `apps/api/src/matchmaking/matchmaking.service.ts` | Helper to atomically remove-if-still-queued |
-| `apps/api/src/ai-peer/ai-peer.service.ts` | NEW — persona pool + virtual peer factory |
-| `apps/api/src/ai-peer/ai-agent.runner.ts` | NEW — per-conversation Groq loop |
-| `apps/api/src/ai-peer/personas.json` | NEW — seeded persona pool |
-| `apps/api/src/ai-peer/ai-peer.module.ts` | NEW — wiring |
-| `apps/api/src/app.module.ts` | Import `AIPeerModule` |
-| `apps/api/src/chat/chat.gateway.ts` | Skip DB persist when conversationId is AI |
-| `apps/api/src/calls/calls.service.ts` | Reject CALL_INVITE for `ai_` peers |
-| `apps/api/src/friends/friends.service.ts` | Reject friend request to `ai_` peers |
-| `apps/web/src/components/screens/chat-screen.tsx` | Hide voice + friend buttons when `isAIChat` |
-| `apps/web/src/lib/api/conversations.service.ts` | Soft-redirect on AI convo 404 |
+| File                                              | Change                                          |
+| ------------------------------------------------- | ----------------------------------------------- |
+| `packages/shared/prisma/schema.prisma`            | Add `AI_FALLBACK` to `ConversationType` enum    |
+| `packages/shared/src/socket-events.ts`            | Add `isAIChat?: boolean` to `MatchFoundPayload` |
+| `apps/api/src/matchmaking/matchmaking.gateway.ts` | Wire fallback timer + dispatch                  |
+| `apps/api/src/matchmaking/matchmaking.service.ts` | Helper to atomically remove-if-still-queued     |
+| `apps/api/src/ai-peer/ai-peer.service.ts`         | NEW — persona pool + virtual peer factory       |
+| `apps/api/src/ai-peer/ai-agent.runner.ts`         | NEW — per-conversation Groq loop                |
+| `apps/api/src/ai-peer/personas.json`              | NEW — seeded persona pool                       |
+| `apps/api/src/ai-peer/ai-peer.module.ts`          | NEW — wiring                                    |
+| `apps/api/src/app.module.ts`                      | Import `AIPeerModule`                           |
+| `apps/api/src/chat/chat.gateway.ts`               | Skip DB persist when conversationId is AI       |
+| `apps/api/src/calls/calls.service.ts`             | Reject CALL*INVITE for `ai*` peers              |
+| `apps/api/src/friends/friends.service.ts`         | Reject friend request to `ai_` peers            |
+| `apps/web/src/components/screens/chat-screen.tsx` | Hide voice + friend buttons when `isAIChat`     |
+| `apps/web/src/lib/api/conversations.service.ts`   | Soft-redirect on AI convo 404                   |
 
 ## Open decisions (need your call before any code lands)
 
