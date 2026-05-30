@@ -1,30 +1,13 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { motion } from 'motion/react';
 import { toast } from 'sonner';
-import {
-  Edit2,
-  Check,
-  X,
-  LogOut,
-  Heart,
-  MessageCircle,
-  Sparkles,
-  SlidersHorizontal,
-  Trash2,
-} from 'lucide-react';
+import { Edit2, Check, X, LogOut, Heart, MessageCircle, Sparkles } from 'lucide-react';
 import { Button, GlassCard } from '@vently/ui';
-import type { AiMemoryStatus } from '@vently/shared';
 import { useAuthStore } from '@/stores/auth-store';
-import {
-  clearAiMemory,
-  getAiMemoryStatus,
-  logout,
-  updateAiMemory,
-  updateProfile,
-} from '@/lib/api/auth';
+import { logout, updateProfile } from '@/lib/api/auth';
 import { ApiError } from '@/lib/api/client';
 import { ProfileSkeleton } from '@/components/skeletons/profile-skeleton';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
@@ -40,26 +23,6 @@ export function ProfileScreen() {
   const [saving, setSaving] = useState(false);
   const [logoutOpen, setLogoutOpen] = useState(false);
   const [loggingOut, setLoggingOut] = useState(false);
-  const [memoryStatus, setMemoryStatus] = useState<AiMemoryStatus | null>(null);
-  const [memoryBusy, setMemoryBusy] = useState(false);
-  const [clearMemoryOpen, setClearMemoryOpen] = useState(false);
-
-  useEffect(() => {
-    if (!profile) return;
-    let cancelled = false;
-
-    void getAiMemoryStatus()
-      .then((status) => {
-        if (!cancelled) setMemoryStatus(status);
-      })
-      .catch(() => {
-        if (!cancelled) setMemoryStatus(null);
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [profile]);
 
   if (!profile) {
     return <ProfileSkeleton />;
@@ -96,42 +59,6 @@ export function ProfileScreen() {
     }
     clear();
     router.replace('/welcome');
-  };
-
-  const toggleMemory = async () => {
-    if (!memoryStatus || memoryBusy) return;
-    const nextEnabled = !memoryStatus.enabled;
-    setMemoryBusy(true);
-    try {
-      const next = await updateAiMemory({ enabled: nextEnabled });
-      setMemoryStatus(next);
-      toast.success(nextEnabled ? 'Chat personalization enabled' : 'Chat personalization paused');
-    } catch (err) {
-      const msg = err instanceof ApiError ? err.message : 'Could not update personalization';
-      toast.error(msg);
-    } finally {
-      setMemoryBusy(false);
-    }
-  };
-
-  const handleClearMemory = async () => {
-    setMemoryBusy(true);
-    try {
-      await clearAiMemory();
-      setMemoryStatus({
-        enabled: false,
-        chunkCount: 0,
-        lastUpdatedAt: null,
-        retentionDays: memoryStatus?.retentionDays ?? 90,
-      });
-      setClearMemoryOpen(false);
-      toast.success('Chat personalization cleared');
-    } catch (err) {
-      const msg = err instanceof ApiError ? err.message : 'Could not clear personalization';
-      toast.error(msg);
-    } finally {
-      setMemoryBusy(false);
-    }
   };
 
   return (
@@ -218,49 +145,6 @@ export function ProfileScreen() {
         <p className="text-xs text-muted-foreground text-center mt-4">Stats arrive in Phase 5.</p>
       </GlassCard>
 
-      <GlassCard className="p-6">
-        <div className="flex items-start justify-between gap-4">
-          <div className="min-w-0">
-            <div className="flex items-center gap-2">
-              <SlidersHorizontal className="w-5 h-5 text-primary shrink-0" />
-              <h2 className="text-lg">Chat personalization</h2>
-            </div>
-            <p className="text-sm text-muted-foreground mt-1">
-              {memoryStatus?.enabled ? `On · ${memoryStatus.retentionDays}-day retention` : 'Off'}
-            </p>
-          </div>
-
-          <button
-            type="button"
-            role="switch"
-            aria-checked={memoryStatus?.enabled ?? false}
-            aria-label="Toggle chat personalization"
-            disabled={!memoryStatus || memoryBusy}
-            onClick={toggleMemory}
-            className={`relative h-8 w-14 shrink-0 rounded-full border transition disabled:opacity-50 ${
-              memoryStatus?.enabled ? 'bg-primary border-primary' : 'bg-muted border-glass-border'
-            }`}
-          >
-            <span
-              className={`absolute top-1 h-6 w-6 rounded-full bg-white shadow transition ${
-                memoryStatus?.enabled ? 'left-7' : 'left-1'
-              }`}
-            />
-          </button>
-        </div>
-
-        <Button
-          variant="ghost"
-          size="sm"
-          className="w-full mt-4 text-destructive hover:bg-destructive/10"
-          disabled={!memoryStatus || memoryStatus.chunkCount === 0 || memoryBusy}
-          onClick={() => setClearMemoryOpen(true)}
-        >
-          <Trash2 className="w-4 h-4" />
-          Clear personalization
-        </Button>
-      </GlassCard>
-
       <div className="space-y-3">
         <Button variant="outline" size="md" className="w-full" onClick={() => router.push('/mood')}>
           Change mood
@@ -285,16 +169,6 @@ export function ProfileScreen() {
         busy={loggingOut}
         onConfirm={handleLogout}
         onCancel={() => setLogoutOpen(false)}
-      />
-
-      <ConfirmDialog
-        open={clearMemoryOpen}
-        title="Clear personalization?"
-        description="This deletes saved chat personalization and turns personalization off."
-        confirmLabel="Clear"
-        busy={memoryBusy}
-        onConfirm={handleClearMemory}
-        onCancel={() => setClearMemoryOpen(false)}
       />
     </div>
   );

@@ -30,6 +30,8 @@ test.describe('Phase 1 — Auth + Profile', () => {
     // Profile route should now load the persisted nickname.
     await page.goto('/profile');
     await expect(page.getByRole('heading', { name: nickname })).toBeVisible();
+    await expect(page.getByText(/chat personalization/i)).toHaveCount(0);
+    await expect(page.getByText(/clear personalization/i)).toHaveCount(0);
   });
 
   test('protected route redirects unauthenticated user to /login', async ({ page }) => {
