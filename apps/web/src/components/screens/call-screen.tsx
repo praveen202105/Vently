@@ -74,11 +74,12 @@ export function CallScreen({ conversationId }: { conversationId: string }) {
   useEffect(() => {
     if (autoStartedRef.current) return;
     if (voiceOnly && !isVoiceOnlyCaller) return;
+    if (isVideo) return;
     if (callState === 'IDLE' && !isIncoming) {
       autoStartedRef.current = true;
       void startCall();
     }
-  }, [callState, isIncoming, startCall, voiceOnly, isVoiceOnlyCaller]);
+  }, [callState, isIncoming, startCall, voiceOnly, isVoiceOnlyCaller, isVideo]);
 
   const autoAcceptedRef = useRef(false);
   useEffect(() => {
@@ -206,7 +207,9 @@ export function CallScreen({ conversationId }: { conversationId: string }) {
 
   const statusLabel =
     callState === 'IDLE'
-      ? 'Preparing...'
+      ? isVideo
+        ? 'Ready for video call'
+        : 'Preparing...'
       : callState === 'DIALING'
         ? 'Ringing...'
         : callState === 'RINGING'
@@ -220,6 +223,10 @@ export function CallScreen({ conversationId }: { conversationId: string }) {
               : 'Call ended';
 
   const peerInitial = peer?.nickname[0]?.toUpperCase() ?? '?';
+  const returnToPreviousScreen = () => {
+    router.replace(voiceOnly ? '/mood' : `/chat/${conversationId}`);
+  };
+  const isPermissionError = !!error && /blocked|permission|allow camera|allow microphone/i.test(error);
 
   return (
     <div className="fixed inset-0 overflow-hidden bg-[#0b141a] text-white">
@@ -322,8 +329,16 @@ export function CallScreen({ conversationId }: { conversationId: string }) {
       )}
 
       {error && (
-        <div className="absolute inset-x-4 bottom-32 z-30 mx-auto max-w-md rounded-2xl border border-destructive/40 bg-destructive/15 px-4 py-3 text-center text-sm text-red-100 backdrop-blur">
-          {error}
+        <div
+          aria-live="assertive"
+          className="absolute inset-x-4 bottom-36 z-30 mx-auto max-w-md rounded-2xl border border-destructive/40 bg-destructive/15 px-4 py-3 text-center text-sm text-red-100 backdrop-blur"
+        >
+          <p>{error}</p>
+          {isPermissionError && (
+            <p className="mt-1 text-xs text-red-100/75">
+              If no browser popup appears, open site settings and allow camera/microphone.
+            </p>
+          )}
         </div>
       )}
 
@@ -331,7 +346,27 @@ export function CallScreen({ conversationId }: { conversationId: string }) {
 
       <div className="absolute inset-x-0 bottom-0 z-20 bg-gradient-to-t from-black/80 via-black/45 to-transparent px-4 pb-6 pt-10">
         <div className="mx-auto flex max-w-md items-center justify-center gap-4 rounded-full border border-white/10 bg-[#111b21]/85 px-4 py-3 shadow-2xl backdrop-blur-xl">
-          {callState === 'RINGING' ? (
+          {callState === 'IDLE' ? (
+            <>
+              <button
+                type="button"
+                onClick={returnToPreviousScreen}
+                aria-label="Leave call"
+                className="grid h-12 w-12 place-items-center rounded-full bg-white/10 text-white transition hover:bg-white/15"
+              >
+                <PhoneOff className="h-5 w-5" />
+              </button>
+              <button
+                type="button"
+                onClick={() => void startCall()}
+                aria-label={isVideo ? 'Start video call' : 'Start voice call'}
+                className="flex h-14 items-center gap-2 rounded-full bg-emerald-500 px-5 font-semibold text-white shadow-lg shadow-emerald-500/30 transition hover:bg-emerald-400"
+              >
+                {isVideo ? <Camera className="h-5 w-5" /> : <Phone className="h-5 w-5" />}
+                <span>{isVideo ? 'Start video' : 'Start call'}</span>
+              </button>
+            </>
+          ) : callState === 'RINGING' ? (
             <>
               <button
                 type="button"

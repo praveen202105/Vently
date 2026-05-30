@@ -62,6 +62,9 @@ test.describe('Chat header', () => {
     await page.waitForURL(/\/call\/.*mode=video/);
     await expect(page.getByTestId('remote-video')).toBeVisible();
     await expect(page.getByTestId('local-video-preview')).toBeVisible();
+    await expect(page.getByRole('button', { name: /start video call/i })).toBeVisible();
+    await page.getByRole('button', { name: /start video call/i }).click();
+    await expect(page.getByRole('button', { name: /hang up/i })).toBeVisible();
     await page.getByRole('button', { name: /hang up/i }).click();
     await page.waitForURL(/\/chat\//);
 

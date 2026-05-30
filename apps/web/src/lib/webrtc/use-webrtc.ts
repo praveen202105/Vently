@@ -45,6 +45,48 @@ interface UseWebRTCReturn {
 // How long the caller waits for the peer to accept before timing out.
 const ACCEPT_TIMEOUT_MS = 30_000;
 
+function isLocalMediaError(err: unknown) {
+  const name = (err as DOMException | undefined)?.name;
+  return (
+    name === 'NotAllowedError' ||
+    name === 'PermissionDeniedError' ||
+    name === 'SecurityError' ||
+    name === 'NotFoundError' ||
+    name === 'DevicesNotFoundError' ||
+    name === 'NotReadableError' ||
+    name === 'TrackStartError'
+  );
+}
+
+function getLocalMediaErrorMessage(err: unknown, mode: CallMode) {
+  const error = err as DOMException | Error | undefined;
+  const name = (error as DOMException | undefined)?.name;
+
+  if (
+    name === 'NotAllowedError' ||
+    name === 'PermissionDeniedError' ||
+    name === 'SecurityError'
+  ) {
+    return mode === 'video'
+      ? 'Camera/microphone is blocked. Allow camera and microphone for this site, then try again.'
+      : 'Microphone is blocked. Allow microphone for this site, then try again.';
+  }
+
+  if (name === 'NotFoundError' || name === 'DevicesNotFoundError') {
+    return mode === 'video'
+      ? 'No camera or microphone was found on this device.'
+      : 'No microphone was found on this device.';
+  }
+
+  if (name === 'NotReadableError' || name === 'TrackStartError') {
+    return mode === 'video'
+      ? 'Camera or microphone is already in use. Close the other app, then try again.'
+      : 'Microphone is already in use. Close the other app, then try again.';
+  }
+
+  return error?.message || (mode === 'video' ? 'Could not start video call' : 'Could not start call');
+}
+
 export function useWebRTC({
   conversationId,
   mode = 'voice',
@@ -178,12 +220,9 @@ export function useWebRTC({
         }
       }, ACCEPT_TIMEOUT_MS);
     } catch (err) {
-      setError(
-        (err as Error).message ||
-          (mode === 'video' ? 'Camera or microphone permission denied' : 'Could not start call'),
-      );
+      setError(getLocalMediaErrorMessage(err, mode));
       teardown();
-      setCallState('ENDED');
+      setCallState(isLocalMediaError(err) ? 'IDLE' : 'ENDED');
     }
   }, [socket, conversationId, mode, createPeerConnection, getLocalStream, teardown]);
 
@@ -210,14 +249,9 @@ export function useWebRTC({
       stream.getTracks().forEach((t) => pc.addTrack(t, stream));
       socket.emit(SocketEvents.CALL_ACCEPT, { conversationId, fromUserId: '', mode });
     } catch (err) {
-      setError(
-        (err as Error).message ||
-          (mode === 'video'
-            ? 'Camera or microphone permission denied'
-            : 'Microphone permission denied'),
-      );
+      setError(getLocalMediaErrorMessage(err, mode));
       teardown();
-      setCallState('ENDED');
+      setCallState(isLocalMediaError(err) ? 'RINGING' : 'ENDED');
     }
   }, [socket, conversationId, mode, createPeerConnection, getLocalStream, teardown]);
 
