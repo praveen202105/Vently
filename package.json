@@ -11,6 +11,8 @@
   "scripts": {
     "verify": "node --env-file=apps/api/.env scripts/verify-feature.js",
     "verify:local": "node --env-file=apps/api/.env scripts/verify-feature.js --local-only",
+    "agent:local": "node scripts/local-ship-agent.mjs --dry-run",
+    "agent:ship": "node scripts/local-ship-agent.mjs --push",
     "dev": "turbo run dev",
     "build": "turbo run build",
     "lint": "turbo run lint",

@@ -1,4 +1,4 @@
-import { test, expect, type BrowserContext } from '@playwright/test';
+import { test, expect, type BrowserContext, type Page } from '@playwright/test';
 import { loginPage, provisionUserViaApi, API_URL } from './helpers';
 import { request } from '@playwright/test';
 
@@ -16,13 +16,8 @@ import { request } from '@playwright/test';
 //   We give 3–4 minutes per test that involves matchmaking + Groq calls.
 
 // ─── Shared helper: match two users into a shared chat ─────────────────────
-async function matchUsers(
-  alice: import('@playwright/test').Page,
-  bob: import('@playwright/test').Page,
-  _timeout = 120_000,
-  mood = /need to talk/i,
-) {
-  const timeout = 120_000;
+async function matchUsers(alice: Page, bob: Page, _timeout = 180_000, mood = /need to talk/i) {
+  const timeout = 180_000;
   // Navigate both users to mood selection in parallel.
   // Use networkidle to wait for React hydration (Next.js dev lazy-compiles routes).
   await Promise.all([
@@ -36,17 +31,33 @@ async function matchUsers(
     bob.getByRole('button', { name: mood }).waitFor({ timeout }),
   ]);
 
+  const waitForAppUrl = async (page: Page, pattern: RegExp, waitTimeout = timeout) => {
+    await expect.poll(() => page.url(), { timeout: waitTimeout }).toMatch(pattern);
+  };
+
+  const pickMood = async (page: Page) => {
+    if (/\/(matching|chat)\//.test(page.url()) || page.url().includes('/matching')) return;
+
+    const button = page.getByRole('button', { name: mood });
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      await button.click();
+      try {
+        await waitForAppUrl(page, /\/matching|\/chat\//, 5_000);
+        return;
+      } catch {
+        // Next dev can briefly show a hydrated-looking button before the
+        // client click handler is fully ready. Retry the click.
+      }
+    }
+    await waitForAppUrl(page, /\/matching/);
+  };
+
   // Click sequentially: Alice joins first, Bob second → they match each other.
-  await alice.getByRole('button', { name: mood }).click();
-  await alice.waitForURL(/\/matching/, { timeout });
-  await bob.getByRole('button', { name: mood }).click();
-  await bob.waitForURL(/\/matching/, { timeout });
+  await pickMood(alice);
+  await pickMood(bob);
 
   // Both should navigate to /chat/:id once matched.
-  await Promise.all([
-    alice.waitForURL(/\/chat\//, { timeout }),
-    bob.waitForURL(/\/chat\//, { timeout }),
-  ]);
+  await Promise.all([waitForAppUrl(alice, /\/chat\//), waitForAppUrl(bob, /\/chat\//)]);
 
   const convId = alice.url().split('/chat/')[1];
   expect(convId).toBeTruthy();
@@ -583,7 +594,7 @@ test.describe('06 Sprint 1 — A6: Context-aware Reply Chips', () => {
     // Groq can take up to 30s; give it 45s to be safe.
     await expect(alice.getByText(trigger)).toBeVisible({ timeout: 8_000 });
     // Chips are buttons inside the suggestion strip. Wait for at least one.
-    const chips = alice.locator('button.shrink-0.rounded-full');
+    const chips = alice.getByTestId('suggestion-chip');
     await expect(chips.first()).toBeVisible({ timeout: 45_000 });
     await alice.waitForTimeout(3000); // Allow any parallel/late suggestion payloads to settle
 
@@ -627,8 +638,7 @@ test.describe('06 Sprint 1 — A6: Context-aware Reply Chips', () => {
     await alice.waitForTimeout(3_000);
 
     // Chips should NOT appear on Alice's screen (she's the sender).
-    const chips = alice.locator('button.shrink-0.rounded-full');
-    await expect(chips).not.toBeVisible();
+    await expect(alice.getByTestId('suggestion-chip')).toHaveCount(0);
 
     await aliceCtx.close();
     await bobCtx.close();

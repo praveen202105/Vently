@@ -99,14 +99,14 @@ export function MoodSelectionScreen() {
       return;
     }
     setMood(mood);
-    router.push('/matching');
+    router.push(`/matching?mood=${mood}`);
   };
 
   const confirmGatedMood = () => {
     if (!pendingMood) return;
     setMood(pendingMood);
     setPendingMood(null);
-    router.push('/matching');
+    router.push(`/matching?mood=${pendingMood}`);
   };
 
   return (

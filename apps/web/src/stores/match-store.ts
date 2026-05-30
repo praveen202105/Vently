@@ -40,7 +40,14 @@ export const useMatchStore = create<MatchState>((set) => ({
   lastMetAt: null,
   isAIChat: false,
   setMood: (mood) => set({ mood }),
-  setQueued: () => set({ status: 'queued' }),
+  setQueued: () =>
+    set({
+      status: 'queued',
+      conversationId: null,
+      peer: null,
+      lastMetAt: null,
+      isAIChat: false,
+    }),
   setMatched: ({ conversationId, peer, lastMetAt, isAIChat }) =>
     set({
       status: 'matched',

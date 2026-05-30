@@ -21,15 +21,18 @@ export default defineConfig({
     trace: 'retain-on-failure',
     screenshot: 'only-on-failure',
     video: 'retain-on-failure',
+    launchOptions: {
+      args: ['--use-fake-device-for-media-stream', '--use-fake-ui-for-media-stream'],
+    },
   },
   projects: [
     {
       name: 'chromium',
       use: {
         ...devices['Desktop Chrome'],
-        // Auto-grant microphone so voice-call tests can verify getUserMedia
-        // wires up without a permission prompt.
-        permissions: ['microphone'],
+        // Auto-grant media permissions so voice/video call tests can verify
+        // getUserMedia wires up without browser prompts.
+        permissions: ['microphone', 'camera'],
       },
     },
   ],

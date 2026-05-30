@@ -13,6 +13,7 @@ export function SuggestionChips({ suggestions, onSelect }: Props) {
   return (
     <AnimatePresence>
       <motion.div
+        data-testid="suggestion-chips"
         initial={{ opacity: 0, y: 8 }}
         animate={{ opacity: 1, y: 0 }}
         exit={{ opacity: 0, y: 8, transition: { duration: 0.2 } }}
@@ -27,6 +28,7 @@ export function SuggestionChips({ suggestions, onSelect }: Props) {
           {suggestions.map((text, i) => (
             <motion.button
               key={text}
+              data-testid="suggestion-chip"
               type="button"
               initial={{ opacity: 0, scale: 0.9 }}
               animate={{ opacity: 1, scale: 1, transition: { delay: i * 0.06 } }}

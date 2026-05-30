@@ -1,7 +1,12 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { SocketEvents, type CallIceCandidatePayload, type CallSdpPayload } from '@vently/shared';
+import {
+  SocketEvents,
+  type CallIceCandidatePayload,
+  type CallMode,
+  type CallSdpPayload,
+} from '@vently/shared';
 import { useSocket } from '@/lib/socket/use-socket';
 import { getIceServers } from './ice-servers';
 
@@ -15,12 +20,14 @@ export type CallState =
 
 interface UseWebRTCArgs {
   conversationId: string;
+  mode?: CallMode;
   /** If we're the receiving side, pass true to start in RINGING state. */
   isIncoming?: boolean;
 }
 
 interface UseWebRTCReturn {
   callState: CallState;
+  localStream: MediaStream | null;
   remoteStream: MediaStream | null;
   startCall: () => Promise<void>;
   acceptCall: () => Promise<void>;
@@ -28,6 +35,8 @@ interface UseWebRTCReturn {
   hangup: () => void;
   toggleMute: () => void;
   muted: boolean;
+  cameraOn: boolean;
+  toggleCamera: () => void;
   speakerOn: boolean;
   toggleSpeaker: () => void;
   error: string | null;
@@ -36,7 +45,11 @@ interface UseWebRTCReturn {
 // How long the caller waits for the peer to accept before timing out.
 const ACCEPT_TIMEOUT_MS = 30_000;
 
-export function useWebRTC({ conversationId, isIncoming = false }: UseWebRTCArgs): UseWebRTCReturn {
+export function useWebRTC({
+  conversationId,
+  mode = 'voice',
+  isIncoming = false,
+}: UseWebRTCArgs): UseWebRTCReturn {
   const socket = useSocket();
   // Mirror `socket` into a ref so the PeerConnection callbacks (set once when
   // the PC is built) always reach the CURRENT socket. Without this, an
@@ -58,8 +71,10 @@ export function useWebRTC({ conversationId, isIncoming = false }: UseWebRTCArgs)
   const acceptTimeoutRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
 
   const [callState, setCallState] = useState<CallState>(isIncoming ? 'RINGING' : 'IDLE');
+  const [localStream, setLocalStream] = useState<MediaStream | null>(null);
   const [remoteStream, setRemoteStream] = useState<MediaStream | null>(null);
   const [muted, setMuted] = useState(false);
+  const [cameraOn, setCameraOn] = useState(false);
   const [speakerOn, setSpeakerOn] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -79,7 +94,10 @@ export function useWebRTC({ conversationId, isIncoming = false }: UseWebRTCArgs)
       localStreamRef.current.getTracks().forEach((t) => t.stop());
       localStreamRef.current = null;
     }
+    setLocalStream(null);
     setRemoteStream(null);
+    setMuted(false);
+    setCameraOn(false);
     pendingCandidatesRef.current = [];
     peerAcceptedRef.current = false;
   }, []);
@@ -112,13 +130,18 @@ export function useWebRTC({ conversationId, isIncoming = false }: UseWebRTCArgs)
 
     pcRef.current = pc;
     return pc;
-  }, [conversationId, socket]);
+  }, [conversationId]);
 
   const getLocalStream = useCallback(async () => {
-    const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+    const constraints: MediaStreamConstraints =
+      mode === 'video' ? { audio: true, video: true } : { audio: true, video: false };
+    const stream = await navigator.mediaDevices.getUserMedia(constraints);
     localStreamRef.current = stream;
+    setLocalStream(stream);
+    setMuted(false);
+    setCameraOn(stream.getVideoTracks().some((track) => track.enabled));
     return stream;
-  }, []);
+  }, [mode]);
 
   /**
    * Caller flow:
@@ -143,7 +166,7 @@ export function useWebRTC({ conversationId, isIncoming = false }: UseWebRTCArgs)
       const pc = await createPeerConnection();
       stream.getTracks().forEach((t) => pc.addTrack(t, stream));
 
-      socket.emit(SocketEvents.CALL_INVITE, { conversationId, fromUserId: '' });
+      socket.emit(SocketEvents.CALL_INVITE, { conversationId, fromUserId: '', mode });
 
       // Time out if the peer never accepts within 30s.
       acceptTimeoutRef.current = setTimeout(() => {
@@ -155,11 +178,14 @@ export function useWebRTC({ conversationId, isIncoming = false }: UseWebRTCArgs)
         }
       }, ACCEPT_TIMEOUT_MS);
     } catch (err) {
-      setError((err as Error).message ?? 'Could not start call');
+      setError(
+        (err as Error).message ||
+          (mode === 'video' ? 'Camera or microphone permission denied' : 'Could not start call'),
+      );
       teardown();
       setCallState('ENDED');
     }
-  }, [socket, conversationId, createPeerConnection, getLocalStream, teardown]);
+  }, [socket, conversationId, mode, createPeerConnection, getLocalStream, teardown]);
 
   /**
    * Callee flow:
@@ -182,19 +208,24 @@ export function useWebRTC({ conversationId, isIncoming = false }: UseWebRTCArgs)
       const stream = await getLocalStream();
       const pc = await createPeerConnection();
       stream.getTracks().forEach((t) => pc.addTrack(t, stream));
-      socket.emit(SocketEvents.CALL_ACCEPT, { conversationId, fromUserId: '' });
+      socket.emit(SocketEvents.CALL_ACCEPT, { conversationId, fromUserId: '', mode });
     } catch (err) {
-      setError((err as Error).message ?? 'Microphone permission denied');
+      setError(
+        (err as Error).message ||
+          (mode === 'video'
+            ? 'Camera or microphone permission denied'
+            : 'Microphone permission denied'),
+      );
       teardown();
       setCallState('ENDED');
     }
-  }, [socket, conversationId, createPeerConnection, getLocalStream, teardown]);
+  }, [socket, conversationId, mode, createPeerConnection, getLocalStream, teardown]);
 
   const rejectCall = useCallback(() => {
-    socket?.emit(SocketEvents.CALL_REJECT, { conversationId, fromUserId: '' });
+    socket?.emit(SocketEvents.CALL_REJECT, { conversationId, fromUserId: '', mode });
     teardown();
     setCallState('ENDED');
-  }, [socket, conversationId, teardown]);
+  }, [socket, conversationId, mode, teardown]);
 
   const hangup = useCallback(() => {
     socket?.emit(SocketEvents.CALL_HANGUP, { conversationId });
@@ -209,6 +240,16 @@ export function useWebRTC({ conversationId, isIncoming = false }: UseWebRTCArgs)
     stream.getAudioTracks().forEach((t) => (t.enabled = !next));
     setMuted(next);
   }, [muted]);
+
+  const toggleCamera = useCallback(() => {
+    const stream = localStreamRef.current;
+    if (!stream) return;
+    const tracks = stream.getVideoTracks();
+    if (tracks.length === 0) return;
+    const next = !cameraOn;
+    tracks.forEach((t) => (t.enabled = next));
+    setCameraOn(next);
+  }, [cameraOn]);
 
   const toggleSpeaker = useCallback(() => {
     setSpeakerOn((on) => !on);
@@ -247,7 +288,6 @@ export function useWebRTC({ conversationId, isIncoming = false }: UseWebRTCArgs)
         // The offer arrived before we created our PeerConnection. This is the
         // bug we just fixed by waiting for call:accept on the caller side, so
         // we shouldn't see it anymore — but log it loudly if we do.
-        // eslint-disable-next-line no-console
         console.warn('[webrtc] received call:offer with no peer connection ready');
         return;
       }
@@ -336,6 +376,7 @@ export function useWebRTC({ conversationId, isIncoming = false }: UseWebRTCArgs)
 
   return {
     callState,
+    localStream,
     remoteStream,
     startCall,
     acceptCall,
@@ -343,6 +384,8 @@ export function useWebRTC({ conversationId, isIncoming = false }: UseWebRTCArgs)
     hangup,
     toggleMute,
     muted,
+    cameraOn,
+    toggleCamera,
     speakerOn,
     toggleSpeaker,
     error,

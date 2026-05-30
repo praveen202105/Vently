@@ -18,12 +18,12 @@ const REFRESH_INTERVAL_MS = (15 * 60 - 30) * 1000;
 // Public routes inside the matcher that should NOT bounce to /login on a
 // failed /me — login/register live in the (auth) group and the (marketing)
 // pages stay readable anonymously.
-const PUBLIC_PREFIXES = ['/', '/welcome', '/home', '/login', '/register', '/forgot-password'];
-const AUTHED_REDIRECT_PREFIXES = ['/', '/welcome', '/home', '/login', '/register'];
+const PUBLIC_PREFIXES = ['/', '/welcome', '/learn', '/login', '/register', '/forgot-password'];
+const AUTHED_REDIRECT_PREFIXES = ['/', '/welcome', '/learn', '/login', '/register'];
 
 // Routes inside the (app) group that do NOT require a Profile to be present.
 // /onboarding is itself the place where you create the profile. /profile lets
-// you edit it. The rest (mood, matching, chat, call, connections) ALL need a
+// you edit it. The rest (home, mood, matching, chat, call, connections) ALL need a
 // profile — without one the socket gateway rejects the connection so the user
 // would otherwise sit stuck on "Looking for someone…" forever.
 const NO_PROFILE_REQUIRED_PREFIXES = ['/onboarding', '/profile'];
@@ -59,7 +59,7 @@ export function useAuthBootstrap() {
     if (!hydrated || !user || !pathname) return;
 
     if (shouldRedirectAuthedUser(pathname)) {
-      router.replace(profile ? '/mood' : '/onboarding');
+      router.replace(profile ? '/home' : '/onboarding');
       return;
     }
 

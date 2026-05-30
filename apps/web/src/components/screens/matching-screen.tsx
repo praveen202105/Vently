@@ -1,10 +1,10 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { motion, useReducedMotion } from 'motion/react';
 import { AudioLines, Sparkles, X } from 'lucide-react';
-import { SocketEvents, type MatchFoundPayload } from '@vently/shared';
+import { SocketEvents, type MatchFoundPayload, type MoodIntent } from '@vently/shared';
 import { AnimatedBackground, Button, GlassCard } from '@vently/ui';
 import { useAuthStore } from '@/stores/auth-store';
 import { useMatchStore } from '@/stores/match-store';
@@ -17,18 +17,49 @@ const TIMEOUT_MS = 60_000;
 // staring at "Looking for someone…" indefinitely. 20s gives Railway's free
 // tier room to cold-start + polling fallback to engage.
 const SOCKET_CONNECT_TIMEOUT_MS = 20_000;
+const VALID_MOODS = new Set<MoodIntent>([
+  'LONELY',
+  'NEED_TO_TALK',
+  'FRIENDSHIP',
+  'LATE_NIGHT',
+  'ADVICE',
+  'FLIRTY',
+  'VOICE_ONLY',
+]);
+
+function parseMood(value: string | null): MoodIntent | null {
+  return value && VALID_MOODS.has(value as MoodIntent) ? (value as MoodIntent) : null;
+}
 
 export function MatchingScreen() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const socket = useSocket();
   const profile = useAuthStore((s) => s.profile);
   const hydrated = useAuthStore((s) => s.hydrated);
   const reduceMotion = useReducedMotion();
-  const { mood, status, setQueued, setMatched, setTimeout: markTimeout, reset } = useMatchStore();
+  const {
+    mood,
+    status,
+    conversationId,
+    setMood,
+    setQueued,
+    setMatched,
+    setTimeout: markTimeout,
+    reset,
+  } = useMatchStore();
+  const urlMood = parseMood(searchParams.get('mood'));
+  const selectedMood = mood ?? urlMood;
   const timeoutRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const socketWatchRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const hasJoinedRef = useRef(false);
   const [socketError, setSocketError] = useState<string | null>(null);
+  // The mood the SERVER paired us under. Authoritative for routing — the
+  // local match-store mood comes from what the user picked, which should
+  // match, but trusting the payload protects against any future desync.
+  // Persisted in a ref so the navigation effect (which only depends on
+  // status) can read it after the celebration delay.
+  const matchedMoodRef = useRef<MoodIntent | null>(null);
   // socket.io's `connected` property is NOT reactive — React doesn't re-render
   // when it flips. We mirror it into state via the 'connect'/'disconnect'
   // events so the watchdog effect below can react when the socket comes online
@@ -48,10 +79,14 @@ export function MatchingScreen() {
     if (hydrated && !profile) router.replace('/onboarding');
   }, [hydrated, profile, router]);
 
+  useEffect(() => {
+    if (!mood && urlMood) setMood(urlMood);
+  }, [mood, urlMood, setMood]);
+
   // No mood picked? go back to /mood.
   useEffect(() => {
-    if (!mood) router.replace('/mood');
-  }, [mood, router]);
+    if (!selectedMood) router.replace('/mood');
+  }, [selectedMood, router]);
 
   // Mirror socket.connected into reactive state by subscribing to the
   // connect/disconnect events. Needed so the watchdog effect re-runs and
@@ -77,7 +112,7 @@ export function MatchingScreen() {
   // SOCKET_CONNECT_TIMEOUT_MS. This catches genuine failures (failed auth,
   // blocked WSS+polling, api down) while tolerating slow cold starts.
   useEffect(() => {
-    if (!hydrated || !profile || !mood) return;
+    if (!hydrated || !profile || !selectedMood) return;
     if (socketConnected) {
       // Socket came (or already was) online — clear any prior error and bail.
       setSocketError(null);
@@ -98,34 +133,10 @@ export function MatchingScreen() {
         socketWatchRef.current = undefined;
       }
     };
-  }, [socketConnected, hydrated, profile, mood]);
+  }, [socketConnected, hydrated, profile, selectedMood]);
 
-  // Emit match:join once when the socket + mood are ready.
-  useEffect(() => {
-    if (!socket || !mood || hasJoinedRef.current) return;
-    hasJoinedRef.current = true;
-
-    setQueued();
-    socket.emit(SocketEvents.MATCH_JOIN, { mood });
-
-    timeoutRef.current = setTimeout(() => {
-      markTimeout();
-      socket.emit(SocketEvents.MATCH_CANCEL);
-    }, TIMEOUT_MS);
-
-    return () => {
-      if (timeoutRef.current) clearTimeout(timeoutRef.current);
-    };
-  }, [socket, mood, setQueued, markTimeout]);
-
-  // The mood the SERVER paired us under. Authoritative for routing — the
-  // local match-store mood comes from what the user picked, which should
-  // match, but trusting the payload protects against any future desync.
-  // Persisted in a ref so the navigation effect (which only depends on
-  // status) can read it after the celebration delay.
-  const matchedMoodRef = useRef<typeof mood>(null);
-
-  // Listen for the matchmaking server's reply.
+  // Register server-result listeners before emitting match:join below. Fast
+  // matches can otherwise arrive before this screen has subscribed.
   useSocketEvent(
     SocketEvents.MATCH_FOUND,
     useCallback(
@@ -152,29 +163,44 @@ export function MatchingScreen() {
     }, [markTimeout, socket]),
   );
 
-  // Navigate as soon as we transition to matched (small delay for the "found!"
-  // celebration to be visible). VOICE_ONLY matches skip the chat screen and
-  // go straight to /call/[id] with a flag the call screen reads to pick its
-  // caller/callee role and suppress the ringer.
+  // Emit match:join once when the socket + mood are ready.
+  useEffect(() => {
+    if (!socket || !selectedMood || hasJoinedRef.current) return;
+    hasJoinedRef.current = true;
+
+    setQueued();
+    socket.emit(SocketEvents.MATCH_JOIN, { mood: selectedMood });
+
+    timeoutRef.current = setTimeout(() => {
+      markTimeout();
+      socket.emit(SocketEvents.MATCH_CANCEL);
+    }, TIMEOUT_MS);
+
+    return () => {
+      if (timeoutRef.current) clearTimeout(timeoutRef.current);
+    };
+  }, [socket, selectedMood, setQueued, markTimeout]);
+
+  // Navigate as soon as we transition to matched. This must not rely on a
+  // timeout: background tabs can throttle timers, leaving users stuck on
+  // "Match found!" after the server has already paired them.
   useEffect(() => {
     if (status !== 'matched') return;
-    const { conversationId } = useMatchStore.getState();
     if (!conversationId) return;
     // Fall back to the user-picked mood if the server payload was missing
     // (shouldn't happen post-deploy, but keeps the path backwards-compatible
     // with any in-flight clients).
-    const effectiveMood = matchedMoodRef.current ?? mood;
+    const effectiveMood = matchedMoodRef.current ?? selectedMood;
     const dest =
       effectiveMood === 'VOICE_ONLY'
         ? `/call/${conversationId}?voice-only=1`
         : `/chat/${conversationId}`;
-    const timer = setTimeout(() => router.push(dest), 800);
-    return () => clearTimeout(timer);
-  }, [status, router, mood]);
+    router.push(dest);
+  }, [status, conversationId, router, selectedMood]);
 
   return (
     <div className="min-h-dvh relative overflow-hidden flex flex-col items-center justify-center p-6">
-      <AnimatedBackground variant="mood" mood={mood} />
+      <AnimatedBackground variant="mood" mood={selectedMood} />
 
       <div className="relative z-10 flex flex-col items-center gap-8">
         <motion.div
@@ -193,12 +219,12 @@ export function MatchingScreen() {
                 : { duration: 2, repeat: Infinity, ease: 'linear' }
           }
           className={`w-32 h-32 rounded-full flex items-center justify-center shadow-2xl ${
-            mood === 'VOICE_ONLY'
+            selectedMood === 'VOICE_ONLY'
               ? 'bg-gradient-to-br from-sky-500 via-blue-500 to-indigo-600'
               : 'bg-gradient-to-br from-purple-600 via-pink-600 to-blue-600'
           }`}
         >
-          {mood === 'VOICE_ONLY' ? (
+          {selectedMood === 'VOICE_ONLY' ? (
             <AudioLines className="w-14 h-14 text-white" />
           ) : (
             <Sparkles className="w-14 h-14 text-white" />
@@ -212,7 +238,9 @@ export function MatchingScreen() {
                 Match found!
               </h1>
               <p className="text-muted-foreground">
-                {mood === 'VOICE_ONLY' ? 'Connecting your call…' : 'Taking you to the chat…'}
+                {selectedMood === 'VOICE_ONLY'
+                  ? 'Connecting your call…'
+                  : 'Taking you to the chat…'}
               </p>
             </motion.div>
           ) : socketError ? (
@@ -246,10 +274,12 @@ export function MatchingScreen() {
           ) : (
             <>
               <h1 className="text-2xl mb-1">
-                {mood === 'VOICE_ONLY' ? 'Finding someone to talk to…' : 'Looking for someone…'}
+                {selectedMood === 'VOICE_ONLY'
+                  ? 'Finding someone to talk to…'
+                  : 'Looking for someone…'}
               </h1>
               <p className="text-muted-foreground text-sm">
-                {mood === 'VOICE_ONLY'
+                {selectedMood === 'VOICE_ONLY'
                   ? 'Get your mic ready — you’ll be connected the moment we find a match.'
                   : 'Hang tight — usually under 10 seconds.'}
               </p>

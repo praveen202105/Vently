@@ -43,7 +43,7 @@ export const SocketEvents = {
   FRIEND_ONLINE: 'friend:online',
   FRIEND_OFFLINE: 'friend:offline',
 
-  // Voice calls (WebRTC signaling)
+  // Calls (WebRTC signaling)
   CALL_INVITE: 'call:invite',
   CALL_ACCEPT: 'call:accept',
   CALL_REJECT: 'call:reject',
@@ -189,9 +189,12 @@ export interface FriendRespondEventPayload {
   byUserId: string;
 }
 
+export type CallMode = 'voice' | 'video';
+
 export interface CallInvitePayload {
   conversationId: string;
   fromUserId: string;
+  mode?: CallMode;
 }
 
 export interface CallSdpPayload {

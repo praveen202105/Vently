@@ -41,6 +41,7 @@ describe('CallsGateway call invite push', () => {
     expect(realtime.emitToUser).toHaveBeenCalledWith('callee-b', SocketEvents.CALL_INVITE, {
       conversationId: 'conv-1',
       fromUserId: 'caller-a',
+      mode: 'voice',
     });
     expect(focus.isUserVisible).toHaveBeenCalledWith('callee-b');
     expect(push.sendToUser).toHaveBeenCalledWith('callee-b', {
@@ -63,7 +64,31 @@ describe('CallsGateway call invite push', () => {
     expect(realtime.emitToUser).toHaveBeenCalledWith('callee-b', SocketEvents.CALL_INVITE, {
       conversationId: 'conv-1',
       fromUserId: 'caller-a',
+      mode: 'voice',
     });
     expect(push.sendToUser).not.toHaveBeenCalled();
+  });
+
+  it('forwards video call mode and sends a video-specific OS push', async () => {
+    const { gateway, socket, realtime, push } = makeGateway({ peerVisible: false });
+
+    await gateway.onInvite(socket as any, {
+      conversationId: 'conv-1',
+      fromUserId: '',
+      mode: 'video',
+    });
+
+    expect(realtime.emitToUser).toHaveBeenCalledWith('callee-b', SocketEvents.CALL_INVITE, {
+      conversationId: 'conv-1',
+      fromUserId: 'caller-a',
+      mode: 'video',
+    });
+    expect(push.sendToUser).toHaveBeenCalledWith('callee-b', {
+      title: 'Incoming video call',
+      body: 'Ana is video calling you',
+      url: '/call/conv-1?incoming=1&mode=video',
+      tag: 'call:conv-1',
+      requireInteraction: true,
+    });
   });
 });

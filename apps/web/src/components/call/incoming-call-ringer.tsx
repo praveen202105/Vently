@@ -3,8 +3,8 @@
 import { useCallback, useState } from 'react';
 import { usePathname, useRouter } from 'next/navigation';
 import { motion, AnimatePresence, useReducedMotion } from 'motion/react';
-import { Phone, PhoneOff } from 'lucide-react';
-import { SocketEvents, type CallInvitePayload } from '@vently/shared';
+import { Phone, PhoneOff, Video } from 'lucide-react';
+import { SocketEvents, type CallInvitePayload, type CallMode } from '@vently/shared';
 import { useSocket } from '@/lib/socket/use-socket';
 import { useSocketEvent } from '@/lib/socket/use-socket-event';
 import { useRingtone } from '@/lib/webrtc/use-ringtone';
@@ -12,6 +12,7 @@ import { useRingtone } from '@/lib/webrtc/use-ringtone';
 interface IncomingCall {
   conversationId: string;
   fromUserId: string;
+  mode: CallMode;
 }
 
 export function IncomingCallRinger() {
@@ -31,7 +32,11 @@ export function IncomingCallRinger() {
         // Ignore the invite if we're already on the call screen for it — the
         // useWebRTC hook handles signaling directly.
         if (pathname?.startsWith(`/call/${payload.conversationId}`)) return;
-        setIncoming({ conversationId: payload.conversationId, fromUserId: payload.fromUserId });
+        setIncoming({
+          conversationId: payload.conversationId,
+          fromUserId: payload.fromUserId,
+          mode: payload.mode === 'video' ? 'video' : 'voice',
+        });
       },
       [pathname],
     ),
@@ -46,8 +51,9 @@ export function IncomingCallRinger() {
   const accept = () => {
     if (!incoming) return;
     const id = incoming.conversationId;
+    const suffix = incoming.mode === 'video' ? '?incoming=1&mode=video' : '?incoming=1';
     setIncoming(null);
-    router.push(`/call/${id}?incoming=1`);
+    router.push(`/call/${id}${suffix}`);
   };
 
   const reject = () => {
@@ -57,6 +63,7 @@ export function IncomingCallRinger() {
     socket?.emit(SocketEvents.CALL_REJECT, {
       conversationId: incoming.conversationId,
       fromUserId: '',
+      mode: incoming.mode,
     });
     setIncoming(null);
   };
@@ -78,10 +85,16 @@ export function IncomingCallRinger() {
               transition={reduceMotion ? undefined : { duration: 1.2, repeat: Infinity }}
               className="w-11 h-11 rounded-full bg-gradient-to-br from-purple-600 to-pink-600 flex items-center justify-center text-white"
             >
-              <Phone className="w-5 h-5" />
+              {incoming.mode === 'video' ? (
+                <Video className="w-5 h-5" />
+              ) : (
+                <Phone className="w-5 h-5" />
+              )}
             </motion.div>
             <div className="flex-1 min-w-0">
-              <p className="truncate text-sm">Incoming call</p>
+              <p className="truncate text-sm">
+                {incoming.mode === 'video' ? 'Incoming video call' : 'Incoming call'}
+              </p>
               <p className="text-xs text-muted-foreground">Tap to answer</p>
             </div>
             <button

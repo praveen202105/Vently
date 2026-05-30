@@ -4,7 +4,7 @@ import Link from 'next/link';
 import { useAuthStore } from '@/stores/auth-store';
 
 /**
- * CTA pair on the home page. Reads the auth store so a logged-in visitor sees
+ * CTA pair on marketing pages. Reads the auth store so a logged-in visitor sees
  * "Continue chatting" instead of the "Get started / Sign in" pair. Falls back
  * to the anonymous view until AuthBootstrap finishes the /me round-trip.
  */
@@ -31,7 +31,7 @@ export function AuthAwareCta({ variant = 'hero' }: Props) {
 
   // If we know the user is authenticated, show the in-app CTAs.
   if (hydrated && user) {
-    const target = profile ? '/mood' : '/onboarding';
+    const target = profile ? '/home' : '/onboarding';
     return (
       <div
         className={variant === 'hero' ? 'flex flex-col sm:flex-row gap-3 justify-center mt-8' : ''}

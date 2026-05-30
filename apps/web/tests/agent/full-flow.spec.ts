@@ -103,12 +103,15 @@ test.describe('🤖 Vently Testing Agent', () => {
   // Phase 2 — Authenticated routing + profile rendering
   // ────────────────────────────────────────────────────────────────────────
 
-  test('2. /home sends logged-in user into the app', async () => {
+  test('2. /home renders the logged-in app home', async () => {
     step(`${alice.nickname} (MALE) opens /home`);
     await alicePage.goto('/home', { waitUntil: 'networkidle' });
 
-    await alicePage.waitForURL(/\/mood/, { timeout: 15_000 });
-    await expect(alicePage.getByRole('heading', { name: /how are you feeling/i })).toBeVisible();
+    await alicePage.waitForURL(/\/home/, { timeout: 15_000 });
+    await expect(
+      alicePage.getByRole('heading', { name: new RegExp(`hi, ${alice.nickname}`, 'i') }),
+    ).toBeVisible();
+    await expect(alicePage.getByRole('heading', { name: /how are you feeling/i })).toHaveCount(0);
     await expect(alicePage.getByText(new RegExp(`continue as ${alice.nickname}`, 'i'))).toHaveCount(
       0,
     );
@@ -201,7 +204,8 @@ test.describe('🤖 Vently Testing Agent', () => {
     test.skip(aliceConv !== bobConv, 'Different conversations — skipping friend flow');
 
     step(`${alice.nickname} clicks Save-as-friend`);
-    await alicePage.getByRole('button', { name: /save as friend/i }).click();
+    await alicePage.getByRole('button', { name: /more options/i }).click();
+    await alicePage.getByRole('menuitem', { name: /save as friend/i }).click();
     await expect(alicePage.getByText(/friend request sent/i)).toBeVisible({ timeout: 8_000 });
     await alicePage.screenshot({ path: 'agent-results/06a-friend-sent.png', fullPage: true });
 

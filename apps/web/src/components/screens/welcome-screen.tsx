@@ -169,7 +169,7 @@ export function WelcomeScreen() {
           variant="outline"
           size="lg"
           className="w-full text-xl border-2"
-          onClick={() => router.push('/home')}
+          onClick={() => router.push('/learn')}
         >
           Learn More
         </Button>

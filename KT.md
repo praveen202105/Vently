@@ -1030,6 +1030,38 @@ If Slack does not trigger anything:
 - Verify GitHub secret `SLACK_WEBHOOK_URL`.
 - Verify Slack app slash command/interactivity URLs point at the production API.
 
+### …run the local ship agent after a task?
+
+Use this when a feature/fix is done and you want the local machine to act as the gatekeeper before anything reaches production:
+
+```bash
+# Local quality gate only: no commit, no push.
+pnpm agent:local
+
+# Add focused browser coverage when a feature touched chat/call UI.
+pnpm agent:local -- --spec 08-chat-header.spec.ts
+
+# Ship after checks pass: commit + push. Push to main triggers CI -> Deploy -> prod verification.
+pnpm agent:ship -- --message "feat: add whatsapp style video calls" --spec 08-chat-header.spec.ts
+```
+
+What it runs by default:
+
+- Prisma generate + schema validate
+- shared package build
+- workspace typecheck, lint, and build
+- Prettier check
+- `git diff --check`
+
+Optional flags:
+
+- `--api-test` runs all API unit tests.
+- `--e2e` runs the full web Playwright E2E suite.
+- `--agent-test` runs the full browser agent suite.
+- `--heal` asks Gemini to apply one small app/package fix when a check fails, then re-runs checks. Needs `GEMINI_API_KEY`.
+
+If a final check fails, the agent writes a short report to `bugs.md` and refuses to commit or push.
+
 ### …rotate JWT secrets in production?
 
 ```bash

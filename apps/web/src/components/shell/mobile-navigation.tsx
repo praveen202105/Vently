@@ -54,6 +54,7 @@ export function MobileNavigation() {
             <li key={t.href}>
               <Link
                 href={t.href}
+                aria-current={active ? 'page' : undefined}
                 className={`flex flex-col items-center gap-1 py-3 text-xs transition-colors ${
                   active ? 'text-primary' : 'text-muted-foreground hover:text-foreground'
                 }`}

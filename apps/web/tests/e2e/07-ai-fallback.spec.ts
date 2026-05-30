@@ -28,6 +28,10 @@ async function waitForAIFallbackChat(page: Page, moodName: RegExp) {
   return conversationId;
 }
 
+async function openChatOptions(page: Page) {
+  await page.getByRole('button', { name: /more options/i }).click();
+}
+
 test.describe('AI Fallback Peer', () => {
   test('spawns an AI chat, hides human-only actions, replies, and expires on end', async ({
     browser,
@@ -39,10 +43,16 @@ test.describe('AI Fallback Peer', () => {
       const conversationId = await waitForAIFallbackChat(page, /need to talk/i);
 
       await expect(page.getByRole('button', { name: /start voice call/i })).toHaveCount(0);
+      await expect(page.getByRole('button', { name: /start video call/i })).toHaveCount(0);
       await expect(page.getByRole('button', { name: /save as friend/i })).toHaveCount(0);
-      await expect(page.getByRole('button', { name: /report user/i })).toBeVisible();
-      await expect(page.getByRole('button', { name: /block user/i })).toBeVisible();
-      await expect(page.getByRole('button', { name: 'End', exact: true })).toBeVisible();
+      await expect(page.getByRole('button', { name: /report user/i })).toHaveCount(0);
+      await expect(page.getByRole('button', { name: /block user/i })).toHaveCount(0);
+      await openChatOptions(page);
+      await expect(page.getByRole('menuitem', { name: /save as friend/i })).toHaveCount(0);
+      await expect(page.getByRole('menuitem', { name: /report user/i })).toBeVisible();
+      await expect(page.getByRole('menuitem', { name: /block user/i })).toBeVisible();
+      await expect(page.getByRole('menuitem', { name: /end chat/i })).toBeVisible();
+      await page.keyboard.press('Escape');
 
       const probe = `fallback probe ${Date.now()}`;
       await page.getByPlaceholder(/type a message/i).fill(probe);
@@ -52,7 +62,8 @@ test.describe('AI Fallback Peer', () => {
         timeout: 10_000,
       });
 
-      await page.getByRole('button', { name: 'End', exact: true }).click();
+      await openChatOptions(page);
+      await page.getByRole('menuitem', { name: /end chat/i }).click();
       await page.getByRole('button', { name: /end chat/i }).click();
       await page.waitForURL(/\/mood/, { timeout: 10_000 });
 
@@ -85,7 +96,8 @@ test.describe('AI Fallback Peer', () => {
       await expect(page.getByText(searchable).last()).toBeVisible();
       await page.getByRole('button', { name: /close search/i }).click();
 
-      await page.getByRole('button', { name: /report user/i }).click();
+      await openChatOptions(page);
+      await page.getByRole('menuitem', { name: /report user/i }).click();
       await expect(page.getByRole('dialog', { name: /report user/i })).toBeVisible();
       await page.getByLabel(/spam/i).check();
       await page.getByRole('button', { name: 'Submit' }).click();
@@ -124,14 +136,17 @@ test.describe('AI Fallback Peer', () => {
       await expect(page.locator('header p').first()).not.toHaveText('Stranger', {
         timeout: 10_000,
       });
-      await expect(page.getByRole('button', { name: /report user/i })).toBeEnabled();
+      await openChatOptions(page);
+      await expect(page.getByRole('menuitem', { name: /report user/i })).toBeEnabled();
+      await page.keyboard.press('Escape');
 
       await page.reload({ waitUntil: 'networkidle' });
 
       await expect(page.locator('header p').first()).not.toHaveText('Stranger', {
         timeout: 10_000,
       });
-      await expect(page.getByRole('button', { name: /report user/i })).toBeEnabled();
+      await openChatOptions(page);
+      await expect(page.getByRole('menuitem', { name: /report user/i })).toBeEnabled();
     } finally {
       await ctx.close();
     }

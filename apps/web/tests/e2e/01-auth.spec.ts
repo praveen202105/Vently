@@ -67,23 +67,44 @@ test.describe('Phase 1 — Auth + Profile', () => {
     await page.getByLabel('Password').fill(user.password);
     await page.getByRole('button', { name: /sign in/i }).click();
 
-    await page.waitForURL(/\/mood/);
-    await expect(page.getByRole('heading', { name: /how are you feeling/i })).toBeVisible();
+    await page.waitForURL(/\/home/);
+    await expect(
+      page.getByRole('heading', { name: new RegExp(`hi, ${user.nickname}`, 'i') }),
+    ).toBeVisible();
     await expect(page.getByLabel('Nickname')).toHaveCount(0);
   });
 
-  test('logged-in user is not shown the public home page', async ({ page }) => {
+  test('welcome learn more opens public learn page', async ({ page }) => {
+    await page.goto('/welcome', { waitUntil: 'networkidle' });
+    await page.getByRole('button', { name: /learn more/i }).click();
+
+    await page.waitForURL(/\/learn/);
+    await expect(page.getByRole('heading', { name: /^vently$/i })).toBeVisible();
+  });
+
+  test('logged-in /home shows app home, not chat picker', async ({ page }) => {
     const user = await provisionUserViaApi({ gender: 'FEMALE' });
 
     await page.goto('/login', { waitUntil: 'networkidle' });
     await page.getByLabel('Email').fill(user.email);
     await page.getByLabel('Password').fill(user.password);
     await page.getByRole('button', { name: /sign in/i }).click();
-    await page.waitForURL(/\/mood/);
+    await page.waitForURL(/\/home/);
 
     await page.goto('/home', { waitUntil: 'networkidle' });
-    await page.waitForURL(/\/mood/);
-    await expect(page.getByRole('heading', { name: /how are you feeling/i })).toBeVisible();
+    await page.waitForURL(/\/home/);
+    await expect(
+      page.getByRole('heading', { name: new RegExp(`hi, ${user.nickname}`, 'i') }),
+    ).toBeVisible();
+    await expect(page.getByRole('heading', { name: /how are you feeling/i })).toHaveCount(0);
+    await expect(page.getByRole('link', { name: /^Home$/ })).toHaveAttribute(
+      'aria-current',
+      'page',
+    );
+    await expect(page.getByRole('link', { name: /^Chat$/ })).not.toHaveAttribute(
+      'aria-current',
+      'page',
+    );
     await expect(page.getByText(new RegExp(`continue as ${user.nickname}`, 'i'))).toHaveCount(0);
   });
 });

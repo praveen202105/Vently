@@ -68,15 +68,23 @@ export class CallsGateway {
     if (!session) return { ok: false };
 
     const peerId = session.callerId === caller.userId ? session.calleeId : session.callerId;
+    const mode = payload.mode === 'video' ? 'video' : 'voice';
     this.realtime.emitToUser(peerId, SocketEvents.CALL_INVITE, {
       conversationId: payload.conversationId,
       fromUserId: caller.userId,
+      mode,
     });
     if (!this.focus.isUserVisible(peerId)) {
       void this.push.sendToUser(peerId, {
-        title: 'Incoming call',
-        body: `${caller.nickname} is calling you`,
-        url: `/call/${payload.conversationId}?incoming=1`,
+        title: mode === 'video' ? 'Incoming video call' : 'Incoming call',
+        body:
+          mode === 'video'
+            ? `${caller.nickname} is video calling you`
+            : `${caller.nickname} is calling you`,
+        url:
+          mode === 'video'
+            ? `/call/${payload.conversationId}?incoming=1&mode=video`
+            : `/call/${payload.conversationId}?incoming=1`,
         tag: `call:${payload.conversationId}`,
         requireInteraction: true,
       });
@@ -94,6 +102,7 @@ export class CallsGateway {
       this.realtime.emitToUser(peerId, SocketEvents.CALL_ACCEPT, {
         conversationId: payload.conversationId,
         fromUserId: socket.data.user.userId,
+        mode: payload.mode === 'video' ? 'video' : 'voice',
       });
     }
     return { ok: true };
@@ -109,6 +118,7 @@ export class CallsGateway {
       this.realtime.emitToUser(peerId, SocketEvents.CALL_REJECT, {
         conversationId: payload.conversationId,
         fromUserId: socket.data.user.userId,
+        mode: payload.mode === 'video' ? 'video' : 'voice',
       });
     }
     await this.calls.end(payload.conversationId, 'rejected');

@@ -30,7 +30,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
     <html lang="en" className="dark">
       <body>
         <QueryProvider>
-          {/* Hydrate the session on every route so marketing/home pages can
+          {/* Hydrate the session on every route so marketing pages can
               show personalised CTAs and so a refresh on any page doesn't make
               the user look anonymous to themselves. */}
           <AuthBootstrap>{children}</AuthBootstrap>

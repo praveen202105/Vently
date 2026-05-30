@@ -1,4 +1,4 @@
-import { VoiceCallScreen } from '@/components/screens/voice-call-screen';
+import { CallScreen } from '@/components/screens/call-screen';
 
 export default async function CallPage({
   params,
@@ -6,5 +6,5 @@ export default async function CallPage({
   params: Promise<{ conversationId: string }>;
 }) {
   const { conversationId } = await params;
-  return <VoiceCallScreen conversationId={conversationId} />;
+  return <CallScreen conversationId={conversationId} />;
 }

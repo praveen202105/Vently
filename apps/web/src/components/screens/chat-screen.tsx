@@ -9,6 +9,7 @@ import {
   ArrowLeft,
   ArrowDown,
   Check,
+  MoreVertical,
   Phone,
   Reply,
   RotateCw,
@@ -21,7 +22,9 @@ import {
   X,
   Sparkles,
   Mic,
+  Video,
 } from 'lucide-react';
+import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
 import { toast } from 'sonner';
 import { AudioBubble } from '@/components/chat/audio-bubble';
 import {
@@ -396,6 +399,12 @@ export function ChatScreen({ conversationId }: { conversationId: string }) {
   const lastMetAt = conversation?.lastMetAt || storeLastMetAt;
   const [showReunion, setShowReunion] = useState(true);
   const peer = storePeer || conversation?.peer;
+  const peerNickname = peer?.nickname ?? 'Stranger';
+  const peerInitial = peerNickname[0]?.toUpperCase() ?? '?';
+  const peerIsOnline = peer ? ('isOnline' in peer ? peer.isOnline : true) : false;
+  const peerStatus =
+    peerTyping && peer ? 'typing...' : peer ? (peerIsOnline ? 'online' : 'offline') : '—';
+  const canSaveFriend = !isFriendConvo && !isAIChat;
 
   // Message history with cursor pagination. listMessages returns the OLDEST
   // 30 of the requested cursor window in chronological order (items[0] is
@@ -1184,11 +1193,11 @@ export function ChatScreen({ conversationId }: { conversationId: string }) {
 
   return (
     <div className="fixed inset-0 flex flex-col overflow-hidden bg-background">
-      <header className="flex items-center gap-3 p-4 border-b border-glass-border bg-glass-bg backdrop-blur-xl sticky top-0 z-10">
+      <header className="sticky top-0 z-20 flex h-16 md:h-[72px] shrink-0 items-center gap-2 border-b border-white/10 bg-[#111b21] px-3 text-white shadow-sm">
         <button
           type="button"
           onClick={() => (searchOpen ? closeSearch() : router.push('/connections'))}
-          className="p-2 rounded-lg hover:bg-muted transition"
+          className="grid h-11 w-11 shrink-0 place-items-center rounded-full text-white/90 transition hover:bg-white/10"
           aria-label={searchOpen ? 'Close search' : 'Back'}
         >
           {searchOpen ? <X className="w-5 h-5" /> : <ArrowLeft className="w-5 h-5" />}
@@ -1202,96 +1211,131 @@ export function ChatScreen({ conversationId }: { conversationId: string }) {
             value={searchQuery}
             onChange={(e) => onSearchChange(e.target.value)}
             placeholder="Search messages…"
-            className="flex-1 bg-input rounded-xl px-4 py-2 outline-none border border-glass-border focus:ring-2 focus:ring-primary/40 text-sm"
+            className="min-w-0 flex-1 rounded-full border border-white/10 bg-white/10 px-4 py-2 text-sm text-white outline-none placeholder:text-white/45 focus:ring-2 focus:ring-primary/50"
           />
         ) : (
           <>
-            <div className="w-10 h-10 rounded-full bg-gradient-to-br from-purple-600 to-pink-600 flex items-center justify-center text-white">
-              {peer?.nickname[0]?.toUpperCase() ?? '?'}
+            <div className="grid h-12 w-12 shrink-0 place-items-center rounded-full bg-gradient-to-br from-purple-600 to-pink-600 text-base font-semibold text-white md:h-[52px] md:w-[52px]">
+              {peerInitial}
             </div>
             <div className="flex-1 min-w-0">
-              <p className="truncate">{peer?.nickname ?? 'Stranger'}</p>
-              <p className="text-xs text-muted-foreground">
-                {peerTyping && peer?.nickname
-                  ? `${peer.nickname} is typing…`
-                  : peer
-                    ? 'online'
-                    : '—'}
+              <p
+                className="truncate text-base font-semibold leading-tight tracking-normal text-white md:text-lg"
+                data-testid="chat-peer-name"
+              >
+                {peerNickname}
+              </p>
+              <p
+                className="mt-0.5 truncate text-xs leading-tight text-white/65 md:text-sm"
+                data-testid="chat-peer-status"
+              >
+                {peerStatus}
               </p>
             </div>
           </>
         )}
 
-        {!searchOpen && !isFriendConvo && !isAIChat && (
-          <button
-            type="button"
-            onClick={addFriend}
-            disabled={!peer || requestSent}
-            className={`p-2 rounded-lg transition disabled:opacity-50 ${
-              requestSent ? 'text-muted-foreground' : 'hover:bg-primary/20 text-primary'
-            }`}
-            aria-label={requestSent ? 'Friend request sent' : 'Save as friend'}
-            title={requestSent ? 'Friend request sent' : 'Save as friend'}
-          >
-            {requestSent ? <Check className="w-5 h-5" /> : <UserPlus className="w-5 h-5" />}
-          </button>
-        )}
-
         {!searchOpen && (
           <>
             {!isAIChat && (
-              <button
-                type="button"
-                onClick={() => router.push(`/call/${conversationId}`)}
-                className="p-2 rounded-lg hover:bg-primary/20 transition text-primary"
-                aria-label="Start voice call"
-              >
-                <Phone className="w-5 h-5" />
-              </button>
+              <>
+                <button
+                  type="button"
+                  onClick={() => router.push(`/call/${conversationId}`)}
+                  className="grid h-11 w-11 shrink-0 place-items-center rounded-full text-primary transition hover:bg-white/10"
+                  aria-label="Start voice call"
+                  title="Voice call"
+                >
+                  <Phone className="w-5 h-5" />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => router.push(`/call/${conversationId}?mode=video`)}
+                  className="grid h-11 w-11 shrink-0 place-items-center rounded-full text-primary transition hover:bg-white/10"
+                  aria-label="Start video call"
+                  title="Video call"
+                >
+                  <Video className="w-5 h-5" />
+                </button>
+              </>
             )}
             <button
               type="button"
-              onClick={() => setReportOpen(true)}
-              disabled={!peer}
-              className="p-2 rounded-lg hover:bg-destructive/20 transition text-destructive disabled:opacity-50"
-              aria-label="Report user"
-              title="Report"
+              onClick={() => setSearchOpen(true)}
+              className="grid h-11 w-11 shrink-0 place-items-center rounded-full text-primary transition hover:bg-white/10"
+              aria-label="Search messages"
+              title="Search"
             >
-              <Flag className="w-5 h-5" />
+              <Search className="w-5 h-5" />
             </button>
-            <button
-              type="button"
-              onClick={() => setBlockOpen(true)}
-              disabled={!peer}
-              className="p-2 rounded-lg hover:bg-destructive/20 transition text-destructive disabled:opacity-50"
-              aria-label="Block user"
-              title="Block"
-            >
-              <Shield className="w-5 h-5" />
-            </button>
-            <button
-              type="button"
-              onClick={() => (isFriendConvo ? void leave() : setLeaveOpen(true))}
-              className={`text-xs px-3 py-1.5 rounded-lg transition ${
-                isFriendConvo
-                  ? 'hover:bg-muted text-muted-foreground'
-                  : 'hover:bg-destructive/10 text-destructive'
-              }`}
-            >
-              {isFriendConvo ? 'Back' : 'End'}
-            </button>
+            <DropdownMenu.Root>
+              <DropdownMenu.Trigger asChild>
+                <button
+                  type="button"
+                  className="grid h-11 w-11 shrink-0 place-items-center rounded-full text-white/90 transition hover:bg-white/10"
+                  aria-label="More options"
+                  title="More"
+                >
+                  <MoreVertical className="w-5 h-5" />
+                </button>
+              </DropdownMenu.Trigger>
+              <DropdownMenu.Portal>
+                <DropdownMenu.Content
+                  align="end"
+                  sideOffset={8}
+                  className="z-50 min-w-52 overflow-hidden rounded-md border border-white/10 bg-[#202c33] p-1 text-sm text-white shadow-2xl"
+                >
+                  {canSaveFriend && (
+                    <DropdownMenu.Item
+                      disabled={!peer || requestSent}
+                      onSelect={(event) => {
+                        if (!peer || requestSent) {
+                          event.preventDefault();
+                          return;
+                        }
+                        void addFriend();
+                      }}
+                      className="flex cursor-pointer items-center gap-3 rounded px-3 py-2.5 outline-none transition data-[disabled]:cursor-not-allowed data-[disabled]:opacity-45 data-[highlighted]:bg-white/10"
+                    >
+                      {requestSent ? (
+                        <Check className="w-4 h-4 text-white/70" />
+                      ) : (
+                        <UserPlus className="w-4 h-4 text-primary" />
+                      )}
+                      <span>{requestSent ? 'Request sent' : 'Save as friend'}</span>
+                    </DropdownMenu.Item>
+                  )}
+                  <DropdownMenu.Item
+                    disabled={!peer}
+                    onSelect={() => setReportOpen(true)}
+                    className="flex cursor-pointer items-center gap-3 rounded px-3 py-2.5 outline-none transition data-[disabled]:cursor-not-allowed data-[disabled]:opacity-45 data-[highlighted]:bg-white/10"
+                  >
+                    <Flag className="w-4 h-4 text-destructive" />
+                    <span>Report user</span>
+                  </DropdownMenu.Item>
+                  <DropdownMenu.Item
+                    disabled={!peer}
+                    onSelect={() => setBlockOpen(true)}
+                    className="flex cursor-pointer items-center gap-3 rounded px-3 py-2.5 outline-none transition data-[disabled]:cursor-not-allowed data-[disabled]:opacity-45 data-[highlighted]:bg-white/10"
+                  >
+                    <Shield className="w-4 h-4 text-destructive" />
+                    <span>Block user</span>
+                  </DropdownMenu.Item>
+                  <DropdownMenu.Separator className="my-1 h-px bg-white/10" />
+                  <DropdownMenu.Item
+                    onSelect={() => (isFriendConvo ? void leave() : setLeaveOpen(true))}
+                    className={`flex cursor-pointer items-center gap-3 rounded px-3 py-2.5 outline-none transition data-[highlighted]:bg-white/10 ${
+                      isFriendConvo ? 'text-white/80' : 'text-destructive'
+                    }`}
+                  >
+                    <X className="w-4 h-4" />
+                    <span>{isFriendConvo ? 'Back to connections' : 'End chat'}</span>
+                  </DropdownMenu.Item>
+                </DropdownMenu.Content>
+              </DropdownMenu.Portal>
+            </DropdownMenu.Root>
           </>
         )}
-
-        <button
-          type="button"
-          onClick={() => (searchOpen ? closeSearch() : setSearchOpen(true))}
-          className="p-2 rounded-lg hover:bg-primary/20 transition text-primary"
-          aria-label="Search messages"
-          title="Search"
-        >
-          <Search className="w-5 h-5" />
-        </button>
       </header>
 
       <AnimatePresence>

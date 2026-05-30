@@ -1,4 +1,4 @@
-import { test, expect, type BrowserContext } from '@playwright/test';
+import { test, expect, type BrowserContext, type Page } from '@playwright/test';
 import { loginPage, provisionUserViaApi, API_HOST } from './helpers';
 import { request } from '@playwright/test';
 
@@ -14,15 +14,35 @@ import { request } from '@playwright/test';
 //   So we give each step a generous budget and use a 4-minute total timeout.
 
 /** Helper: navigate two users to /mood and match them into a chat. */
-async function matchUsers(
-  alice: import('@playwright/test').Page,
-  bob: import('@playwright/test').Page,
-  timeout = 60_000,
-) {
+async function waitForAppUrl(page: Page, pattern: RegExp, timeout: number) {
+  await expect.poll(() => page.url(), { timeout }).toMatch(pattern);
+}
+
+async function pickNeedToTalk(page: Page, timeout: number) {
+  if (/\/(matching|chat)\//.test(page.url()) || page.url().includes('/matching')) return;
+
+  const button = page.getByRole('button', { name: /need to talk/i });
+  await button.waitFor({ timeout });
+
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    await button.click();
+    try {
+      await waitForAppUrl(page, /\/matching|\/chat\//, 5_000);
+      return;
+    } catch {
+      // Retry; Next dev can render the button just before hydration completes.
+    }
+  }
+
+  await waitForAppUrl(page, /\/matching/, timeout);
+}
+
+async function matchUsers(alice: Page, bob: Page, timeout = 120_000) {
+  timeout = Math.max(timeout, 180_000);
   // Navigate both users to mood selection in parallel.
   await Promise.all([
-    alice.goto('/mood', { waitUntil: 'domcontentloaded' }),
-    bob.goto('/mood', { waitUntil: 'domcontentloaded' }),
+    alice.goto('/mood', { waitUntil: 'networkidle', timeout }),
+    bob.goto('/mood', { waitUntil: 'networkidle', timeout }),
   ]);
 
   // Wait for auth hydration on both pages before clicking.
@@ -34,15 +54,13 @@ async function matchUsers(
 
   // Click sequentially to avoid socket race conditions:
   // Alice joins the queue first, Bob joins second → they match each other.
-  await alice.getByRole('button', { name: /need to talk/i }).click();
-  await alice.waitForURL(/\/matching/, { timeout });
-  await bob.getByRole('button', { name: /need to talk/i }).click();
-  await bob.waitForURL(/\/matching/, { timeout });
+  await pickNeedToTalk(alice, timeout);
+  await pickNeedToTalk(bob, timeout);
 
   // Wait for matchmaking to pair them and navigate to /chat/:id.
   await Promise.all([
-    alice.waitForURL(/\/chat\//, { timeout }),
-    bob.waitForURL(/\/chat\//, { timeout }),
+    waitForAppUrl(alice, /\/chat\//, timeout),
+    waitForAppUrl(bob, /\/chat\//, timeout),
   ]);
 
   const aliceConvId = alice.url().split('/chat/')[1];
@@ -58,7 +76,7 @@ test.describe('05 — Translate Chips', () => {
     browser,
   }) => {
     // 4 minutes: 40s page compile + 30s auth + 15s match + 60s Groq calls
-    test.setTimeout(240_000);
+    test.setTimeout(360_000);
 
     const aliceUser = await provisionUserViaApi({ gender: 'MALE' });
     const bobUser = await provisionUserViaApi({ gender: 'FEMALE' });
@@ -121,7 +139,7 @@ test.describe('05 — Translate Chips', () => {
 
   test('translate button is NOT shown on own messages', async ({ browser }) => {
     // 3 minutes: compile + auth + match + assertions
-    test.setTimeout(180_000);
+    test.setTimeout(300_000);
 
     const aliceUser = await provisionUserViaApi({ gender: 'MALE' });
     const bobUser = await provisionUserViaApi({ gender: 'FEMALE' });

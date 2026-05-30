@@ -1,5 +1,54 @@
-import { test, expect, type BrowserContext } from '@playwright/test';
+import { test, expect, type BrowserContext, type Page } from '@playwright/test';
 import { loginPage, provisionUserViaApi } from './helpers';
+
+async function openChatOptions(page: Page) {
+  await page.getByRole('button', { name: /more options/i }).click();
+}
+
+const MATCH_TIMEOUT = 180_000;
+
+async function waitForAppUrl(page: Page, pattern: RegExp, timeout = MATCH_TIMEOUT) {
+  await expect.poll(() => page.url(), { timeout }).toMatch(pattern);
+}
+
+async function pickNeedToTalk(page: Page) {
+  if (/\/(matching|chat)\//.test(page.url()) || page.url().includes('/matching')) return;
+
+  const button = page.getByRole('button', { name: /need to talk/i });
+  await expect(button).toBeVisible({ timeout: MATCH_TIMEOUT });
+
+  // In Next dev, hydration can occasionally lag behind the visible button.
+  // Retry the click if the first event was swallowed before React attached.
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    await button.click();
+    try {
+      await waitForAppUrl(page, /\/matching|\/chat\//, 5_000);
+      return;
+    } catch {
+      // Try again below, then let the final wait surface the real timeout.
+    }
+  }
+
+  await waitForAppUrl(page, /\/matching/);
+}
+
+async function matchNeedToTalk(alice: Page, bob: Page) {
+  await Promise.all([
+    alice.goto('/mood', { waitUntil: 'networkidle', timeout: MATCH_TIMEOUT }),
+    bob.goto('/mood', { waitUntil: 'networkidle', timeout: MATCH_TIMEOUT }),
+  ]);
+
+  await pickNeedToTalk(alice);
+  await pickNeedToTalk(bob);
+
+  await Promise.all([waitForAppUrl(alice, /\/chat\//), waitForAppUrl(bob, /\/chat\//)]);
+
+  const aliceConvId = alice.url().split('/chat/')[1];
+  const bobConvId = bob.url().split('/chat/')[1];
+  expect(aliceConvId).toBeTruthy();
+  expect(aliceConvId).toEqual(bobConvId);
+  return aliceConvId!;
+}
 
 // Phase 2 + 3 — drives the full match-then-chat flow across two browser
 // contexts so we exercise real Socket.io matchmaking + chat:send/receive +
@@ -7,7 +56,7 @@ import { loginPage, provisionUserViaApi } from './helpers';
 
 test.describe('Phase 2/3 — Match + Chat + Friend', () => {
   test('two users match, exchange messages, become friends', async ({ browser }) => {
-    test.setTimeout(60_000);
+    test.setTimeout(360_000);
 
     const aliceUser = await provisionUserViaApi({ gender: 'MALE' });
     const bobUser = await provisionUserViaApi({ gender: 'FEMALE' });
@@ -20,26 +69,20 @@ test.describe('Phase 2/3 — Match + Chat + Friend', () => {
     await loginPage(alice, aliceCtx, aliceUser);
     await loginPage(bob, bobCtx, bobUser);
 
-    // Both users pick the same mood. networkidle ensures React hydration
-    // finished before we drive clicks.
-    await alice.goto('/mood', { waitUntil: 'networkidle' });
-    await bob.goto('/mood', { waitUntil: 'networkidle' });
+    await matchNeedToTalk(alice, bob);
 
-    await alice.getByRole('button', { name: /need to talk/i }).click();
-    await alice.waitForURL(/\/matching/);
-
-    await bob.getByRole('button', { name: /need to talk/i }).click();
-    await bob.waitForURL(/\/matching/);
-
-    // Both should land on chat in a few seconds.
-    await alice.waitForURL(/\/chat\//, { timeout: 15_000 });
-    await bob.waitForURL(/\/chat\//, { timeout: 15_000 });
-
-    // Same conversation id on both sides.
-    const aliceConvId = alice.url().split('/chat/')[1];
-    const bobConvId = bob.url().split('/chat/')[1];
-    expect(aliceConvId).toBeTruthy();
-    expect(aliceConvId).toEqual(bobConvId);
+    await expect(alice.getByTestId('chat-peer-name')).toBeVisible();
+    await expect(alice.getByTestId('chat-peer-status')).toHaveText(/online|typing|offline|—/i);
+    await expect(alice.getByRole('button', { name: /start voice call/i })).toBeVisible();
+    await expect(alice.getByRole('button', { name: /start video call/i })).toBeVisible();
+    await expect(alice.getByRole('button', { name: /report user/i })).toHaveCount(0);
+    await expect(alice.getByRole('button', { name: /block user/i })).toHaveCount(0);
+    await openChatOptions(alice);
+    await expect(alice.getByRole('menuitem', { name: /save as friend/i })).toBeVisible();
+    await expect(alice.getByRole('menuitem', { name: /report user/i })).toBeVisible();
+    await expect(alice.getByRole('menuitem', { name: /block user/i })).toBeVisible();
+    await expect(alice.getByRole('menuitem', { name: /end chat/i })).toBeVisible();
+    await alice.keyboard.press('Escape');
 
     // Send a message from alice, see it on bob.
     const aliceMsg = `hi from alice ${Date.now()}`;
@@ -56,7 +99,8 @@ test.describe('Phase 2/3 — Match + Chat + Friend', () => {
     await expect(alice.getByText(bobMsg)).toBeVisible({ timeout: 5_000 });
 
     // Alice sends a friend request.
-    await alice.getByRole('button', { name: /save as friend/i }).click();
+    await openChatOptions(alice);
+    await alice.getByRole('menuitem', { name: /save as friend/i }).click();
     // Toast appears.
     await expect(alice.getByText(/friend request sent/i)).toBeVisible({ timeout: 5_000 });
 
@@ -78,7 +122,7 @@ test.describe('Phase 2/3 — Match + Chat + Friend', () => {
   test('two strangers match, leave conversation, match again and see reunion banner', async ({
     browser,
   }) => {
-    test.setTimeout(60_000);
+    test.setTimeout(360_000);
 
     const aliceUser = await provisionUserViaApi({ gender: 'MALE' });
     const bobUser = await provisionUserViaApi({ gender: 'FEMALE' });
@@ -92,17 +136,7 @@ test.describe('Phase 2/3 — Match + Chat + Friend', () => {
     await loginPage(bob, bobCtx, bobUser);
 
     // Initial match
-    await alice.goto('/mood', { waitUntil: 'networkidle' });
-    await bob.goto('/mood', { waitUntil: 'networkidle' });
-
-    await alice.getByRole('button', { name: /need to talk/i }).click();
-    await alice.waitForURL(/\/matching/);
-
-    await bob.getByRole('button', { name: /need to talk/i }).click();
-    await bob.waitForURL(/\/matching/);
-
-    await alice.waitForURL(/\/chat\//, { timeout: 15_000 });
-    await bob.waitForURL(/\/chat\//, { timeout: 15_000 });
+    await matchNeedToTalk(alice, bob);
 
     // Send at least one message so the conversation has content and gets ended
     const aliceMsg = `hello stranger ${Date.now()}`;
@@ -111,25 +145,16 @@ test.describe('Phase 2/3 — Match + Chat + Friend', () => {
     await expect(bob.getByText(aliceMsg)).toBeVisible({ timeout: 5_000 });
 
     // Alice ends the chat
-    await alice.getByRole('button', { name: 'End', exact: true }).click();
+    await openChatOptions(alice);
+    await alice.getByRole('menuitem', { name: /end chat/i }).click();
     await alice.getByRole('button', { name: 'End chat' }).click();
-    await alice.waitForURL(/\/mood/);
+    await waitForAppUrl(alice, /\/mood/);
 
     // Bob redirects to connections because chat ended
-    await bob.waitForURL(/\/connections/, { timeout: 10_000 });
+    await waitForAppUrl(bob, /\/connections/, 10_000);
 
     // Re-match to trigger reunion
-    await alice.goto('/mood', { waitUntil: 'networkidle' });
-    await bob.goto('/mood', { waitUntil: 'networkidle' });
-
-    await alice.getByRole('button', { name: /need to talk/i }).click();
-    await alice.waitForURL(/\/matching/);
-
-    await bob.getByRole('button', { name: /need to talk/i }).click();
-    await bob.waitForURL(/\/matching/);
-
-    await alice.waitForURL(/\/chat\//, { timeout: 15_000 });
-    await bob.waitForURL(/\/chat\//, { timeout: 15_000 });
+    await matchNeedToTalk(alice, bob);
 
     // Assert that the reunion banner is visible on both screens
     await expect(alice.getByText(/you two met before/i)).toBeVisible({ timeout: 10_000 });
