@@ -2,6 +2,8 @@
 
 A from-zero guide to the Vently codebase. Read top-to-bottom and you should be able to find any file, understand any feature, and ship a new one within a day.
 
+**Last updated:** 2026-05-30. Covers production state through commit `f09fa98` (`feat(ai-chat): tune late night persona timing`) and the AI chat personalization/RAG work deployed to Railway.
+
 > If you only have 5 minutes, read [§1 What is this](#1-what-is-this), [§3 Tech stack](#3-tech-stack), and [§4 Repo layout](#4-repo-layout). That gets you 80% of the orientation.
 
 ---
@@ -22,6 +24,8 @@ A from-zero guide to the Vently codebase. Read top-to-bottom and you should be a
    - [6.6 Friends + blocks](#66-friends--blocks)
    - [6.7 Notifications](#67-notifications)
    - [6.8 Safety: report + profanity](#68-safety-report--profanity)
+   - [6.9 AI fallback + chat personalization RAG](#69-ai-fallback--chat-personalization-rag)
+   - [6.10 Chat intelligence + polish](#610-chat-intelligence--polish)
 7. [Data model (Prisma schema)](#7-data-model-prisma-schema)
 8. [REST API reference](#8-rest-api-reference)
 9. [Socket event reference](#9-socket-event-reference)
@@ -36,7 +40,7 @@ A from-zero guide to the Vently codebase. Read top-to-bottom and you should be a
 
 ## 1. What is this
 
-**Vently** is an anonymous emotional chat + voice calling app. Users pick a mood and get matched 1:1 with someone in the same vibe. They can chat in real time, switch to a voice call, save the person as a friend, and reconnect later. Block / report flows keep things safe.
+**Vently** is an anonymous emotional chat + voice calling app. Users pick a mood and get matched 1:1 with someone in the same vibe. They can chat in real time, switch to a voice call, save the person as a friend, and reconnect later. If no human match arrives quickly, an invisible AI fallback peer can keep the chat flowing. Block / report flows keep things safe.
 
 Headline user flow:
 
@@ -44,10 +48,11 @@ Headline user flow:
 Register → Onboard (nickname + gender + 18+) → Pick a mood
        → Get matched with opposite gender in same mood
        → Realtime chat / voice call
+       → If no human is around, AI fallback opens an ephemeral chat
        → Optionally save as friend → reconnect later
 ```
 
-It's anonymous in the user-facing sense (no real names exposed) but accounts are persistent — your friends list and history survive across sessions.
+It's anonymous in the user-facing sense (no real names exposed) but accounts are persistent — your friends list and human chat history survive across sessions. AI fallback chats are ephemeral in Redis, while safe distilled chat-personalization signals can be stored in Postgres for 90 days if personalization is enabled.
 
 ## 2. Live URLs + accounts
 
@@ -57,6 +62,11 @@ It's anonymous in the user-facing sense (no real names exposed) but accounts are
 | **API**     | <https://api-production-7fe02.up.railway.app>        |
 | **Health**  | <https://api-production-7fe02.up.railway.app/health> |
 | **GitHub**  | <https://github.com/praveen202105/Vently>            |
+
+Current production note:
+
+- **API deploy verified:** Railway production deployment `bc3d44a0-8df5-40bf-87ff-ad1d0f92d8d2` is running commit `f09fa98`.
+- **Prod smoke verified:** health OK, Gemini embeddings active, AI fallback `LATE_NIGHT` Playwright smoke passed, and recent Railway logs had no warnings/errors.
 
 Provider dashboards:
 
@@ -69,20 +79,22 @@ Provider dashboards:
 
 ### Frontend ([apps/web](apps/web))
 
-| Tool                               | Why                                                                                                                         |
-| ---------------------------------- | --------------------------------------------------------------------------------------------------------------------------- |
-| **Next.js 15** (App Router)        | React framework with SSR, server components, edge middleware. Each top-level folder under `app/` is a route.                |
-| **React 19**                       | UI library. Client components are marked with `'use client'`; everything else is a Server Component by default.             |
-| **TypeScript**                     | Strict mode. All shared types live in `packages/shared`.                                                                    |
-| **Tailwind v4**                    | Utility-first CSS. Theme tokens (colors, radii) live in [globals.css](apps/web/src/styles/globals.css) via `@theme inline`. |
-| **shadcn/ui**                      | Re-export of Radix primitives + custom theming. Currently lighter usage — most components are hand-rolled.                  |
-| **Framer Motion** (`motion/react`) | Animation library used for the splash/welcome/matching screens.                                                             |
-| **Zustand**                        | State management. One store per concern: `authStore`, `matchStore`, `chatStore`, `callStore`.                               |
-| **TanStack Query (v5)**            | Server-state cache for REST data (conversations, notifications, friends).                                                   |
-| **socket.io-client**               | Real-time bidirectional events. Auth via JWT in handshake.                                                                  |
-| **react-hook-form + Zod**          | Form state + validation. Schemas live in `packages/shared/schemas`.                                                         |
-| **sonner**                         | Toast notifications.                                                                                                        |
-| **lucide-react**                   | Icon set.                                                                                                                   |
+| Tool                                | Why                                                                                                                         |
+| ----------------------------------- | --------------------------------------------------------------------------------------------------------------------------- |
+| **Next.js 15** (App Router)         | React framework with SSR, server components, edge middleware. Each top-level folder under `app/` is a route.                |
+| **React 19**                        | UI library. Client components are marked with `'use client'`; everything else is a Server Component by default.             |
+| **TypeScript**                      | Strict mode. All shared types live in `packages/shared`.                                                                    |
+| **Tailwind v4**                     | Utility-first CSS. Theme tokens (colors, radii) live in [globals.css](apps/web/src/styles/globals.css) via `@theme inline`. |
+| **shadcn/ui**                       | Re-export of Radix primitives + custom theming. Currently lighter usage — most components are hand-rolled.                  |
+| **Framer Motion** (`motion/react`)  | Animation library used for the splash/welcome/matching screens.                                                             |
+| **Zustand**                         | State management. One store per concern: `authStore`, `matchStore`, `chatStore`, `callStore`.                               |
+| **TanStack Query (v5)**             | Server-state cache for REST data (conversations, notifications, friends).                                                   |
+| **socket.io-client**                | Real-time bidirectional events. Auth via JWT in handshake.                                                                  |
+| **react-hook-form + Zod**           | Form state + validation. Schemas live in `packages/shared/schemas`.                                                         |
+| **sonner**                          | Toast notifications.                                                                                                        |
+| **lucide-react**                    | Icon set.                                                                                                                   |
+| **Browser MediaRecorder/Web Audio** | Voice notes in chat + synthetic call/ringback tones.                                                                        |
+| **Playwright**                      | End-to-end browser testing, including prod smoke tests.                                                                     |
 
 ### Backend ([apps/api](apps/api))
 
@@ -100,12 +112,17 @@ Provider dashboards:
 | **nestjs-pino**                         | Structured JSON logs.                                                                                                                                |
 | **@nestjs/throttler**                   | Rate limiting.                                                                                                                                       |
 | **WebRTC** (browser native)             | P2P 1:1 voice. Signaling over Socket.io. ICE servers from Open Relay (free) or Cloudflare/Metered.                                                   |
+| **Groq SDK**                            | Llama 3.1 8B for AI fallback replies, AI ice-breakers, smart reply chips, and translation fallback.                                                  |
+| **Gemini embeddings REST API**          | `gemini-embedding-001` for semantic RAG retrieval. Falls back to `local-semantic-hash-v1` when `GEMINI_API_KEY` is absent.                           |
+| **web-push**                            | VAPID-based browser push notifications.                                                                                                              |
 
 ### Infra
 
 - **Vercel** — Next.js web hosting (free Hobby tier).
 - **Railway** — API + Postgres + Redis. Docker-based deploy from the repo's [apps/api/Dockerfile](apps/api/Dockerfile).
 - **Turborepo + pnpm** workspaces — monorepo orchestration.
+- **Groq** — LLM provider for live chat intelligence. Controlled by `GROQ_API_KEY`.
+- **Google AI Studio / Gemini** — embedding provider. Controlled by `GEMINI_API_KEY` + `GEMINI_EMBEDDING_MODEL`.
 
 ---
 
@@ -171,7 +188,14 @@ vently/
 │       │   ├── webrtc/          GET /webrtc/ice-servers (mints TURN creds or returns Open Relay)
 │       │   ├── moderation/      Profanity filter
 │       │   ├── reports/         POST /reports
-│       │   └── notifications/   GET/PATCH /notifications + socket emit on push
+│       │   ├── notifications/   GET/PATCH /notifications + socket emit on push
+│       │   ├── push/            Browser push subscription + VAPID sends
+│       │   ├── icebreaker/      Groq streaming opener after human matches
+│       │   ├── suggestions/     Groq smart reply chips
+│       │   ├── translation/     Groq translation + localized reply chips
+│       │   ├── ai-peer/         AI fallback personas + Groq runner
+│       │   ├── ai-memory/       Chat personalization RAG retrieval/observation
+│       │   └── slack/           Dev/ops Slack trigger endpoints
 │       ├── Dockerfile         Multi-stage build for Railway
 │       └── railway.toml       Service config (lives at repo root actually — see §13)
 │
@@ -203,6 +227,9 @@ vently/
 ├── turbo.json                 Pipeline config
 ├── VENTLY_PLAN.md             Architecture + phased roadmap (the original plan)
 ├── DEPLOY.md                  Production deploy walkthrough
+├── docs/                      Feature docs + verification pipeline notes
+├── futureplan.md              Backlog / future implementation notes
+├── bugs.md                    Current bug notes when used
 └── KT.md                      You are here.
 ```
 
@@ -401,6 +428,8 @@ After a match:
 
 Block enforcement: after popping a peer from Lua, the service checks the `Block` table. If blocked, it retries up to 3 times so a blocked pair never gets matched.
 
+**AI fallback:** if `AI_FALLBACK_ENABLED=true`, a queued text mood schedules a timer (`AI_FALLBACK_MS`, currently 8s in the env example). If no human match lands before the timer fires, the gateway removes the user from the queue and spawns an ephemeral AI peer from [apps/api/src/ai-peer/personas.json](apps/api/src/ai-peer/personas.json). `VOICE_ONLY` never uses AI fallback.
+
 ### 6.4 Realtime chat
 
 #### What the user sees
@@ -564,6 +593,7 @@ PATCH /friends/requests/:id { accept: true }
 - Bell icon in the desktop sidebar with an unread badge.
 - Click → drawer opens with the list: "New friend request", "Friend request accepted", etc.
 - Click an item → marks as read.
+- Browser push can notify for messages/friend events when the tab is backgrounded or closed, if the user grants permission.
 
 #### Files
 
@@ -579,7 +609,9 @@ PATCH /friends/requests/:id { accept: true }
 
 On the client, the bell uses TanStack Query for the initial list + listens for `notification:new` to inject newly-pushed items into the cache. Unread count = `n.readAt === null`.
 
-Triggers wired so far: friend request, friend accepted. (Phase-6 backlog: missed call, message-while-away, etc.)
+Browser push is handled separately by `PushService`: the web app stores PushManager subscriptions via `/api/push/subscribe`, and chat sends OS notifications only when `FocusService` says the recipient is not actively reading that conversation.
+
+Triggers wired so far: friend request, friend accepted, and message-while-away push. (Backlog: richer missed-call notification UX.)
 
 ### 6.8 Safety: report + profanity
 
@@ -598,6 +630,107 @@ Triggers wired so far: friend request, friend accepted. (Phase-6 backlog: missed
 
 **Reports** (`POST /api/reports`) just inserts a `Report` row with reason + free-text details (≤ 2000 chars). The admin moderation dashboard is post-V1 — for now you can review reports via `pnpm db:studio`.
 
+### 6.9 AI fallback + chat personalization RAG
+
+#### What the user sees
+
+- If no human match arrives quickly, the user still lands in a normal-looking `/chat/ai_conv_...` conversation.
+- The UI does **not** show "AI", "RAG", or "AI memory" wording in chat.
+- Voice call and friend actions are quietly unavailable for AI fallback peers; report/block remain available.
+- Profile shows **Chat personalization** controls: enabled/paused state and a clear action.
+- AI replies are short, WhatsApp-like, and adapt to language/tone: Hinglish, serious, playful, flirty, supportive, etc.
+
+#### Files
+
+- AI fallback peer registry: [apps/api/src/ai-peer/ai-peer.service.ts](apps/api/src/ai-peer/ai-peer.service.ts)
+- AI reply runner/prompt: [apps/api/src/ai-peer/ai-agent.runner.ts](apps/api/src/ai-peer/ai-agent.runner.ts)
+- Static persona pool: [apps/api/src/ai-peer/personas.json](apps/api/src/ai-peer/personas.json)
+- Mood RAG seed source: [apps/api/src/ai-peer/tone-packs.json](apps/api/src/ai-peer/tone-packs.json)
+- Persona/story RAG seed source: [apps/api/src/ai-peer/persona-stories.json](apps/api/src/ai-peer/persona-stories.json)
+- Memory/RAG service: [apps/api/src/ai-memory/ai-memory.service.ts](apps/api/src/ai-memory/ai-memory.service.ts)
+- Memory controls API: [apps/api/src/ai-memory/ai-memory.controller.ts](apps/api/src/ai-memory/ai-memory.controller.ts)
+- Embeddings: [apps/api/src/profiles/embedding.service.ts](apps/api/src/profiles/embedding.service.ts)
+- Web profile controls: [apps/web/src/components/screens/profile-screen.tsx](apps/web/src/components/screens/profile-screen.tsx)
+
+#### Under the hood
+
+AI fallback is intentionally **ephemeral**:
+
+- `AIPeerService.spawn()` mints `ai_<persona>_<rand>` and `ai_conv_<rand>_<time>` ids.
+- Redis stores `aichat:conv:<conversationId>` and `aichat:user:<userId>` for 60 minutes.
+- A 10-minute `aichat:rl:<userId>` throttle prevents repeated AI sessions from burning quota.
+- No `Conversation` or `Message` rows are written for AI fallback chats. Chat history is only a capped Redis list for prompt context.
+
+Persona pool:
+
+- Total AI personas: **20**.
+- AI girls: **10** total.
+- `LATE_NIGHT` AI girl candidates: **6** (`kavya`, `riya`, `ananya`, `sara`, `priya`, `isha`).
+- Persona selection matches requested mood + target gender, then picks randomly from candidates.
+
+RAG design:
+
+- `AiRagChunk.scope=MOOD_TEMPLATE` stores seeded mood examples from `tone-packs.json`.
+- `AiRagChunk.scope=PERSONA_TEMPLATE` stores seeded persona/story context from `persona-stories.json`.
+- `AiRagChunk.scope=USER_MEMORY` stores only distilled personalization signals, never raw full chat logs.
+- User memory expires after **90 days**.
+- Missing `AiMemoryPreference` means personalization is enabled by default; `DELETE /me/ai-memory` clears chunks and disables it.
+- Normal human chats can feed personalization, but only from the sender's own clean text messages. Peer messages are never stored into another user's memory.
+- AI fallback chats can also feed personalization via the user's own AI-chat turns.
+
+Embedding/retrieval:
+
+- Production uses Gemini `gemini-embedding-001` when `GEMINI_API_KEY` is present.
+- If Gemini is unavailable, the app falls back to `local-semantic-hash-v1`, so chat still works.
+- Embeddings are stored as Postgres JSON arrays; v1 ranks candidates in app code using cosine similarity.
+- If embedding dimensions mismatch or generation fails, retrieval falls back to lexical text similarity.
+
+Prompt behavior:
+
+- `AIAgentRunner` retrieves mood + persona + user context before the Groq reply.
+- Retrieved notes are injected as hidden soft context only. The AI must not say "I remember" or reveal memory/RAG/personalization.
+- `LATE_NIGHT` remains cozy/flirty but non-graphic. Explicit sexual requests get a short playful slow-down, not graphic content and not a policy lecture.
+- `AI_CHAT_TIME_ZONE` defaults to `Asia/Kolkata`. The prompt includes local time context so daytime chats do not incorrectly say "raat", "1am", or "neend nahi aa rahi" unless the user brought up night/sleep.
+
+User controls:
+
+| Method | Path            | Purpose                                                                |
+| ------ | --------------- | ---------------------------------------------------------------------- |
+| GET    | `/me/ai-memory` | Returns `{ enabled, chunkCount, lastUpdatedAt, retentionDays }`        |
+| PATCH  | `/me/ai-memory` | Accepts `{ enabled: boolean }`                                         |
+| DELETE | `/me/ai-memory` | Deletes current user's memory chunks and sets personalization disabled |
+
+### 6.10 Chat intelligence + polish
+
+These are layered on top of the base chat feature in §6.4.
+
+#### What the user sees
+
+- AI ice-breaker bubble streams after a human match to help start the chat.
+- Smart reply chips appear after ice-breakers and incoming messages.
+- Message search runs inside a conversation.
+- Quote reply, delete-for-everyone, emoji reactions, read receipts, and translate controls are available from message UI.
+- Voice notes can be recorded from the composer and rendered inline.
+- Browser push notifications can wake the user when a message arrives while they are away.
+
+#### Files
+
+- Ice-breakers: [apps/api/src/icebreaker/](apps/api/src/icebreaker/), [apps/web/src/components/chat/icebreaker-bubble.tsx](apps/web/src/components/chat/icebreaker-bubble.tsx)
+- Smart reply chips: [apps/api/src/suggestions/suggestions.service.ts](apps/api/src/suggestions/suggestions.service.ts), [apps/web/src/components/chat/suggestion-chips.tsx](apps/web/src/components/chat/suggestion-chips.tsx)
+- Translation: [apps/api/src/translation/](apps/api/src/translation/), [apps/web/src/components/chat/translate-button.tsx](apps/web/src/components/chat/translate-button.tsx)
+- Reactions: [apps/api/src/messages/reactions.controller.ts](apps/api/src/messages/reactions.controller.ts), [apps/web/src/components/chat/reaction-picker.tsx](apps/web/src/components/chat/reaction-picker.tsx), [reaction-pills.tsx](apps/web/src/components/chat/reaction-pills.tsx)
+- Voice notes: [apps/web/src/components/chat/audio-bubble.tsx](apps/web/src/components/chat/audio-bubble.tsx), composer logic in [chat-screen.tsx](apps/web/src/components/screens/chat-screen.tsx)
+- Push: [apps/api/src/push/](apps/api/src/push/), [apps/web/src/lib/push/use-push.ts](apps/web/src/lib/push/use-push.ts), [push-permission-prompt.tsx](apps/web/src/components/notifications/push-permission-prompt.tsx)
+
+#### Under the hood
+
+- Ice-breakers and suggestions use Groq `llama-3.1-8b-instant`; missing `GROQ_API_KEY` disables them gracefully.
+- Translation endpoint returns detected language, translated text, and up to 3 localized reply chips.
+- Message reactions are idempotent toggles on `(messageId, userId, emoji)`.
+- Delete-for-everyone soft-deletes by setting `Message.deletedAt`; clients render "This message was deleted".
+- Voice notes are sent as `audio:<base64 webm>` bodies. The message length cap is higher for audio payloads.
+- Push sends only when the peer is not focused on the conversation (`presence:focus`), avoiding redundant OS notifications while the chat is open.
+
 ---
 
 ## 7. Data model (Prisma schema)
@@ -608,11 +741,15 @@ Source of truth: [packages/shared/prisma/schema.prisma](packages/shared/prisma/s
 User                  — id, email, passwordHash?, googleId?, role
   └─ Profile (1:1)    — nickname, gender, bio, mood, avatarSeed, isOnline, lastSeenAt
   └─ Session (1:n)    — refreshTokenHash, expiresAt, deviceInfo
+  └─ PushSubscription — endpoint, p256dh, auth, userAgent
+  └─ AiMemoryPreference — chat personalization enabled/disabled
+  └─ AiRagChunk       — USER_MEMORY chunks for that user
 
-Conversation          — id, type (DIRECT|FRIEND), createdAt, endedAt
+Conversation          — id, type (DIRECT|FRIEND|AI_FALLBACK), createdAt, endedAt
   └─ ConversationParticipant (n:n with User via Conversation)
-  └─ Message (1:n)    — senderId, body, type (TEXT|SYSTEM), deletedAt
+  └─ Message (1:n)    — senderId, body, type (TEXT|SYSTEM), deletedAt, replyToMessageId
        └─ MessageReceipt (per participant) — deliveredAt, readAt
+       └─ MessageReaction (per user + emoji)
        └─ ModerationFlag (optional)
   └─ CallSession (1:n) — callerId, calleeId, startedAt, endedAt, durationSec, endReason
 
@@ -623,6 +760,7 @@ Block                 — blockerId, blockedId
 Report                — reporterId, reportedId, conversationId?, reason, details, status
 Notification          — userId, type, payload (JSON), readAt
 ModerationFlag        — messageId?, reason, severity, action
+AiRagChunk            — scope, mood?, kind, content, embedding Json?, metadata Json?, expiresAt
 ```
 
 **Adding a new field?** Edit `schema.prisma` → `pnpm db:migrate` → Prisma generates a new migration SQL + regenerates the client. Commit both the schema and the generated migration folder.
@@ -633,33 +771,44 @@ ModerationFlag        — messageId?, reason, severity, action
 
 Base path: `/api`. All endpoints return JSON. Auth is `Authorization: Bearer <accessToken>` unless marked **public**.
 
-| Method | Path                          | Auth   | Purpose                                 |
-| ------ | ----------------------------- | ------ | --------------------------------------- |
-| GET    | `/health`                     | public | DB + Redis healthcheck                  |
-| POST   | `/auth/register`              | public | Create account                          |
-| POST   | `/auth/login`                 | public | Sign in                                 |
-| POST   | `/auth/refresh`               | cookie | Rotate tokens                           |
-| POST   | `/auth/logout`                | auth   | Revoke session                          |
-| GET    | `/me`                         | auth   | Current user + profile                  |
-| PUT    | `/me/profile`                 | auth   | Onboarding upsert                       |
-| PATCH  | `/me/profile`                 | auth   | Partial update                          |
-| GET    | `/conversations`              | auth   | List user's conversations               |
-| DELETE | `/conversations/:id`          | auth   | Leave / end                             |
-| GET    | `/conversations/:id/messages` | auth   | Paginated history (`?cursor=&limit=`)   |
-| GET    | `/friends`                    | auth   | List friendships                        |
-| GET    | `/friends/requests`           | auth   | Incoming pending                        |
-| POST   | `/friends/requests`           | auth   | Send request `{toUserId}`               |
-| PATCH  | `/friends/requests/:id`       | auth   | `{accept: boolean}`                     |
-| DELETE | `/friends/requests/:id`       | auth   | Cancel outgoing                         |
-| DELETE | `/friends/:userId`            | auth   | Unfriend                                |
-| GET    | `/blocks`                     | auth   | List blocked users                      |
-| POST   | `/blocks`                     | auth   | Block `{userId}`                        |
-| DELETE | `/blocks/:userId`             | auth   | Unblock                                 |
-| GET    | `/notifications`              | auth   | List recent                             |
-| PATCH  | `/notifications/:id/read`     | auth   | Mark one read                           |
-| PATCH  | `/notifications/read-all`     | auth   | Mark all read                           |
-| POST   | `/reports`                    | auth   | Submit `{reportedId, reason, details?}` |
-| GET    | `/webrtc/ice-servers`         | auth   | STUN + TURN config                      |
+| Method | Path                                                           | Auth   | Purpose                                 |
+| ------ | -------------------------------------------------------------- | ------ | --------------------------------------- |
+| GET    | `/health`                                                      | public | DB + Redis healthcheck                  |
+| POST   | `/auth/register`                                               | public | Create account                          |
+| POST   | `/auth/login`                                                  | public | Sign in                                 |
+| POST   | `/auth/refresh`                                                | cookie | Rotate tokens                           |
+| POST   | `/auth/logout`                                                 | auth   | Revoke session                          |
+| GET    | `/me`                                                          | auth   | Current user + profile                  |
+| PUT    | `/me/profile`                                                  | auth   | Onboarding upsert                       |
+| PATCH  | `/me/profile`                                                  | auth   | Partial update                          |
+| GET    | `/me/ai-memory`                                                | auth   | Chat personalization status             |
+| PATCH  | `/me/ai-memory`                                                | auth   | Enable/disable chat personalization     |
+| DELETE | `/me/ai-memory`                                                | auth   | Clear personalization + disable         |
+| GET    | `/conversations`                                               | auth   | List user's conversations               |
+| GET    | `/conversations/unread-count`                                  | auth   | Total unread conversations/messages     |
+| GET    | `/conversations/:id`                                           | auth   | Conversation metadata                   |
+| DELETE | `/conversations/:id`                                           | auth   | Leave / end                             |
+| GET    | `/conversations/:id/messages/search`                           | auth   | Search messages in conversation         |
+| GET    | `/conversations/:id/messages`                                  | auth   | Paginated history (`?cursor=&limit=`)   |
+| DELETE | `/conversations/:id/messages/:messageId`                       | auth   | Soft-delete own message                 |
+| POST   | `/messages/:id/reactions`                                      | auth   | Toggle emoji reaction                   |
+| GET    | `/friends`                                                     | auth   | List friendships                        |
+| GET    | `/friends/requests`                                            | auth   | Incoming pending                        |
+| POST   | `/friends/requests`                                            | auth   | Send request `{toUserId}`               |
+| PATCH  | `/friends/requests/:id`                                        | auth   | `{accept: boolean}`                     |
+| DELETE | `/friends/requests/:id`                                        | auth   | Cancel outgoing                         |
+| DELETE | `/friends/:userId`                                             | auth   | Unfriend                                |
+| GET    | `/blocks`                                                      | auth   | List blocked users                      |
+| POST   | `/blocks`                                                      | auth   | Block `{userId}`                        |
+| DELETE | `/blocks/:userId`                                              | auth   | Unblock                                 |
+| GET    | `/notifications`                                               | auth   | List recent                             |
+| PATCH  | `/notifications/:id/read`                                      | auth   | Mark one read                           |
+| PATCH  | `/notifications/read-all`                                      | auth   | Mark all read                           |
+| POST   | `/push/subscribe`                                              | auth   | Save browser push subscription          |
+| DELETE | `/push/subscribe`                                              | auth   | Remove browser push subscription        |
+| POST   | `/reports`                                                     | auth   | Submit `{reportedId, reason, details?}` |
+| GET    | `/webrtc/ice-servers`                                          | auth   | STUN + TURN config                      |
+| POST   | `/conversations/:conversationId/messages/:messageId/translate` | auth   | Translate one message + reply chips     |
 
 Want to call them by hand? `curl -i -X GET https://api-production-7fe02.up.railway.app/api/me -H "Authorization: Bearer $ACCESS_TOKEN"`.
 
@@ -671,55 +820,71 @@ Single namespace `/`. Auth: `socket = io(URL, { auth: { token } })`. Server vali
 
 Names are constants in [`packages/shared/src/socket-events.ts`](packages/shared/src/socket-events.ts) — typed via `ClientToServerEvents` / `ServerToClientEvents` maps.
 
-| Event                | Direction | Payload                                     | When                                       |
-| -------------------- | --------- | ------------------------------------------- | ------------------------------------------ |
-| `presence:online`    | s→c       | `{ userId }`                                | Any user comes online                      |
-| `presence:offline`   | s→c       | `{ userId }`                                | Any user goes offline                      |
-| `match:join`         | c→s       | `{ mood, preferredGender? }`                | User entered `/matching`                   |
-| `match:cancel`       | c→s       | —                                           | User left `/matching`                      |
-| `match:found`        | s→c       | `{ conversationId, peer }`                  | Both queued users paired                   |
-| `match:timeout`      | s→c       | —                                           | (reserved — currently client-only timeout) |
-| `chat:join`          | c→s       | `{ conversationId }`                        | Re-join after reconnect                    |
-| `chat:send`          | c→s       | `{ conversationId, body, clientId }`        | Sending a message                          |
-| `chat:message`       | s→c       | full Message                                | New message in your conversation           |
-| `chat:ack`           | s→c       | `{ clientId, messageId }`                   | Server received + persisted your send      |
-| `chat:typing`        | c→s       | `{ conversationId, isTyping }`              | Typing indicator                           |
-| `chat:typing-status` | s→c       | `{ userId, isTyping, conversationId }`      | Peer's typing status                       |
-| `chat:read`          | c→s       | `{ conversationId, lastMessageId }`         | Mark up to here as read                    |
-| `chat:read-status`   | s→c       | `{ userId, lastMessageId, conversationId }` | Peer marked read                           |
-| `friend:request`     | s→c       | `{ requestId, fromUserId, fromNickname }`   | Someone sent you a request                 |
-| `friend:respond`     | s→c       | `{ requestId, accepted, byUserId }`         | Your request was answered                  |
-| `call:invite`        | c→s & s→c | `{ conversationId, fromUserId }`            | Start of call signaling                    |
-| `call:accept`        | c→s & s→c | same                                        | Callee picked up                           |
-| `call:reject`        | c→s & s→c | same                                        | Callee declined                            |
-| `call:offer`         | c→s↔c     | `{ conversationId, sdp }`                   | WebRTC SDP offer                           |
-| `call:answer`        | c→s↔c     | `{ conversationId, sdp }`                   | WebRTC SDP answer                          |
-| `call:ice-candidate` | c→s↔c     | `{ conversationId, candidate }`             | Trickling ICE                              |
-| `call:hangup`        | c→s & s→c | `{ conversationId, reason? }`               | Either side ends                           |
-| `notification:new`   | s→c       | `{ id, type, payload, createdAt }`          | New notification pushed                    |
+| Event                   | Direction | Payload                                      | When                                       |
+| ----------------------- | --------- | -------------------------------------------- | ------------------------------------------ |
+| `presence:online`       | s→c       | `{ userId }`                                 | Any user comes online                      |
+| `presence:offline`      | s→c       | `{ userId }`                                 | Any user goes offline                      |
+| `match:join`            | c→s       | `{ mood, preferredGender? }`                 | User entered `/matching`                   |
+| `match:cancel`          | c→s       | —                                            | User left `/matching`                      |
+| `match:found`           | s→c       | `{ conversationId, peer }`                   | Both queued users paired                   |
+| `match:queue-stats`     | s→c       | `{ mood, queueLength, estimatedWaitSec }`    | Queue ETA/stat updates                     |
+| `match:timeout`         | s→c       | —                                            | (reserved — currently client-only timeout) |
+| `presence:focus`        | c→s       | `{ conversationId: string or null }`         | Suppress push while user is reading chat   |
+| `chat:join`             | c→s       | `{ conversationId }`                         | Re-join after reconnect                    |
+| `chat:send`             | c→s       | `{ conversationId, body, clientId }`         | Sending a message                          |
+| `chat:message`          | s→c       | full Message                                 | New message in your conversation           |
+| `chat:ack`              | s→c       | `{ clientId, messageId }`                    | Server received + persisted your send      |
+| `chat:typing`           | c→s       | `{ conversationId, isTyping }`               | Typing indicator                           |
+| `chat:typing-status`    | s→c       | `{ userId, isTyping, conversationId }`       | Peer's typing status                       |
+| `chat:read`             | c→s       | `{ conversationId, lastMessageId }`          | Mark up to here as read                    |
+| `chat:read-status`      | s→c       | `{ userId, lastMessageId, conversationId }`  | Peer marked read                           |
+| `chat:reaction`         | s→c       | `{ messageId, emoji, action, userId }`       | Reaction add/remove broadcast              |
+| `chat:delete`           | c→s       | `{ conversationId, messageId }`              | Delete own message                         |
+| `chat:delete-status`    | s→c       | `{ conversationId, messageId, deletedAt }`   | Message was soft-deleted                   |
+| `chat:icebreaker:chunk` | s→c       | `{ conversationId, chunk }`                  | Streaming AI ice-breaker token             |
+| `chat:icebreaker:done`  | s→c       | `{ conversationId }`                         | Ice-breaker stream ended                   |
+| `chat:suggestions`      | s→c       | `{ conversationId, suggestions, forUserId }` | Smart reply chips                          |
+| `friend:request`        | s→c       | `{ requestId, fromUserId, fromNickname }`    | Someone sent you a request                 |
+| `friend:respond`        | s→c       | `{ requestId, accepted, byUserId }`          | Your request was answered                  |
+| `friend:online`         | s→c       | `{ userId }`                                 | Friend comes online                        |
+| `friend:offline`        | s→c       | `{ userId }`                                 | Friend goes offline                        |
+| `call:invite`           | c→s & s→c | `{ conversationId, fromUserId }`             | Start of call signaling                    |
+| `call:accept`           | c→s & s→c | same                                         | Callee picked up                           |
+| `call:reject`           | c→s & s→c | same                                         | Callee declined                            |
+| `call:offer`            | c→s↔c     | `{ conversationId, sdp }`                    | WebRTC SDP offer                           |
+| `call:answer`           | c→s↔c     | `{ conversationId, sdp }`                    | WebRTC SDP answer                          |
+| `call:ice-candidate`    | c→s↔c     | `{ conversationId, candidate }`              | Trickling ICE                              |
+| `call:hangup`           | c→s & s→c | `{ conversationId, reason? }`                | Either side ends                           |
+| `notification:new`      | s→c       | `{ id, type, payload, createdAt }`           | New notification pushed                    |
 
 ---
 
 ## 10. File map — where to find what
 
-| Looking for…                            | Look here                                                                                                           |
-| --------------------------------------- | ------------------------------------------------------------------------------------------------------------------- |
-| The login form UI                       | [apps/web/src/components/forms/login-form.tsx](apps/web/src/components/forms/login-form.tsx)                        |
-| The chat UI (bubbles, composer, typing) | [apps/web/src/components/screens/chat-screen.tsx](apps/web/src/components/screens/chat-screen.tsx)                  |
-| Where the JWT is signed                 | [apps/api/src/auth/auth.service.ts](apps/api/src/auth/auth.service.ts) — `issueTokens()`                            |
-| How the matchmaking queue works         | [apps/api/src/matchmaking/matchmaking.service.ts](apps/api/src/matchmaking/matchmaking.service.ts) — `MATCH_SCRIPT` |
-| The socket auth middleware              | [apps/api/src/realtime/realtime.gateway.ts](apps/api/src/realtime/realtime.gateway.ts) — `afterInit()`              |
-| What columns the User table has         | [packages/shared/prisma/schema.prisma](packages/shared/prisma/schema.prisma)                                        |
-| The Tailwind theme tokens (colors)      | [apps/web/src/styles/globals.css](apps/web/src/styles/globals.css) — `@theme inline` block                          |
-| Where api URL is configured for the web | [apps/web/.env.example](apps/web/.env.example) — `NEXT_PUBLIC_API_URL`                                              |
-| Where the api env vars are documented   | [apps/api/.env.example](apps/api/.env.example)                                                                      |
-| The Docker build for the api            | [apps/api/Dockerfile](apps/api/Dockerfile)                                                                          |
-| Railway service config                  | [railway.toml](railway.toml) (root!)                                                                                |
-| Vercel build config                     | [apps/web/vercel.json](apps/web/vercel.json)                                                                        |
-| The E2E test suite                      | [apps/web/tests/e2e/](apps/web/tests/e2e/)                                                                          |
-| CI pipeline                             | [.github/workflows/ci.yml](.github/workflows/ci.yml)                                                                |
-| The original architectural plan         | [VENTLY_PLAN.md](VENTLY_PLAN.md)                                                                                    |
-| Deployment runbook                      | [DEPLOY.md](DEPLOY.md)                                                                                              |
+| Looking for…                            | Look here                                                                                                                  |
+| --------------------------------------- | -------------------------------------------------------------------------------------------------------------------------- |
+| The login form UI                       | [apps/web/src/components/forms/login-form.tsx](apps/web/src/components/forms/login-form.tsx)                               |
+| The chat UI (bubbles, composer, typing) | [apps/web/src/components/screens/chat-screen.tsx](apps/web/src/components/screens/chat-screen.tsx)                         |
+| Where the JWT is signed                 | [apps/api/src/auth/auth.service.ts](apps/api/src/auth/auth.service.ts) — `issueTokens()`                                   |
+| How the matchmaking queue works         | [apps/api/src/matchmaking/matchmaking.service.ts](apps/api/src/matchmaking/matchmaking.service.ts) — `MATCH_SCRIPT`        |
+| How AI fallback peers are spawned       | [apps/api/src/ai-peer/ai-peer.service.ts](apps/api/src/ai-peer/ai-peer.service.ts)                                         |
+| AI fallback reply prompt/runner         | [apps/api/src/ai-peer/ai-agent.runner.ts](apps/api/src/ai-peer/ai-agent.runner.ts)                                         |
+| AI persona source                       | [apps/api/src/ai-peer/personas.json](apps/api/src/ai-peer/personas.json)                                                   |
+| Mood/persona RAG seed sources           | [tone-packs.json](apps/api/src/ai-peer/tone-packs.json), [persona-stories.json](apps/api/src/ai-peer/persona-stories.json) |
+| Chat personalization/RAG service        | [apps/api/src/ai-memory/ai-memory.service.ts](apps/api/src/ai-memory/ai-memory.service.ts)                                 |
+| Embedding provider/fallback             | [apps/api/src/profiles/embedding.service.ts](apps/api/src/profiles/embedding.service.ts)                                   |
+| The socket auth middleware              | [apps/api/src/realtime/realtime.gateway.ts](apps/api/src/realtime/realtime.gateway.ts) — `afterInit()`                     |
+| What columns the User table has         | [packages/shared/prisma/schema.prisma](packages/shared/prisma/schema.prisma)                                               |
+| The Tailwind theme tokens (colors)      | [apps/web/src/styles/globals.css](apps/web/src/styles/globals.css) — `@theme inline` block                                 |
+| Where api URL is configured for the web | [apps/web/.env.example](apps/web/.env.example) — `NEXT_PUBLIC_API_URL`                                                     |
+| Where the api env vars are documented   | [apps/api/.env.example](apps/api/.env.example)                                                                             |
+| The Docker build for the api            | [apps/api/Dockerfile](apps/api/Dockerfile)                                                                                 |
+| Railway service config                  | [railway.toml](railway.toml) (root!)                                                                                       |
+| Vercel build config                     | [apps/web/vercel.json](apps/web/vercel.json)                                                                               |
+| The E2E test suite                      | [apps/web/tests/e2e/](apps/web/tests/e2e/)                                                                                 |
+| CI pipeline                             | [.github/workflows/ci.yml](.github/workflows/ci.yml)                                                                       |
+| The original architectural plan         | [VENTLY_PLAN.md](VENTLY_PLAN.md)                                                                                           |
+| Deployment runbook                      | [DEPLOY.md](DEPLOY.md)                                                                                                     |
 
 ---
 
@@ -768,6 +933,28 @@ pnpm --filter @vently/shared exec prisma migrate dev --name describe_your_change
 ```
 
 In production, the api container's `CMD` runs `prisma migrate deploy` on startup — pending migrations apply automatically on the next Railway deploy. No manual step.
+
+### …update AI personas, mood tone, or RAG behavior?
+
+1. For who can appear in a mood, edit [apps/api/src/ai-peer/personas.json](apps/api/src/ai-peer/personas.json).
+2. For richer character background/persona RAG, edit [apps/api/src/ai-peer/persona-stories.json](apps/api/src/ai-peer/persona-stories.json).
+3. For mood-specific examples/rules, edit [apps/api/src/ai-peer/tone-packs.json](apps/api/src/ai-peer/tone-packs.json).
+4. For prompt behavior, edit [apps/api/src/ai-peer/ai-agent.runner.ts](apps/api/src/ai-peer/ai-agent.runner.ts).
+5. For memory extraction/retrieval policy, edit [apps/api/src/ai-memory/ai-memory.service.ts](apps/api/src/ai-memory/ai-memory.service.ts).
+6. Run:
+
+```bash
+pnpm --filter @vently/api test
+pnpm --filter @vently/api typecheck
+pnpm --filter @vently/api build
+pnpm format:check
+```
+
+Production notes:
+
+- Template chunks are upserted on API startup, so changing `tone-packs.json` or `persona-stories.json` takes effect after the next Railway API deploy.
+- Keep chat UI copy invisible: do not expose "AI", "RAG", or "AI memory" wording in conversation.
+- Keep `LATE_NIGHT` time-aware: `AI_CHAT_TIME_ZONE` prevents daytime replies from saying "raat" or "1am".
 
 ### …rotate JWT secrets in production?
 
@@ -821,7 +1008,7 @@ There's no UI yet. Via Prisma Studio (`pnpm db:studio`) — open the User row an
 
 ### Playwright E2E
 
-The suite lives at [apps/web/tests/e2e/](apps/web/tests/e2e/) and covers all 5 feature phases:
+The suite lives at [apps/web/tests/e2e/](apps/web/tests/e2e/) and covers the current browser-facing app:
 
 ```bash
 # Run against local stack (web :3000, api :4000):
@@ -839,8 +1026,26 @@ Tests:
 - [02-chat-flow.spec.ts](apps/web/tests/e2e/02-chat-flow.spec.ts) — two browser contexts, real match + chat + friend
 - [03-safety.spec.ts](apps/web/tests/e2e/03-safety.spec.ts) — report endpoint + notification flow
 - [04-webrtc.spec.ts](apps/web/tests/e2e/04-webrtc.spec.ts) — `/webrtc/ice-servers` returns usable list
+- [05-translate.spec.ts](apps/web/tests/e2e/05-translate.spec.ts) — translation flow
+- [06-sprint1-features.spec.ts](apps/web/tests/e2e/06-sprint1-features.spec.ts) — search, reactions, delete, reply, push-related chat polish
+- [07-ai-fallback.spec.ts](apps/web/tests/e2e/07-ai-fallback.spec.ts) — AI fallback chat, hidden human-only actions, report/search regressions
 
-Currently 8/8 passing locally and against production.
+Current focused local verification for the AI personalization/RAG work:
+
+```bash
+pnpm --filter @vently/api test        # 8 suites / 48 tests
+pnpm --filter @vently/api typecheck
+pnpm --filter @vently/api build
+pnpm format:check
+```
+
+Current production smoke coverage:
+
+- API `/health`
+- Railway runtime logs
+- Profile "Chat personalization" visibility and hidden AI/RAG wording
+- AI fallback chat opens and replies
+- `LATE_NIGHT` daytime prompt guard: no false "raat/night/1am/neend" in the tested reply
 
 ### 🤖 Testing agent (one command, full app)
 
@@ -912,6 +1117,16 @@ Full walkthrough in [DEPLOY.md](DEPLOY.md). Quick reference:
 - Project settings: `railway.toml` (root) pins it to the Dockerfile builder.
 - Env vars: see [apps/api/.env.example](apps/api/.env.example) — at minimum `DATABASE_URL`, `REDIS_URL`, `JWT_ACCESS_SECRET`, `JWT_REFRESH_SECRET`, `NODE_ENV=production`, `CORS_ORIGIN=<your-vercel-url>`.
 - Prisma migrations run automatically on container start (`CMD` in the Dockerfile).
+- AI-related production env:
+  - `GROQ_API_KEY` — enables AI fallback replies, ice-breakers, suggestions, and translation.
+  - `GEMINI_API_KEY` — enables Gemini semantic embeddings for RAG.
+  - `GEMINI_EMBEDDING_MODEL=gemini-embedding-001`.
+  - `AI_FALLBACK_ENABLED=true` and `AI_FALLBACK_MS=8000` for fallback matching.
+  - `AI_CHAT_TIME_ZONE=Asia/Kolkata` so AI replies do not invent the wrong time of day.
+  - `AI_FALLBACK_TEST_MODE=false` in production.
+- Push-related production env:
+  - `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, `VAPID_SUBJECT`.
+  - Web must also have `NEXT_PUBLIC_VAPID_PUBLIC_KEY`.
 
 **Costs (current scale):** **$0** until you exceed Railway's free $5/mo credit. Vercel Hobby is free.
 
@@ -919,19 +1134,23 @@ Full walkthrough in [DEPLOY.md](DEPLOY.md). Quick reference:
 
 ## 14. Troubleshooting
 
-| Symptom                                                   | Probable cause                                                                       | Fix                                                                                                                                                             |
-| --------------------------------------------------------- | ------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `pnpm install` fails with peer-dep error                  | React 19 conflict                                                                    | `pnpm install --no-strict-peer-dependencies` (already in `.npmrc`)                                                                                              |
-| `Prisma client missing` on api start                      | Migration not generated                                                              | `pnpm --filter @vently/shared exec prisma generate`                                                                                                             |
-| `Cannot find module 'dist/main.js'`                       | API not built                                                                        | `pnpm --filter @vently/api build`                                                                                                                               |
-| API logs say "Prisma failed to detect libssl/openssl"     | Using Alpine Docker base                                                             | We're on `node:20-slim` with `apt-get install openssl` — make sure your Dockerfile changes preserve that                                                        |
-| Voice call stuck at "Connecting…"                         | Likely a regression of the SDP race bug — caller emitted offer before peer was ready | See [§6.5](#65-voice-calling-webrtc); flow is: caller waits for `call:accept` before emitting offer                                                             |
-| Matching never finds anyone                               | Other user's socket isn't connecting                                                 | Check `chrome://devtools` Network panel for the socket connection; ensure `transports: ['polling', 'websocket']` (not websocket-only) — some carriers block WSS |
-| Refresh on `/home` shows anonymous CTAs                   | `AuthBootstrap` not running on marketing                                             | Should be in root layout. If it regresses, ensure [apps/web/app/layout.tsx](apps/web/app/layout.tsx) wraps children with `<AuthBootstrap>`                      |
-| Cookie not being sent cross-domain                        | `SameSite=Lax` in production                                                         | Must be `SameSite=None; Secure` when api ≠ web domain. See [auth.controller.ts](apps/api/src/auth/auth.controller.ts) `setRefreshCookie`                        |
-| CORS rejecting the web origin                             | `CORS_ORIGIN` env not updated                                                        | Update on Railway dashboard, no code change needed; the api re-reads on each request                                                                            |
-| Tailwind classes not applying after edit                  | Tailwind v4 doesn't watch new files automatically in dev                             | Restart `pnpm dev`                                                                                                                                              |
-| `next dev` SSR errors with "Unexpected end of JSON input" | next/font flaking with Google Fonts                                                  | We use system fonts now (see `apps/web/app/layout.tsx`). Don't reintroduce `next/font/google` without a local fallback.                                         |
+| Symptom                                                   | Probable cause                                                                                        | Fix                                                                                                                                                             |
+| --------------------------------------------------------- | ----------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `pnpm install` fails with peer-dep error                  | React 19 conflict                                                                                     | `pnpm install --no-strict-peer-dependencies` (already in `.npmrc`)                                                                                              |
+| `Prisma client missing` on api start                      | Migration not generated                                                                               | `pnpm --filter @vently/shared exec prisma generate`                                                                                                             |
+| `Cannot find module 'dist/main.js'`                       | API not built                                                                                         | `pnpm --filter @vently/api build`                                                                                                                               |
+| API logs say "Prisma failed to detect libssl/openssl"     | Using Alpine Docker base                                                                              | We're on `node:20-slim` with `apt-get install openssl` — make sure your Dockerfile changes preserve that                                                        |
+| Voice call stuck at "Connecting…"                         | Likely a regression of the SDP race bug — caller emitted offer before peer was ready                  | See [§6.5](#65-voice-calling-webrtc); flow is: caller waits for `call:accept` before emitting offer                                                             |
+| Matching never finds anyone                               | Other user's socket isn't connecting                                                                  | Check `chrome://devtools` Network panel for the socket connection; ensure `transports: ['polling', 'websocket']` (not websocket-only) — some carriers block WSS |
+| Refresh on `/home` shows anonymous CTAs                   | `AuthBootstrap` not running on marketing                                                              | Should be in root layout. If it regresses, ensure [apps/web/app/layout.tsx](apps/web/app/layout.tsx) wraps children with `<AuthBootstrap>`                      |
+| Cookie not being sent cross-domain                        | `SameSite=Lax` in production                                                                          | Must be `SameSite=None; Secure` when api ≠ web domain. See [auth.controller.ts](apps/api/src/auth/auth.controller.ts) `setRefreshCookie`                        |
+| CORS rejecting the web origin                             | `CORS_ORIGIN` env not updated                                                                         | Update on Railway dashboard, no code change needed; the api re-reads on each request                                                                            |
+| Tailwind classes not applying after edit                  | Tailwind v4 doesn't watch new files automatically in dev                                              | Restart `pnpm dev`                                                                                                                                              |
+| `next dev` SSR errors with "Unexpected end of JSON input" | next/font flaking with Google Fonts                                                                   | We use system fonts now (see `apps/web/app/layout.tsx`). Don't reintroduce `next/font/google` without a local fallback.                                         |
+| AI fallback leaves user on "Looking for someone…"         | `AI_FALLBACK_ENABLED` false, `GROQ_API_KEY` missing, `VOICE_ONLY` mood, or no persona for mood/gender | Check Railway vars + logs. `AIPeerService` should log `Loaded 20 AI personas`; `AIAgentRunner` should log Groq ready.                                           |
+| AI chat says "raat/night/1am" during day                  | Missing/wrong `AI_CHAT_TIME_ZONE` or prompt regression                                                | Set `AI_CHAT_TIME_ZONE=Asia/Kolkata`; run `ai-agent.runner.spec.ts` and a prod `LATE_NIGHT` smoke.                                                              |
+| RAG feels weak/generic                                    | Gemini key missing or embeddings falling back locally                                                 | Check logs for `Embedding service enabled (Gemini / gemini-embedding-001)`; verify `GEMINI_API_KEY` on Railway.                                                 |
+| User sees "AI memory" or "RAG" in UI                      | Copy regression in profile/chat                                                                       | User-facing copy should say **Chat personalization** only; chat should not expose RAG/memory wording.                                                           |
 
 ---
 
@@ -944,6 +1163,10 @@ Full walkthrough in [DEPLOY.md](DEPLOY.md). Quick reference:
 - **SSR** — Server-Side Rendering. Next.js renders the initial HTML on the server.
 - **JWT** — JSON Web Token. Signed string carrying claims like `{ sub: userId, exp: …, role: … }`.
 - **httpOnly cookie** — Cookie that JavaScript can't read. Mitigates XSS theft.
+- **RAG** — Retrieval-Augmented Generation. Here: semantic lookup of mood/persona/user memory chunks before an AI reply.
+- **Embedding** — Numeric vector representation of text. Stored as JSON for v1 and ranked in app code.
+- **AI fallback peer** — Ephemeral Redis-backed persona used when human matchmaking times out.
+- **Chat personalization** — User-facing name for safe distilled memory controls. Do not call it RAG/AI memory in UI.
 - **STUN** — Server that helps clients discover their public IP/port for WebRTC.
 - **TURN** — Relay server that proxies WebRTC media when direct P2P fails.
 - **SDP** — Session Description Protocol. The big text blob exchanged in WebRTC offer/answer.
