@@ -117,4 +117,26 @@ test.describe('AI Fallback Peer', () => {
       await ctx.close();
     }
   });
+
+  test('keeps AI peer metadata after refreshing the active chat', async ({ browser }) => {
+    test.setTimeout(90_000);
+
+    const { ctx, page } = await createLoggedInPage(browser, 'MALE');
+    try {
+      await waitForAIFallbackChat(page, /need to talk/i);
+      await expect(page.locator('header p').first()).not.toHaveText('Stranger', {
+        timeout: 10_000,
+      });
+      await expect(page.getByRole('button', { name: /report user/i })).toBeEnabled();
+
+      await page.reload({ waitUntil: 'networkidle' });
+
+      await expect(page.locator('header p').first()).not.toHaveText('Stranger', {
+        timeout: 10_000,
+      });
+      await expect(page.getByRole('button', { name: /report user/i })).toBeEnabled();
+    } finally {
+      await ctx.close();
+    }
+  });
 });

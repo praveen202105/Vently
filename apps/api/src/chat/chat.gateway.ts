@@ -73,7 +73,17 @@ export class ChatGateway {
       }
       await socket.join(convRoom(payload.conversationId));
       void this.aiAgent.openConversation(peer, this.server);
-      return { ok: true };
+      return {
+        ok: true,
+        peer: {
+          userId: peer.userId,
+          nickname: peer.nickname,
+          gender: peer.gender,
+          avatarSeed: peer.avatarSeed,
+        },
+        mood: peer.mood,
+        isAIChat: true,
+      };
     }
     await this.conversations.assertParticipant(payload.conversationId, socket.data.user.userId);
     await socket.join(convRoom(payload.conversationId));

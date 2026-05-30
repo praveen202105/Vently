@@ -36,6 +36,7 @@ import {
   type ChatTypingPayload,
   type FriendRequestEventPayload,
   type FriendRespondEventPayload,
+  type MatchFoundPayload,
   type MessagePublic,
   type MessageReactionPublic,
 } from '@vently/shared';
@@ -106,6 +107,7 @@ export function ChatScreen({ conversationId }: { conversationId: string }) {
   const me = useAuthStore((s) => s.user);
   const storePeer = useMatchStore((s) => s.peer);
   const storeIsAIChat = useMatchStore((s) => s.isAIChat);
+  const setMatched = useMatchStore((s) => s.setMatched);
 
   const [messages, setMessages] = useState<PendingMessage[]>([]);
   const [draft, setDraft] = useState('');
@@ -460,16 +462,36 @@ export function ChatScreen({ conversationId }: { conversationId: string }) {
       // NestJS @SubscribeMessage handlers always support returning a value
       // via the ack callback, but our typed event map doesn't model it.
       // Cast to any to access the callback overload.
-      (socket as any).emit(SocketEvents.CHAT_JOIN, { conversationId }, (res: { ok: boolean }) => {
-        if (res && !res.ok) {
-          toast('This chat has ended.');
-          router.replace('/connections');
-        }
-      });
+      (socket as any).emit(
+        SocketEvents.CHAT_JOIN,
+        { conversationId },
+        (
+          res: {
+            ok: boolean;
+            peer?: MatchFoundPayload['peer'];
+            isAIChat?: boolean;
+            lastMetAt?: string | null;
+          } | null,
+        ) => {
+          if (res && !res.ok) {
+            toast('This chat has ended.');
+            router.replace('/connections');
+            return;
+          }
+          if (res?.peer) {
+            setMatched({
+              conversationId,
+              peer: res.peer,
+              lastMetAt: res.lastMetAt ?? null,
+              isAIChat: res.isAIChat ?? true,
+            });
+          }
+        },
+      );
     } else {
       socket.emit(SocketEvents.CHAT_JOIN, { conversationId });
     }
-  }, [socket, conversationId, isAIConversationId, router]);
+  }, [socket, conversationId, isAIConversationId, router, setMatched]);
 
   // Tell the server which conversation we're focused on, so it can suppress
   // push notifications for messages we're already reading. "Focused" means
