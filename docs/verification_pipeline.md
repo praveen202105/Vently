@@ -52,7 +52,7 @@ It determines your current Git branch (e.g. `main` or a feature branch) and push
 On GitHub Actions, production smoke tests are ordered after deploy:
 
 - `ci.yml` runs first on push/PR.
-- `deploy.yml` runs after `CI` succeeds on `main`.
+- `deploy.yml` runs after `CI` succeeds on `main`, deploys the Railway API, and polls Vercel's API for the matching production web deploy.
 - `verify.yml` runs after `Deploy` succeeds, then executes production-targeted Playwright tests.
 - It automatically executes production-targeted Playwright tests (`pnpm --filter @vently/web test:agent`) directly against the live URL: `https://vently-web-gamma.vercel.app`.
 - If any production bugs are caught, they are immediately written to `bugs.md` for hotfixing.

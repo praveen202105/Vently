@@ -94,4 +94,20 @@ jobs:
             }]
           }"
 
-  # Web is deployed by Vercel's git integration automatically — no GH Action needed.
+      - name: Wait for Vercel web deploy
+        if: steps.gate.outputs.skip != 'true'
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+          VERCEL_TEAM_ID: ${{ secrets.VERCEL_TEAM_ID }}
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_GIT_COMMIT_SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
+          VERCEL_PROD_URL: https://vently-web-gamma.vercel.app
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          GITHUB_RUN_ID: ${{ github.run_id }}
+          GITHUB_SERVER_URL: ${{ github.server_url }}
+        run: node scripts/wait-vercel-deploy.js
+
+  # Web is still deployed by Vercel's git integration; the workflow only polls
+  # the Vercel API so Slack and downstream prod verification wait for it.

@@ -776,13 +776,13 @@ Button actions:
 GitHub Actions:
 
 - `ci.yml` runs on push/PR: install, Prisma validate/generate, shared build, typecheck, lint, build, Prettier. It sends Slack start/success/failure notifications.
-- `deploy.yml` runs after the `CI` workflow succeeds on `main` or by manual dispatch: builds API, ensures AI fallback Railway vars, deploys API to Railway with `RAILWAY_TOKEN`, then posts Slack deploy status. Web deploy is handled by Vercel's Git integration.
+- `deploy.yml` runs after the `CI` workflow succeeds on `main` or by manual dispatch: builds API, ensures AI fallback Railway vars, deploys API to Railway with `RAILWAY_TOKEN`, polls Vercel's production web deploy through the Vercel API, then posts Railway + Vercel Slack deploy status cards. The actual web deploy still comes from Vercel's Git integration.
 - `verify.yml` runs after the `Deploy` workflow succeeds, on PR, manual dispatch, or Slack dispatch: installs Playwright, runs `scripts/verify-feature.js`; PRs use `--local-only`, deploy/manual/Slack use `--ci`.
 - `heal.yml` runs on Slack heal dispatch/manual: runs `scripts/heal-runner.js` with Gemini/Anthropic keys, commits a patch to the same branch or opens an auto-heal PR, then posts Slack status.
 
 Required secrets/config:
 
-- GitHub repo secrets: `SLACK_WEBHOOK_URL`, `RAILWAY_TOKEN`, `GEMINI_API_KEY` for heal, optional `ANTHROPIC_API_KEY`.
+- GitHub repo secrets: `SLACK_WEBHOOK_URL`, `RAILWAY_TOKEN`, `VERCEL_TOKEN`, `VERCEL_PROJECT_ID`, `VERCEL_TEAM_ID` or `VERCEL_ORG_ID`, `GEMINI_API_KEY` for heal, optional `ANTHROPIC_API_KEY`.
 - Backend/Railway vars for Slack dispatch: `GITHUB_TOKEN`, `GITHUB_OWNER` (defaults to `praveen202105`), `GITHUB_REPO` (defaults to `Vently`).
 - Slack app config should point slash command + interactivity URLs at the production API `/api/slack/trigger-verify` and `/api/slack/interactivity`.
 
@@ -1203,7 +1203,7 @@ Full walkthrough in [DEPLOY.md](DEPLOY.md). Quick reference:
   - Web must also have `NEXT_PUBLIC_VAPID_PUBLIC_KEY`.
 - Slack/GitHub automation env:
   - Backend/Railway: `GITHUB_TOKEN`, `GITHUB_OWNER`, `GITHUB_REPO`.
-  - GitHub Actions secrets: `SLACK_WEBHOOK_URL`, `RAILWAY_TOKEN`, `GEMINI_API_KEY` for auto-heal, optional `ANTHROPIC_API_KEY`.
+  - GitHub Actions secrets: `SLACK_WEBHOOK_URL`, `RAILWAY_TOKEN`, `VERCEL_TOKEN`, `VERCEL_PROJECT_ID`, `VERCEL_TEAM_ID` or `VERCEL_ORG_ID`, `GEMINI_API_KEY` for auto-heal, optional `ANTHROPIC_API_KEY`.
   - Slack app URLs: `/api/slack/trigger-verify` for slash command and `/api/slack/interactivity` for interactive buttons.
 
 **Costs (current scale):** **$0** until you exceed Railway's free $5/mo credit. Vercel Hobby is free.
@@ -1232,6 +1232,8 @@ Full walkthrough in [DEPLOY.md](DEPLOY.md). Quick reference:
 | Slack button does nothing                                 | Slack interactivity URL wrong or backend `GITHUB_TOKEN` missing                                       | Check Railway logs for `[slack/interactivity]`; verify Slack app URL + Railway `GITHUB_TOKEN`.                                                                  |
 | GitHub verify/heal workflow did not start                 | Repository dispatch failed                                                                            | Check Slack response message and Railway logs; verify `GITHUB_OWNER`, `GITHUB_REPO`, and token repo permissions.                                                |
 | CI/deploy status not appearing in Slack                   | `SLACK_WEBHOOK_URL` missing in GitHub secrets                                                         | Add/update `SLACK_WEBHOOK_URL` in GitHub Actions secrets.                                                                                                       |
+| Vercel web deploy status skipped in Slack                 | `VERCEL_TOKEN` or `VERCEL_PROJECT_ID` missing in GitHub Actions secrets                               | Add Vercel secrets; optional team id can be `VERCEL_TEAM_ID` or `VERCEL_ORG_ID`.                                                                                |
+| Vercel web deploy timeout                                 | Vercel Git integration did not finish for the pushed commit                                           | Open the Vercel deployment from Slack/GitHub logs; verify the project is connected to `main` and deploys `apps/web`.                                            |
 
 ---
 

@@ -70,6 +70,9 @@ the same network but fails over cellular / strict NAT.
 
 5. Once deployed, copy the Vercel URL back into Railway's `CORS_ORIGIN`
    variable and redeploy the api.
+6. Add GitHub Actions secrets so CI can show the frontend deployment in Slack:
+   `VERCEL_TOKEN`, `VERCEL_PROJECT_ID`, and `VERCEL_TEAM_ID` or
+   `VERCEL_ORG_ID`.
 
 ### Custom domain (optional)
 
@@ -82,12 +85,13 @@ the same network but fails over cellular / strict NAT.
 
 ## 3. CI / CD
 
-- `.github/workflows/ci.yml` runs on every PR: lint, typecheck, prisma
+- `.github/workflows/ci.yml` runs on every PR/push: lint, typecheck, prisma
   validate, build.
-- `.github/workflows/deploy.yml` triggers a Railway CLI deploy after a
-  merge to `main`. **Disabled by default** — flip `if: false` to `true`
-  and add a `RAILWAY_TOKEN` secret to enable.
-- Vercel's git integration deploys `apps/web` automatically on every push.
+- `.github/workflows/deploy.yml` runs after CI succeeds on `main`: deploys
+  the API to Railway, then polls Vercel's API for the matching production web
+  deployment and posts both statuses to Slack.
+- Vercel's git integration still deploys `apps/web` automatically on every
+  push; GitHub Actions only observes/polls the deployment.
 
 ---
 
@@ -109,6 +113,8 @@ If any step fails:
 
 - Check Railway logs for the api service.
 - Check Vercel deployment logs.
+- Check GitHub Actions secrets for `VERCEL_TOKEN`, `VERCEL_PROJECT_ID`, and
+  `VERCEL_TEAM_ID` or `VERCEL_ORG_ID` if Slack does not show Vercel status.
 - Hit `/health` to verify Postgres + Redis are reachable.
 - For WebRTC: open `chrome://webrtc-internals` — confirm a `relay` candidate
   appears once TURN is configured.
