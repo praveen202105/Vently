@@ -205,6 +205,8 @@ export function CallScreen({ conversationId }: { conversationId: string }) {
     muted,
     cameraOn,
     toggleCamera,
+    remoteCameraOn,
+    remoteMuted,
     speakerOn,
     toggleSpeaker,
     error,
@@ -214,12 +216,11 @@ export function CallScreen({ conversationId }: { conversationId: string }) {
   useEffect(() => {
     if (autoStartedRef.current) return;
     if (voiceOnly && !isVoiceOnlyCaller) return;
-    if (isVideo) return;
     if (callState === 'IDLE' && !isIncoming) {
       autoStartedRef.current = true;
       void startCall();
     }
-  }, [callState, isIncoming, startCall, voiceOnly, isVoiceOnlyCaller, isVideo]);
+  }, [callState, isIncoming, startCall, voiceOnly, isVoiceOnlyCaller]);
 
   const autoAcceptedRef = useRef(false);
   useEffect(() => {
@@ -359,7 +360,9 @@ export function CallScreen({ conversationId }: { conversationId: string }) {
           : callState === 'CONNECTING'
             ? 'Connecting...'
             : callState === 'CONNECTED'
-              ? formatDuration(elapsed)
+              ? remoteMuted
+                ? `${formatDuration(elapsed)} · muted`
+                : formatDuration(elapsed)
               : 'Call ended';
 
   const peerInitial = peer?.nickname[0]?.toUpperCase() ?? '?';
@@ -379,17 +382,19 @@ export function CallScreen({ conversationId }: { conversationId: string }) {
               data-testid="remote-video"
               autoPlay
               playsInline
-              className={`h-full w-full bg-black object-cover transition-opacity ${
-                remoteStream ? 'opacity-100' : 'opacity-0'
+              className={`h-full w-full bg-black object-cover object-center transition-opacity ${
+                remoteStream && remoteCameraOn ? 'opacity-100' : 'opacity-0'
               }`}
             />
-            {!remoteStream && (
+            {(!remoteStream || !remoteCameraOn) && (
               <div className="absolute inset-0 grid place-items-center bg-gradient-to-br from-[#111b21] via-[#0b141a] to-[#111827]">
                 <div className="flex flex-col items-center gap-4">
                   <div className="grid h-36 w-36 place-items-center rounded-full bg-gradient-to-br from-purple-600 via-pink-600 to-blue-600 text-5xl font-semibold shadow-2xl">
                     {peerInitial}
                   </div>
-                  <p className="text-sm text-white/55">Waiting for video...</p>
+                  <p className="text-sm text-white/55">
+                    {remoteStream && !remoteCameraOn ? 'Camera is off' : 'Waiting for video...'}
+                  </p>
                 </div>
               </div>
             )}
@@ -452,15 +457,27 @@ export function CallScreen({ conversationId }: { conversationId: string }) {
           data-testid="local-video-preview"
           className="absolute right-4 top-28 z-20 overflow-hidden rounded-2xl border border-white/15 bg-black shadow-2xl md:right-6 md:top-24"
         >
-          {localStream && cameraOn ? (
-            <video
-              ref={localVideoRef}
-              data-testid="local-video"
-              autoPlay
-              muted
-              playsInline
-              className="h-40 w-28 object-cover md:h-48 md:w-36"
-            />
+          {localStream ? (
+            <div className="relative h-40 w-28 md:h-48 md:w-36">
+              <video
+                ref={localVideoRef}
+                data-testid="local-video"
+                autoPlay
+                muted
+                playsInline
+                className={`h-full w-full scale-x-[-1] object-cover object-center transition-opacity ${
+                  cameraOn ? 'opacity-100' : 'opacity-25'
+                }`}
+              />
+              {!cameraOn && (
+                <div
+                  data-testid="local-camera-off-overlay"
+                  className="absolute inset-0 grid place-items-center bg-[#111b21]/75 text-white/75"
+                >
+                  <CameraOff className="h-7 w-7" />
+                </div>
+              )}
+            </div>
           ) : (
             <div className="grid h-40 w-28 place-items-center bg-[#111b21] text-white/60 md:h-48 md:w-36">
               <CameraOff className="h-7 w-7" />

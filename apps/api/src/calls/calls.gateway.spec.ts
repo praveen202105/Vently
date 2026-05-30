@@ -91,4 +91,23 @@ describe('CallsGateway call invite push', () => {
       requireInteraction: true,
     });
   });
+
+  it('forwards media state only to the call peer', async () => {
+    const { gateway, socket, calls, realtime } = makeGateway();
+    calls.findPeer.mockResolvedValue('callee-b');
+
+    await gateway.onMediaState(socket as any, {
+      conversationId: 'conv-1',
+      cameraOn: false,
+      muted: true,
+    });
+
+    expect(calls.findPeer).toHaveBeenCalledWith('conv-1', 'caller-a');
+    expect(realtime.emitToUser).toHaveBeenCalledWith('callee-b', SocketEvents.CALL_MEDIA_STATE, {
+      conversationId: 'conv-1',
+      fromUserId: 'caller-a',
+      cameraOn: false,
+      muted: true,
+    });
+  });
 });

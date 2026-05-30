@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   SocketEvents,
   type CallIceCandidatePayload,
+  type CallMediaStatePayload,
   type CallMode,
   type CallSdpPayload,
 } from '@vently/shared';
@@ -37,6 +38,8 @@ interface UseWebRTCReturn {
   muted: boolean;
   cameraOn: boolean;
   toggleCamera: () => void;
+  remoteCameraOn: boolean;
+  remoteMuted: boolean;
   speakerOn: boolean;
   toggleSpeaker: () => void;
   error: string | null;
@@ -62,11 +65,7 @@ function getLocalMediaErrorMessage(err: unknown, mode: CallMode) {
   const error = err as DOMException | Error | undefined;
   const name = (error as DOMException | undefined)?.name;
 
-  if (
-    name === 'NotAllowedError' ||
-    name === 'PermissionDeniedError' ||
-    name === 'SecurityError'
-  ) {
+  if (name === 'NotAllowedError' || name === 'PermissionDeniedError' || name === 'SecurityError') {
     return mode === 'video'
       ? 'Camera/microphone is blocked. Allow camera and microphone for this site, then try again.'
       : 'Microphone is blocked. Allow microphone for this site, then try again.';
@@ -84,7 +83,9 @@ function getLocalMediaErrorMessage(err: unknown, mode: CallMode) {
       : 'Microphone is already in use. Close the other app, then try again.';
   }
 
-  return error?.message || (mode === 'video' ? 'Could not start video call' : 'Could not start call');
+  return (
+    error?.message || (mode === 'video' ? 'Could not start video call' : 'Could not start call')
+  );
 }
 
 export function useWebRTC({
@@ -117,8 +118,31 @@ export function useWebRTC({
   const [remoteStream, setRemoteStream] = useState<MediaStream | null>(null);
   const [muted, setMuted] = useState(false);
   const [cameraOn, setCameraOn] = useState(false);
+  const [remoteCameraOn, setRemoteCameraOn] = useState(mode === 'video');
+  const [remoteMuted, setRemoteMuted] = useState(false);
   const [speakerOn, setSpeakerOn] = useState(true);
   const [error, setError] = useState<string | null>(null);
+
+  const emitLocalMediaState = useCallback(
+    (overrides: { cameraOn?: boolean; muted?: boolean } = {}) => {
+      const stream = localStreamRef.current;
+      const nextCameraOn =
+        overrides.cameraOn ??
+        (mode === 'video' && stream
+          ? stream.getVideoTracks().some((track) => track.enabled && track.readyState === 'live')
+          : false);
+      const nextMuted =
+        overrides.muted ??
+        (stream ? stream.getAudioTracks().every((track) => !track.enabled) : muted);
+
+      socketRef.current?.emit(SocketEvents.CALL_MEDIA_STATE, {
+        conversationId,
+        cameraOn: nextCameraOn,
+        muted: nextMuted,
+      });
+    },
+    [conversationId, mode, muted],
+  );
 
   const teardown = useCallback(() => {
     if (acceptTimeoutRef.current) {
@@ -140,9 +164,11 @@ export function useWebRTC({
     setRemoteStream(null);
     setMuted(false);
     setCameraOn(false);
+    setRemoteCameraOn(mode === 'video');
+    setRemoteMuted(false);
     pendingCandidatesRef.current = [];
     peerAcceptedRef.current = false;
-  }, []);
+  }, [mode]);
 
   const createPeerConnection = useCallback(async () => {
     const iceServers = await getIceServers();
@@ -176,7 +202,17 @@ export function useWebRTC({
 
   const getLocalStream = useCallback(async () => {
     const constraints: MediaStreamConstraints =
-      mode === 'video' ? { audio: true, video: true } : { audio: true, video: false };
+      mode === 'video'
+        ? {
+            audio: true,
+            video: {
+              facingMode: { ideal: 'user' },
+              width: { ideal: 1280 },
+              height: { ideal: 720 },
+              aspectRatio: { ideal: 16 / 9 },
+            },
+          }
+        : { audio: true, video: false };
     const stream = await navigator.mediaDevices.getUserMedia(constraints);
     localStreamRef.current = stream;
     setLocalStream(stream);
@@ -248,12 +284,21 @@ export function useWebRTC({
       const pc = await createPeerConnection();
       stream.getTracks().forEach((t) => pc.addTrack(t, stream));
       socket.emit(SocketEvents.CALL_ACCEPT, { conversationId, fromUserId: '', mode });
+      emitLocalMediaState();
     } catch (err) {
       setError(getLocalMediaErrorMessage(err, mode));
       teardown();
       setCallState(isLocalMediaError(err) ? 'RINGING' : 'ENDED');
     }
-  }, [socket, conversationId, mode, createPeerConnection, getLocalStream, teardown]);
+  }, [
+    socket,
+    conversationId,
+    mode,
+    createPeerConnection,
+    getLocalStream,
+    teardown,
+    emitLocalMediaState,
+  ]);
 
   const rejectCall = useCallback(() => {
     socket?.emit(SocketEvents.CALL_REJECT, { conversationId, fromUserId: '', mode });
@@ -273,7 +318,8 @@ export function useWebRTC({
     const next = !muted;
     stream.getAudioTracks().forEach((t) => (t.enabled = !next));
     setMuted(next);
-  }, [muted]);
+    emitLocalMediaState({ muted: next });
+  }, [muted, emitLocalMediaState]);
 
   const toggleCamera = useCallback(() => {
     const stream = localStreamRef.current;
@@ -283,7 +329,8 @@ export function useWebRTC({
     const next = !cameraOn;
     tracks.forEach((t) => (t.enabled = next));
     setCameraOn(next);
-  }, [cameraOn]);
+    emitLocalMediaState({ cameraOn: next });
+  }, [cameraOn, emitLocalMediaState]);
 
   const toggleSpeaker = useCallback(() => {
     setSpeakerOn((on) => !on);
@@ -308,6 +355,7 @@ export function useWebRTC({
         const offer = await pc.createOffer();
         await pc.setLocalDescription(offer);
         socket.emit(SocketEvents.CALL_OFFER, { conversationId, sdp: offer });
+        emitLocalMediaState();
         setCallState('CONNECTING');
       } catch (err) {
         setError((err as Error).message ?? 'Could not create offer');
@@ -377,6 +425,12 @@ export function useWebRTC({
       }
     };
 
+    const onMediaState = (payload: CallMediaStatePayload) => {
+      if (payload.conversationId !== conversationId) return;
+      if (typeof payload.cameraOn === 'boolean') setRemoteCameraOn(payload.cameraOn);
+      if (typeof payload.muted === 'boolean') setRemoteMuted(payload.muted);
+    };
+
     const onReject = () => {
       setError('Call rejected');
       teardown();
@@ -391,6 +445,7 @@ export function useWebRTC({
     socket.on(SocketEvents.CALL_OFFER, onOffer);
     socket.on(SocketEvents.CALL_ANSWER, onAnswer);
     socket.on(SocketEvents.CALL_ICE_CANDIDATE, onIce);
+    socket.on(SocketEvents.CALL_MEDIA_STATE, onMediaState);
     socket.on(SocketEvents.CALL_ACCEPT, onAccept);
     socket.on(SocketEvents.CALL_REJECT, onReject);
     socket.on(SocketEvents.CALL_HANGUP, onHangup);
@@ -399,11 +454,12 @@ export function useWebRTC({
       socket.off(SocketEvents.CALL_OFFER, onOffer);
       socket.off(SocketEvents.CALL_ANSWER, onAnswer);
       socket.off(SocketEvents.CALL_ICE_CANDIDATE, onIce);
+      socket.off(SocketEvents.CALL_MEDIA_STATE, onMediaState);
       socket.off(SocketEvents.CALL_ACCEPT, onAccept);
       socket.off(SocketEvents.CALL_REJECT, onReject);
       socket.off(SocketEvents.CALL_HANGUP, onHangup);
     };
-  }, [socket, conversationId, teardown]);
+  }, [socket, conversationId, teardown, emitLocalMediaState]);
 
   // Tear down everything when the consuming component unmounts.
   useEffect(() => () => teardown(), [teardown]);
@@ -420,6 +476,8 @@ export function useWebRTC({
     muted,
     cameraOn,
     toggleCamera,
+    remoteCameraOn,
+    remoteMuted,
     speakerOn,
     toggleSpeaker,
     error,

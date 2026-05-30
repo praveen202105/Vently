@@ -10,6 +10,7 @@ import {
   type CallHangupPayload,
   type CallIceCandidatePayload,
   type CallInvitePayload,
+  type CallMediaStatePayload,
   type CallSdpPayload,
 } from '@vently/shared';
 import { RealtimeGateway } from '../realtime/realtime.gateway.js';
@@ -150,6 +151,24 @@ export class CallsGateway {
     if (!this.throttle.allow(userId, 'call:ice', SIGNAL_LIMIT, SIGNAL_WINDOW_MS)) return;
     const peerId = await this.calls.findPeer(payload.conversationId, userId);
     if (peerId) this.realtime.emitToUser(peerId, SocketEvents.CALL_ICE_CANDIDATE, payload);
+  }
+
+  @SubscribeMessage(SocketEvents.CALL_MEDIA_STATE)
+  async onMediaState(
+    @ConnectedSocket() socket: AuthedSocket,
+    @MessageBody() payload: CallMediaStatePayload,
+  ) {
+    const userId = socket.data.user.userId;
+    const peerId = await this.calls.findPeer(payload.conversationId, userId);
+    if (peerId) {
+      this.realtime.emitToUser(peerId, SocketEvents.CALL_MEDIA_STATE, {
+        conversationId: payload.conversationId,
+        fromUserId: userId,
+        cameraOn: payload.cameraOn,
+        muted: payload.muted,
+      });
+    }
+    return { ok: true };
   }
 
   @SubscribeMessage(SocketEvents.CALL_HANGUP)

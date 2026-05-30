@@ -50,6 +50,7 @@ export const SocketEvents = {
   CALL_OFFER: 'call:offer',
   CALL_ANSWER: 'call:answer',
   CALL_ICE_CANDIDATE: 'call:ice-candidate',
+  CALL_MEDIA_STATE: 'call:media-state',
   CALL_HANGUP: 'call:hangup',
 
   // Notifications
@@ -212,6 +213,13 @@ export interface CallHangupPayload {
   reason?: string;
 }
 
+export interface CallMediaStatePayload {
+  conversationId: string;
+  fromUserId?: string;
+  cameraOn?: boolean;
+  muted?: boolean;
+}
+
 export interface ChatIcebreakerChunkPayload {
   conversationId: string;
   chunk: string;
@@ -255,6 +263,7 @@ export interface ClientToServerEvents {
   [SocketEvents.CALL_OFFER]: (payload: CallSdpPayload) => void;
   [SocketEvents.CALL_ANSWER]: (payload: CallSdpPayload) => void;
   [SocketEvents.CALL_ICE_CANDIDATE]: (payload: CallIceCandidatePayload) => void;
+  [SocketEvents.CALL_MEDIA_STATE]: (payload: CallMediaStatePayload) => void;
   [SocketEvents.CALL_HANGUP]: (payload: CallHangupPayload) => void;
 }
 
@@ -281,6 +290,7 @@ export interface ServerToClientEvents {
   [SocketEvents.CALL_OFFER]: (payload: CallSdpPayload) => void;
   [SocketEvents.CALL_ANSWER]: (payload: CallSdpPayload) => void;
   [SocketEvents.CALL_ICE_CANDIDATE]: (payload: CallIceCandidatePayload) => void;
+  [SocketEvents.CALL_MEDIA_STATE]: (payload: CallMediaStatePayload) => void;
   [SocketEvents.CALL_HANGUP]: (payload: CallHangupPayload) => void;
   [SocketEvents.NOTIFICATION_NEW]: (payload: NotificationPayload) => void;
   [SocketEvents.CHAT_ICEBREAKER_CHUNK]: (payload: ChatIcebreakerChunkPayload) => void;
