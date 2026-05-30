@@ -69,16 +69,49 @@ describe('EmbeddingService', () => {
   });
 
   describe('generate', () => {
-    it('returns null if client is not initialized', async () => {
+    it('returns a local embedding if remote client is not initialized', async () => {
       (service as any).client = null;
       const embedding = await service.generate('some bio text');
-      expect(embedding).toBeNull();
+      expect(embedding).toHaveLength(128);
+      expect(embedding?.some((value) => value !== 0)).toBe(true);
     });
 
     it('returns null for empty or white-spaced bio inputs', async () => {
       (service as any).client = {};
       expect(await service.generate('')).toBeNull();
       expect(await service.generate('   ')).toBeNull();
+    });
+
+    it('uses configured remote embeddings when available', async () => {
+      const create = jest.fn(async () => ({ data: [{ embedding: [0.1, 0.2, 0.3] }] }));
+      (service as any).client = { embeddings: { create } };
+      (service as any).embeddingModel = 'hosted-embedding-model';
+
+      const embedding = await service.generate('relationship advice');
+
+      expect(create).toHaveBeenCalledWith({
+        model: 'hosted-embedding-model',
+        input: 'relationship advice',
+      });
+      expect(embedding).toEqual([0.1, 0.2, 0.3]);
+    });
+
+    it('falls back locally and disables remote calls when the configured model is unavailable', async () => {
+      const create = jest.fn(async () => {
+        throw new Error('model_not_found: does not exist');
+      });
+      const warn = jest.spyOn((service as any).logger, 'warn').mockImplementation(() => undefined);
+      (service as any).client = { embeddings: { create } };
+      (service as any).embeddingModel = 'missing-embedding-model';
+
+      const first = await service.generate('neend nahi aa rhi');
+      const second = await service.generate('neend nahi aa rhi');
+
+      expect(first).toHaveLength(128);
+      expect(second).toHaveLength(128);
+      expect(create).toHaveBeenCalledTimes(1);
+      expect(warn).toHaveBeenCalledTimes(1);
+      warn.mockRestore();
     });
   });
 });
