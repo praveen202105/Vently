@@ -17,11 +17,27 @@ export interface IssuedTokens {
   refreshExpiresAt: Date;
 }
 
+export const publicProfileSelect = {
+  userId: true,
+  nickname: true,
+  gender: true,
+  bio: true,
+  avatarSeed: true,
+  mood: true,
+  isOnline: true,
+  lastSeenAt: true,
+  createdAt: true,
+  updatedAt: true,
+} satisfies Prisma.ProfileSelect;
+
+export type PublicProfile = Prisma.ProfileGetPayload<{ select: typeof publicProfileSelect }>;
+
 export interface PublicUser {
   id: string;
   email: string;
   role: Role;
   createdAt: Date;
+  profile: PublicProfile | null;
 }
 
 @Injectable()
@@ -45,8 +61,9 @@ export class AuthService {
         data: { email, passwordHash },
         select: { id: true, email: true, role: true, createdAt: true },
       });
-      const tokens = await this.issueTokens(user);
-      return { user, tokens };
+      const publicUser = { ...user, profile: null };
+      const tokens = await this.issueTokens(publicUser);
+      return { user: publicUser, tokens };
     } catch (err) {
       if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2002') {
         throw new ConflictException('Email already registered');
@@ -61,7 +78,14 @@ export class AuthService {
   ): Promise<{ user: PublicUser; tokens: IssuedTokens }> {
     const user = await this.prisma.user.findUnique({
       where: { email },
-      select: { id: true, email: true, role: true, passwordHash: true, createdAt: true },
+      select: {
+        id: true,
+        email: true,
+        role: true,
+        passwordHash: true,
+        createdAt: true,
+        profile: { select: publicProfileSelect },
+      },
     });
     if (!user || !user.passwordHash) {
       throw new UnauthorizedException('Invalid email or password');
@@ -74,6 +98,7 @@ export class AuthService {
       email: user.email,
       role: user.role,
       createdAt: user.createdAt,
+      profile: user.profile,
     };
     const tokens = await this.issueTokens(publicUser);
     return { user: publicUser, tokens };
@@ -100,7 +125,7 @@ export class AuthService {
     });
     if (!user) throw new UnauthorizedException('User no longer exists');
 
-    return this.issueTokens(user);
+    return this.issueTokens({ ...user, profile: null });
   }
 
   async logout(refreshToken: string | undefined) {

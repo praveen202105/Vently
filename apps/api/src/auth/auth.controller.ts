@@ -116,6 +116,14 @@ export class AuthController {
         role: user.role,
         createdAt: user.createdAt.toISOString(),
       },
+      profile: user.profile
+        ? {
+            ...user.profile,
+            lastSeenAt: user.profile.lastSeenAt.toISOString(),
+            createdAt: user.profile.createdAt.toISOString(),
+            updatedAt: user.profile.updatedAt.toISOString(),
+          }
+        : null,
     };
   }
 }

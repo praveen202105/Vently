@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { uniqueEmail } from './helpers';
+import { provisionUserViaApi, uniqueEmail } from './helpers';
 
 test.describe('Phase 1 — Auth + Profile', () => {
   test('register → onboarding → profile renders me', async ({ page }) => {
@@ -45,5 +45,28 @@ test.describe('Phase 1 — Auth + Profile', () => {
     await page.getByRole('button', { name: /sign in/i }).click();
     // Sonner toast pops up with the error.
     await expect(page.getByText(/invalid/i).first()).toBeVisible({ timeout: 5000 });
+  });
+
+  test('login page only asks for credentials', async ({ page }) => {
+    await page.goto('/login', { waitUntil: 'networkidle' });
+
+    await expect(page.getByLabel('Email')).toBeVisible();
+    await expect(page.getByLabel('Password')).toBeVisible();
+    await expect(page.getByLabel('Nickname')).toHaveCount(0);
+    await expect(page.getByText(/^Gender$/)).toHaveCount(0);
+    await expect(page.getByLabel(/Bio/i)).toHaveCount(0);
+  });
+
+  test('login with an existing profile skips onboarding', async ({ page }) => {
+    const user = await provisionUserViaApi({ gender: 'MALE' });
+
+    await page.goto('/login', { waitUntil: 'networkidle' });
+    await page.getByLabel('Email').fill(user.email);
+    await page.getByLabel('Password').fill(user.password);
+    await page.getByRole('button', { name: /sign in/i }).click();
+
+    await page.waitForURL(/\/mood/);
+    await expect(page.getByRole('heading', { name: /how are you feeling/i })).toBeVisible();
+    await expect(page.getByLabel('Nickname')).toHaveCount(0);
   });
 });
