@@ -731,6 +731,60 @@ These are layered on top of the base chat feature in §6.4.
 - Voice notes are sent as `audio:<base64 webm>` bodies. The message length cap is higher for audio payloads.
 - Push sends only when the peer is not focused on the conversation (`presence:focus`), avoiding redundant OS notifications while the chat is open.
 
+### 6.11 Slack-triggered CI/CD + auto-heal
+
+#### What the operator sees
+
+- Slack slash command such as `/verify-vently main` returns a Block Kit dashboard card.
+- The card has a primary button to start the verification pipeline remotely.
+- CI, deploy, verification, and auto-heal workflows post Slack status cards using `SLACK_WEBHOOK_URL`.
+- When verification fails, Slack can show heal buttons: fix on same branch or create a new auto-heal branch/PR.
+
+#### Files
+
+- Backend Slack endpoints: [apps/api/src/slack/slack.controller.ts](apps/api/src/slack/slack.controller.ts)
+- Slack module registration: [apps/api/src/slack/slack.module.ts](apps/api/src/slack/slack.module.ts)
+- Verification script: [scripts/verify-feature.js](scripts/verify-feature.js)
+- Auto-heal runner: [scripts/heal-runner.js](scripts/heal-runner.js)
+- CI workflow: [.github/workflows/ci.yml](.github/workflows/ci.yml)
+- Railway deploy workflow: [.github/workflows/deploy.yml](.github/workflows/deploy.yml)
+- Verification workflow: [.github/workflows/verify.yml](.github/workflows/verify.yml)
+- Auto-heal workflow: [.github/workflows/heal.yml](.github/workflows/heal.yml)
+- Longer pipeline doc: [docs/verification_pipeline.md](docs/verification_pipeline.md)
+
+#### Under the hood
+
+Slack inbound flow:
+
+```
+Slack slash command
+  → POST /api/slack/trigger-verify
+  → API returns interactive Block Kit message
+  → user clicks button
+  → POST /api/slack/interactivity
+  → API calls GitHub Repository Dispatch API
+  → .github/workflows/verify.yml runs via repository_dispatch
+```
+
+Button actions:
+
+- `trigger_pipeline_action` dispatches GitHub event `verify_pipeline` with `{ branch, triggered_by_slack }`.
+- `heal_same_branch` dispatches GitHub event `heal_pipeline` with `mode=same_branch`.
+- `heal_new_branch` dispatches GitHub event `heal_pipeline` with `mode=new_branch`.
+
+GitHub Actions:
+
+- `ci.yml` runs on push/PR: install, Prisma validate/generate, shared build, typecheck, lint, build, Prettier. It sends Slack start/success/failure notifications.
+- `deploy.yml` runs on push to `main`: builds API, ensures AI fallback Railway vars, deploys API to Railway with `RAILWAY_TOKEN`, then posts Slack deploy status. Web deploy is handled by Vercel's Git integration.
+- `verify.yml` runs on push/PR/manual/Slack dispatch: installs Playwright, runs `scripts/verify-feature.js`; PRs use `--local-only`, main/dispatch use `--ci`.
+- `heal.yml` runs on Slack heal dispatch/manual: runs `scripts/heal-runner.js` with Gemini/Anthropic keys, commits a patch to the same branch or opens an auto-heal PR, then posts Slack status.
+
+Required secrets/config:
+
+- GitHub repo secrets: `SLACK_WEBHOOK_URL`, `RAILWAY_TOKEN`, `GEMINI_API_KEY` for heal, optional `ANTHROPIC_API_KEY`.
+- Backend/Railway vars for Slack dispatch: `GITHUB_TOKEN`, `GITHUB_OWNER` (defaults to `praveen202105`), `GITHUB_REPO` (defaults to `Vently`).
+- Slack app config should point slash command + interactivity URLs at the production API `/api/slack/trigger-verify` and `/api/slack/interactivity`.
+
 ---
 
 ## 7. Data model (Prisma schema)
@@ -809,6 +863,8 @@ Base path: `/api`. All endpoints return JSON. Auth is `Authorization: Bearer <ac
 | POST   | `/reports`                                                     | auth   | Submit `{reportedId, reason, details?}` |
 | GET    | `/webrtc/ice-servers`                                          | auth   | STUN + TURN config                      |
 | POST   | `/conversations/:conversationId/messages/:messageId/translate` | auth   | Translate one message + reply chips     |
+| POST   | `/slack/trigger-verify`                                        | Slack  | Slash-command verification dashboard    |
+| POST   | `/slack/interactivity`                                         | Slack  | Button handler → GitHub dispatch        |
 
 Want to call them by hand? `curl -i -X GET https://api-production-7fe02.up.railway.app/api/me -H "Authorization: Bearer $ACCESS_TOKEN"`.
 
@@ -955,6 +1011,22 @@ Production notes:
 - Template chunks are upserted on API startup, so changing `tone-packs.json` or `persona-stories.json` takes effect after the next Railway API deploy.
 - Keep chat UI copy invisible: do not expose "AI", "RAG", or "AI memory" wording in conversation.
 - Keep `LATE_NIGHT` time-aware: `AI_CHAT_TIME_ZONE` prevents daytime replies from saying "raat" or "1am".
+
+### …trigger verification/deploy from Slack?
+
+1. In Slack, run `/verify-vently main` (or a target branch name).
+2. Slack calls `POST /api/slack/trigger-verify`, and the API returns a dashboard card.
+3. Click the run button. Slack calls `POST /api/slack/interactivity`.
+4. The API uses `GITHUB_TOKEN` to dispatch `verify_pipeline` to GitHub Actions.
+5. `.github/workflows/verify.yml` runs `scripts/verify-feature.js`.
+6. If verification fails, the Slack card can offer `heal_same_branch` or `heal_new_branch`, which dispatch `.github/workflows/heal.yml`.
+
+If Slack does not trigger anything:
+
+- Check Railway logs for `[slack/interactivity]`.
+- Verify backend vars `GITHUB_TOKEN`, `GITHUB_OWNER`, `GITHUB_REPO`.
+- Verify GitHub secret `SLACK_WEBHOOK_URL`.
+- Verify Slack app slash command/interactivity URLs point at the production API.
 
 ### …rotate JWT secrets in production?
 
@@ -1127,6 +1199,10 @@ Full walkthrough in [DEPLOY.md](DEPLOY.md). Quick reference:
 - Push-related production env:
   - `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, `VAPID_SUBJECT`.
   - Web must also have `NEXT_PUBLIC_VAPID_PUBLIC_KEY`.
+- Slack/GitHub automation env:
+  - Backend/Railway: `GITHUB_TOKEN`, `GITHUB_OWNER`, `GITHUB_REPO`.
+  - GitHub Actions secrets: `SLACK_WEBHOOK_URL`, `RAILWAY_TOKEN`, `GEMINI_API_KEY` for auto-heal, optional `ANTHROPIC_API_KEY`.
+  - Slack app URLs: `/api/slack/trigger-verify` for slash command and `/api/slack/interactivity` for interactive buttons.
 
 **Costs (current scale):** **$0** until you exceed Railway's free $5/mo credit. Vercel Hobby is free.
 
@@ -1151,6 +1227,9 @@ Full walkthrough in [DEPLOY.md](DEPLOY.md). Quick reference:
 | AI chat says "raat/night/1am" during day                  | Missing/wrong `AI_CHAT_TIME_ZONE` or prompt regression                                                | Set `AI_CHAT_TIME_ZONE=Asia/Kolkata`; run `ai-agent.runner.spec.ts` and a prod `LATE_NIGHT` smoke.                                                              |
 | RAG feels weak/generic                                    | Gemini key missing or embeddings falling back locally                                                 | Check logs for `Embedding service enabled (Gemini / gemini-embedding-001)`; verify `GEMINI_API_KEY` on Railway.                                                 |
 | User sees "AI memory" or "RAG" in UI                      | Copy regression in profile/chat                                                                       | User-facing copy should say **Chat personalization** only; chat should not expose RAG/memory wording.                                                           |
+| Slack button does nothing                                 | Slack interactivity URL wrong or backend `GITHUB_TOKEN` missing                                       | Check Railway logs for `[slack/interactivity]`; verify Slack app URL + Railway `GITHUB_TOKEN`.                                                                  |
+| GitHub verify/heal workflow did not start                 | Repository dispatch failed                                                                            | Check Slack response message and Railway logs; verify `GITHUB_OWNER`, `GITHUB_REPO`, and token repo permissions.                                                |
+| CI/deploy status not appearing in Slack                   | `SLACK_WEBHOOK_URL` missing in GitHub secrets                                                         | Add/update `SLACK_WEBHOOK_URL` in GitHub Actions secrets.                                                                                                       |
 
 ---
 
