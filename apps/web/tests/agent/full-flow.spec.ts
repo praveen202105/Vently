@@ -100,19 +100,18 @@ test.describe('🤖 Vently Testing Agent', () => {
   });
 
   // ────────────────────────────────────────────────────────────────────────
-  // Phase 2 — Authenticated home + profile rendering
+  // Phase 2 — Authenticated routing + profile rendering
   // ────────────────────────────────────────────────────────────────────────
 
-  test('2. /home shows personalised CTA for logged-in user', async () => {
+  test('2. /home sends logged-in user into the app', async () => {
     step(`${alice.nickname} (MALE) opens /home`);
     await alicePage.goto('/home', { waitUntil: 'networkidle' });
 
-    // AuthBootstrap takes a moment; wait for hydration. Two CTAs render
-    // "Continue as <nickname>" (hero + bottom card) — first() is enough to
-    // prove the page recognised Alice.
-    await expect(
-      alicePage.getByText(new RegExp(`continue as ${alice.nickname}`, 'i')).first(),
-    ).toBeVisible({ timeout: 15_000 });
+    await alicePage.waitForURL(/\/mood/, { timeout: 15_000 });
+    await expect(alicePage.getByRole('heading', { name: /how are you feeling/i })).toBeVisible();
+    await expect(alicePage.getByText(new RegExp(`continue as ${alice.nickname}`, 'i'))).toHaveCount(
+      0,
+    );
     await alicePage.screenshot({ path: 'agent-results/02-home-authed.png', fullPage: true });
   });
 
@@ -231,7 +230,7 @@ test.describe('🤖 Vently Testing Agent', () => {
 
   test('7. Bob has a friend-accepted notification', async () => {
     step(`${alice.nickname} opens notification bell`);
-    await alicePage.goto('/home', { waitUntil: 'networkidle' });
+    await alicePage.goto('/mood', { waitUntil: 'networkidle' });
     // Wait for auth hydration so the bell can fetch.
     await alicePage.waitForTimeout(1_500);
 

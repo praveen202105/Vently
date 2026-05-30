@@ -71,4 +71,19 @@ test.describe('Phase 1 — Auth + Profile', () => {
     await expect(page.getByRole('heading', { name: /how are you feeling/i })).toBeVisible();
     await expect(page.getByLabel('Nickname')).toHaveCount(0);
   });
+
+  test('logged-in user is not shown the public home page', async ({ page }) => {
+    const user = await provisionUserViaApi({ gender: 'FEMALE' });
+
+    await page.goto('/login', { waitUntil: 'networkidle' });
+    await page.getByLabel('Email').fill(user.email);
+    await page.getByLabel('Password').fill(user.password);
+    await page.getByRole('button', { name: /sign in/i }).click();
+    await page.waitForURL(/\/mood/);
+
+    await page.goto('/home', { waitUntil: 'networkidle' });
+    await page.waitForURL(/\/mood/);
+    await expect(page.getByRole('heading', { name: /how are you feeling/i })).toBeVisible();
+    await expect(page.getByText(new RegExp(`continue as ${user.nickname}`, 'i'))).toHaveCount(0);
+  });
 });

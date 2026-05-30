@@ -19,6 +19,7 @@ const REFRESH_INTERVAL_MS = (15 * 60 - 30) * 1000;
 // failed /me — login/register live in the (auth) group and the (marketing)
 // pages stay readable anonymously.
 const PUBLIC_PREFIXES = ['/', '/welcome', '/home', '/login', '/register', '/forgot-password'];
+const AUTHED_REDIRECT_PREFIXES = ['/', '/welcome', '/home', '/login', '/register'];
 
 // Routes inside the (app) group that do NOT require a Profile to be present.
 // /onboarding is itself the place where you create the profile. /profile lets
@@ -38,13 +39,34 @@ function requiresProfile(pathname: string) {
   return !NO_PROFILE_REQUIRED_PREFIXES.some((p) => pathname === p || pathname.startsWith(`${p}/`));
 }
 
+function shouldRedirectAuthedUser(pathname: string) {
+  return AUTHED_REDIRECT_PREFIXES.some((p) =>
+    p === '/' ? pathname === '/' : pathname === p || pathname.startsWith(`${p}/`),
+  );
+}
+
 export function useAuthBootstrap() {
   const router = useRouter();
   const pathname = usePathname();
   const setAuth = useAuthStore((s) => s.setAuth);
   const clear = useAuthStore((s) => s.clear);
+  const user = useAuthStore((s) => s.user);
+  const profile = useAuthStore((s) => s.profile);
   const hydrated = useAuthStore((s) => s.hydrated);
   const ranRef = useRef(false);
+
+  useEffect(() => {
+    if (!hydrated || !user || !pathname) return;
+
+    if (shouldRedirectAuthedUser(pathname)) {
+      router.replace(profile ? '/mood' : '/onboarding');
+      return;
+    }
+
+    if (!profile && requiresProfile(pathname)) {
+      router.replace('/onboarding');
+    }
+  }, [hydrated, user, profile, router, pathname]);
 
   useEffect(() => {
     if (ranRef.current) return;
