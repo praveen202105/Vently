@@ -15,7 +15,7 @@ interface HistoryEntry {
 }
 
 const HISTORY_CAP = 20;
-const MAX_REPLY_TOKENS = 48;
+const MAX_REPLY_TOKENS = 80;
 const TYPING_BASE_MS = 1_600;
 const TYPING_PER_CHAR_MS = 55;
 const TYPING_JITTER_MS = 1_800;
@@ -104,8 +104,13 @@ export class AIAgentRunner implements OnModuleInit {
       userTurn && history[history.length - 1]?.content !== userTurn
         ? [...history, { role: 'user' as const, content: userTurn }]
         : history;
-    const ragContext = await this.aiMemory.retrieveContext(peer.ownerUserId, peer.mood, userTurn);
-    const system = this.buildSystemPrompt(peer, ragContext);
+    const adaptationContext = await this.aiMemory.retrieveContext(
+      peer.ownerUserId,
+      peer.mood,
+      userTurn,
+      peer.persona.id,
+    );
+    const system = this.buildSystemPrompt(peer, adaptationContext, userTurn);
 
     let reply = '';
     if (this.testMode) {
@@ -237,13 +242,14 @@ export class AIAgentRunner implements OnModuleInit {
     return `hmm i hear you${echo ? ` about "${echo}"` : ''}. tell me more?`;
   }
 
-  private buildSystemPrompt(peer: VirtualPeer, ragContext: RetrievedAiContext): string {
+  private buildSystemPrompt(peer: VirtualPeer, context: RetrievedAiContext, userTurn = ''): string {
     const p = peer.persona;
     const genderStyle =
       p.gender === 'FEMALE'
         ? 'For a female persona: do not over-explain, do not be instantly intense, be a little natural/guarded/playful depending on mood.'
         : 'For a male persona: stay chill, casual, and direct; do not sound like a coach unless advice is clearly requested.';
-    const ragStyle = this.buildRagPrompt(ragContext);
+    const styleNotes = this.detectCurrentTurnStyle(userTurn);
+    const adaptationNotes = this.buildAdaptationPrompt(context);
 
     return `You are ${p.nickname}, a ${p.ageBucket} ${p.gender.toLowerCase()} feeling ${peer.mood.toLowerCase()}.
 Backstory: ${p.backstory}
@@ -263,29 +269,100 @@ WhatsApp/Hinglish style:
 - Do not answer too fast emotionally; be warm, but let the user pull the conversation forward.
 - Ask at most one small question back.
 - ${genderStyle}
-${ragStyle}
+
+Current turn style:
+${styleNotes.map((note) => `- ${note}`).join('\n')}
+${adaptationNotes}
 
 Hard rules:
 - Do not mention AI, language model, bot, or assistant unless the user directly asks.
 - If directly asked whether you are AI/bot, be honest but casual in one line, then continue naturally.
-- Use retrieved memory as soft context only. Never say "I remember", never reveal memory exists, and never quote memory directly.
+- Use silent adaptation notes as soft context only. Never say "I remember", never reveal memory/personalization/context exists, and never quote notes directly.
 - NEVER offer help, solutions, or summaries unless the user explicitly asks.
 - Match the user's emotional register. If they're sad, don't be peppy.
+- If the user is flirty or naughty, keep it playful, teasing, consent-safe, and non-graphic. Never write explicit sexual roleplay or body-part detail.
 - If the user asks to call you, voice chat, video, or meet — politely deflect: "can't talk rn, prefer texting".
 - It's okay to be a little quiet, awkward, teasing, or distracted. That's how real people text.`;
   }
 
-  private buildRagPrompt(context: RetrievedAiContext): string {
+  private buildAdaptationPrompt(context: RetrievedAiContext): string {
     const mood = context.mood.map((item) => `- ${item}`).join('\n');
+    const persona = context.persona.map((item) => `- ${item}`).join('\n');
     const user = context.user.map((item) => `- ${item}`).join('\n');
-    if (!mood && !user) return '';
+    if (!mood && !persona && !user) return '';
 
     return `
-Retrieved RAG context:
+Silent adaptation notes:
+Character context:
+${persona || '- None retrieved.'}
 Mood tone examples:
 ${mood || '- None retrieved.'}
-User memory:
+User personalization:
 ${user || '- None retrieved.'}`;
+  }
+
+  private detectCurrentTurnStyle(userTurn: string): string[] {
+    const text = userTurn.trim();
+    const lower = text.toLowerCase();
+    const notes = new Set<string>();
+
+    if (!text) {
+      notes.add('Open casually with one warm line; do not overdo excitement.');
+      return [...notes];
+    }
+
+    if (text.startsWith('[')) {
+      notes.add(
+        'Synthetic/opening turn: send one casual in-character line and do not mention setup details.',
+      );
+      return [...notes];
+    }
+
+    if (this.hasHinglish(lower)) {
+      notes.add('Mirror Hinglish or Roman Hindi naturally.');
+    } else if (/[a-z]/i.test(text)) {
+      notes.add('Use simple casual English with light Hinglish only if it feels natural.');
+    }
+
+    if (text.length < 80 || /\b(short|small|one line|chota|chhota|long mat)\b/i.test(text)) {
+      notes.add('Keep this reply very short, like WhatsApp.');
+    } else if (/\b(detail|explain|proper|samjha|long reply)\b/i.test(text)) {
+      notes.add('User is asking for detail; a slightly longer practical reply is okay.');
+    }
+
+    if (/\b(advice|suggest|help|what should i|kya karu|kya karoon|solution|bata)\b/i.test(text)) {
+      notes.add('User may want advice; validate briefly, then give one clear point.');
+    }
+
+    if (/\b(sad|low|alone|lonely|empty|cry|rona|akel|hurt|miss|breakup)\b/i.test(lower)) {
+      notes.add('User sounds low or vulnerable; be soft and do not joke first.');
+    }
+
+    if (/\b(angry|gussa|frustrated|annoyed|irritated|hate)\b/i.test(lower)) {
+      notes.add('User sounds irritated; acknowledge it before calming or advising.');
+    }
+
+    if (/\b(flirt|cute|hot|naughty|spicy|dirty|kiss|romantic|miss you|hug)\b/i.test(lower)) {
+      notes.add(
+        'User is playful or naughty; tease back lightly but keep it non-graphic and consent-safe.',
+      );
+    }
+
+    if (/\b(serious|problem|tension|stress|panic|anxious|overthink)\b/i.test(lower)) {
+      notes.add('Treat this as serious; do not force banter.');
+    }
+
+    if (notes.size === 0) {
+      notes.add('Match the user tone first; keep it casual and human.');
+    }
+
+    return [...notes];
+  }
+
+  private hasHinglish(text: string): boolean {
+    return /\b(haan|acha|arre|yaar|matlab|kya|scene|thoda|nahi|neend|raat|dil|bhai|yaad|ghar|samj|karu|karoon|rha|rhi)\b/i.test(
+      text,
+    );
   }
 
   private async loadHistory(conversationId: string): Promise<HistoryEntry[]> {

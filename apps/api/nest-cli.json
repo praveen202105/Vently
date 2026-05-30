@@ -12,6 +12,10 @@
       {
         "include": "ai-peer/tone-packs.json",
         "outDir": "dist"
+      },
+      {
+        "include": "ai-peer/persona-stories.json",
+        "outDir": "dist"
       }
     ]
   }

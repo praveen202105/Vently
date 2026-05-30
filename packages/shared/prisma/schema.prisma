@@ -226,7 +226,7 @@ model ModerationFlag {
 model AiMemoryPreference {
   userId    String   @id
   user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  enabled   Boolean  @default(false)
+  enabled   Boolean  @default(true)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 }
@@ -343,10 +343,12 @@ enum NotifType {
 
 enum AiRagScope {
   MOOD_TEMPLATE
+  PERSONA_TEMPLATE
   USER_MEMORY
 }
 
 enum AiRagKind {
   TONE_EXAMPLE
+  PERSONA_STORY
   USER_SIGNAL
 }

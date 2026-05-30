@@ -55,8 +55,12 @@ function makeService() {
     aiRagChunk: {
       count: jest.fn(
         async ({ where }: any) =>
-          chunks.filter((chunk) => chunk.userId === where.userId && chunk.scope === where.scope)
-            .length,
+          chunks.filter(
+            (chunk) =>
+              chunk.userId === where.userId &&
+              chunk.scope === where.scope &&
+              (!chunk.expiresAt || chunk.expiresAt > new Date()),
+          ).length,
       ),
       findFirst: jest.fn(
         async ({ where }: any) =>
@@ -64,11 +68,25 @@ function makeService() {
           null,
       ),
       findMany: jest.fn(async ({ where }: any) => {
+        const expiresAfter = where.OR?.find((entry: any) => entry.expiresAt?.gt)?.expiresAt.gt;
+        const fresh = (chunk: any) =>
+          !expiresAfter || chunk.expiresAt === null || chunk.expiresAt > expiresAfter;
         if (where.scope === AiRagScope.MOOD_TEMPLATE) {
-          return chunks.filter((chunk) => chunk.scope === where.scope && chunk.mood === where.mood);
+          return chunks.filter(
+            (chunk) => chunk.scope === where.scope && chunk.mood === where.mood && fresh(chunk),
+          );
+        }
+        if (where.scope === AiRagScope.PERSONA_TEMPLATE) {
+          const prefix = where.sourceKey?.startsWith;
+          return chunks.filter(
+            (chunk) =>
+              chunk.scope === where.scope &&
+              (!prefix || chunk.sourceKey?.startsWith(prefix)) &&
+              fresh(chunk),
+          );
         }
         return chunks.filter(
-          (chunk) => chunk.scope === where.scope && chunk.userId === where.userId,
+          (chunk) => chunk.scope === where.scope && chunk.userId === where.userId && fresh(chunk),
         );
       }),
       findUnique: jest.fn(
@@ -123,8 +141,17 @@ function makeService() {
 }
 
 describe('AiMemoryService', () => {
+  it('defaults missing preferences to enabled', async () => {
+    const { service } = makeService();
+
+    const status = await service.getStatus('user-a');
+
+    expect(status.enabled).toBe(true);
+  });
+
   it('does not observe turns while memory is disabled', async () => {
     const { service, chunks } = makeService();
+    await service.setEnabled('user-a', false);
 
     await service.observeTurn({
       userId: 'user-a',
@@ -132,6 +159,21 @@ describe('AiMemoryService', () => {
       mood: 'FRIENDSHIP',
       userMessage: 'haan short reply dena',
       assistantReply: 'haan sure',
+    });
+
+    expect(chunks).toHaveLength(0);
+  });
+
+  it('does not observe human chat while personalization is disabled', async () => {
+    const { service, chunks } = makeService();
+    await service.setEnabled('user-a', false);
+
+    await service.observeUserMessage({
+      userId: 'user-a',
+      conversationId: 'conv-a',
+      mood: 'FRIENDSHIP',
+      body: 'haan short reply dena',
+      moderationSeverity: 'CLEAN',
     });
 
     expect(chunks).toHaveLength(0);
@@ -148,7 +190,6 @@ describe('AiMemoryService', () => {
 
   it('stores safe distilled memory signals with embeddings', async () => {
     const { service, chunks } = makeService();
-    await service.setEnabled('user-a', true);
 
     await service.observeTurn({
       userId: 'user-a',
@@ -163,9 +204,59 @@ describe('AiMemoryService', () => {
     expect(chunks.every((chunk) => Array.isArray(chunk.embedding))).toBe(true);
   });
 
+  it('observes normal human chat for the sender only', async () => {
+    const { service, chunks } = makeService();
+
+    await service.observeUserMessage({
+      userId: 'sender-a',
+      conversationId: 'conv-human',
+      mood: 'FRIENDSHIP',
+      body: 'haan yaar short reply dena, breakup scene hai',
+      moderationSeverity: 'CLEAN',
+    });
+
+    expect(chunks.some((chunk) => chunk.userId === 'sender-a')).toBe(true);
+    expect(chunks.some((chunk) => chunk.userId === 'peer-b')).toBe(false);
+    expect(chunks.every((chunk) => chunk.metadata?.source === 'HUMAN_CHAT')).toBe(true);
+  });
+
+  it('skips unsafe or non-clean user messages', async () => {
+    const { service, chunks } = makeService();
+
+    await service.observeUserMessage({
+      userId: 'user-a',
+      conversationId: 'conv-human',
+      mood: 'FLIRTY',
+      body: 'nude bhejo',
+      moderationSeverity: 'CLEAN',
+    });
+    await service.observeUserMessage({
+      userId: 'user-a',
+      conversationId: 'conv-human',
+      mood: 'NEED_TO_TALK',
+      body: 'my email is test@example.com',
+      moderationSeverity: 'CLEAN',
+    });
+    await service.observeUserMessage({
+      userId: 'user-a',
+      conversationId: 'conv-human',
+      mood: 'FRIENDSHIP',
+      body: 'fuck this',
+      moderationSeverity: 'MILD',
+    });
+    await service.observeUserMessage({
+      userId: 'user-a',
+      conversationId: 'conv-human',
+      mood: 'FRIENDSHIP',
+      body: 'audio:data',
+      moderationSeverity: 'CLEAN',
+    });
+
+    expect(chunks).toHaveLength(0);
+  });
+
   it('ranks semantically relevant chunks above unrelated chunks', async () => {
     const { service, chunks } = makeService();
-    await service.setEnabled('user-a', true);
     chunks.push(
       chunkFixture('relationship memory', 'user-a', 'USER_MEMORY', 'FRIENDSHIP', [1, 0]),
       chunkFixture('work memory', 'user-a', 'USER_MEMORY', 'FRIENDSHIP', [0, 1]),
@@ -178,6 +269,7 @@ describe('AiMemoryService', () => {
 
   it('ignores user memory when disabled but still returns mood templates', async () => {
     const { service, chunks } = makeService();
+    await service.setEnabled('user-a', false);
     chunks.push(
       chunkFixture('friendship tone', null, 'MOOD_TEMPLATE', 'FRIENDSHIP', [1, 0]),
       chunkFixture('private user memory', 'user-a', 'USER_MEMORY', 'FRIENDSHIP', [1, 0]),
@@ -189,10 +281,55 @@ describe('AiMemoryService', () => {
     expect(context.user).toEqual([]);
   });
 
-  it('filters expired chunks during retrieval', async () => {
-    const { service, prisma } = makeService();
+  it('retrieves persona story chunks for the current persona', async () => {
+    const { service, chunks } = makeService();
+    chunks.push(
+      chunkFixture(
+        'Persona: riya (p03), playful college context',
+        null,
+        'PERSONA_TEMPLATE',
+        null,
+        [1, 0],
+        'persona:1:p03:profile',
+      ),
+      chunkFixture(
+        'Persona: kavya (p01), quiet late night context',
+        null,
+        'PERSONA_TEMPLATE',
+        null,
+        [1, 0],
+        'persona:1:p01:profile',
+      ),
+    );
 
-    await service.retrieveContext('user-a', 'FRIENDSHIP', 'hello');
+    const context = await service.retrieveContext('user-a', 'FLIRTY', 'college crush', 'p03');
+
+    expect(context.persona).toEqual(['Persona: riya (p03), playful college context']);
+  });
+
+  it('seeds persona story templates', async () => {
+    const { service, chunks } = makeService();
+
+    await service.seedPersonaTemplates();
+
+    expect(
+      chunks.some(
+        (chunk) =>
+          chunk.scope === AiRagScope.PERSONA_TEMPLATE &&
+          chunk.kind === AiRagKind.PERSONA_STORY &&
+          chunk.sourceKey === 'persona:1:p03:profile',
+      ),
+    ).toBe(true);
+  });
+
+  it('filters expired chunks during retrieval', async () => {
+    const { service, chunks, prisma } = makeService();
+    chunks.push(chunkFixture('fresh memory', 'user-a', 'USER_MEMORY', 'FRIENDSHIP', [1, 0]), {
+      ...chunkFixture('expired memory', 'user-a', 'USER_MEMORY', 'FRIENDSHIP', [1, 0]),
+      expiresAt: new Date(Date.now() - 1_000),
+    });
+
+    const context = await service.retrieveContext('user-a', 'FRIENDSHIP', 'relationship');
 
     expect(prisma.aiRagChunk.findMany).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -201,6 +338,7 @@ describe('AiMemoryService', () => {
         }),
       }),
     );
+    expect(context.user).toEqual(['fresh memory']);
   });
 
   it('clears only the current user memory and disables preference', async () => {
@@ -223,20 +361,26 @@ function chunkFixture(
   content: string,
   userId: string | null,
   scope: keyof typeof AiRagScope,
-  mood: MoodIntent,
+  mood: MoodIntent | null,
   embedding: number[],
+  sourceKey = content,
 ) {
   return {
     id: content,
     scope: AiRagScope[scope],
     userId,
     mood,
-    kind: scope === 'MOOD_TEMPLATE' ? AiRagKind.TONE_EXAMPLE : AiRagKind.USER_SIGNAL,
+    kind:
+      scope === 'MOOD_TEMPLATE'
+        ? AiRagKind.TONE_EXAMPLE
+        : scope === 'PERSONA_TEMPLATE'
+          ? AiRagKind.PERSONA_STORY
+          : AiRagKind.USER_SIGNAL,
     content,
     embedding,
     metadata: null,
     sourceConversationId: null,
-    sourceKey: content,
+    sourceKey,
     expiresAt: null,
     createdAt: new Date(),
     updatedAt: new Date(),

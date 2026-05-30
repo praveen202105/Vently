@@ -27,6 +27,7 @@ import { PushService } from '../push/push.service.js';
 import { SuggestionsService } from '../suggestions/suggestions.service.js';
 import { AIPeerService } from '../ai-peer/ai-peer.service.js';
 import { AIAgentRunner } from '../ai-peer/ai-agent.runner.js';
+import { AiMemoryService } from '../ai-memory/ai-memory.service.js';
 
 const MAX_BODY_LEN = 2000;
 // Per-user-per-event caps. Values are deliberately generous so a real
@@ -55,6 +56,7 @@ export class ChatGateway {
     private readonly suggestions: SuggestionsService,
     private readonly aiPeer: AIPeerService,
     private readonly aiAgent: AIAgentRunner,
+    private readonly aiMemory: AiMemoryService,
   ) {}
 
   // Lets a reconnected/refreshed client re-join its conversation room.
@@ -161,6 +163,16 @@ export class ChatGateway {
 
     // Also send to self so other open tabs of the sender see it.
     socket.emit(SocketEvents.CHAT_MESSAGE, msg);
+
+    if (!isAudio && profanity.severity === 'CLEAN') {
+      void this.aiMemory.observeUserMessage({
+        userId: user.userId,
+        conversationId: payload.conversationId,
+        mood: senderProfile?.mood ?? null,
+        body,
+        moderationSeverity: profanity.severity,
+      });
+    }
 
     // Smart reply suggestions — fire for the peer only, never block delivery.
     // Fetch up to 3 recent messages (excluding the one just sent) so Groq can

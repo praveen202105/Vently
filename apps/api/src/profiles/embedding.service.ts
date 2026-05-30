@@ -1,7 +1,8 @@
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import Groq from 'groq-sdk';
 
+const DEFAULT_GEMINI_EMBEDDING_MODEL = 'gemini-embedding-001';
+const LOCAL_EMBEDDING_MODEL = 'local-semantic-hash-v1';
 const LOCAL_EMBEDDING_DIM = 128;
 
 const SEMANTIC_HINTS: Array<[string, RegExp, number]> = [
@@ -36,25 +37,27 @@ const SEMANTIC_HINTS: Array<[string, RegExp, number]> = [
 @Injectable()
 export class EmbeddingService implements OnModuleInit {
   private readonly logger = new Logger(EmbeddingService.name);
-  private client: Groq | null = null;
-  private embeddingModel: string | null = null;
+  private geminiApiKey: string | null = null;
+  private embeddingModel = DEFAULT_GEMINI_EMBEDDING_MODEL;
   private remoteEmbeddingDisabled = false;
   private remoteFailureWarned = false;
 
   constructor(private readonly config: ConfigService) {}
 
   onModuleInit() {
-    const key = this.config.get<string>('GROQ_API_KEY');
-    const model = this.config.get<string>('GROQ_EMBEDDING_MODEL')?.trim();
-    this.embeddingModel = model || null;
+    const key = this.config.get<string>('GEMINI_API_KEY')?.trim();
+    const model = this.config.get<string>('GEMINI_EMBEDDING_MODEL')?.trim();
+    this.geminiApiKey = key || null;
+    this.embeddingModel = model || DEFAULT_GEMINI_EMBEDDING_MODEL;
 
-    if (!key || !this.embeddingModel) {
-      this.logger.log('Embedding service using local semantic hash embeddings.');
+    if (!this.geminiApiKey) {
+      this.logger.log(
+        `Embedding service using local semantic hash embeddings (${LOCAL_EMBEDDING_MODEL}).`,
+      );
       return;
     }
 
-    this.client = new Groq({ apiKey: key });
-    this.logger.log(`Embedding service enabled (Groq / ${this.embeddingModel})`);
+    this.logger.log(`Embedding service enabled (Gemini / ${this.embeddingModel})`);
   }
 
   async generate(text: string): Promise<number[] | null> {
@@ -63,17 +66,9 @@ export class EmbeddingService implements OnModuleInit {
       return null;
     }
 
-    if (this.client && this.embeddingModel && !this.remoteEmbeddingDisabled) {
-      try {
-        const response = await this.client.embeddings.create({
-          model: this.embeddingModel,
-          input: trimmed,
-        });
-        const embedding = response.data[0]?.embedding;
-        if (Array.isArray(embedding)) return embedding;
-      } catch (err) {
-        this.handleRemoteFailure(err);
-      }
+    if (this.geminiApiKey && !this.remoteEmbeddingDisabled) {
+      const embedding = await this.generateGeminiEmbedding(trimmed);
+      if (embedding) return embedding;
     }
 
     return this.generateLocalEmbedding(trimmed);
@@ -126,14 +121,74 @@ export class EmbeddingService implements OnModuleInit {
     return intersection.size / union.size;
   }
 
-  private handleRemoteFailure(err: unknown): void {
+  private async generateGeminiEmbedding(text: string): Promise<number[] | null> {
+    const model = this.embeddingModel.replace(/^models\//, '');
+    const modelPath = `models/${model}`;
+    let response: Response;
+    try {
+      response = await fetch(
+        `https://generativelanguage.googleapis.com/v1beta/models/${model}:embedContent`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'x-goog-api-key': this.geminiApiKey ?? '',
+          },
+          body: JSON.stringify({
+            model: modelPath,
+            content: {
+              parts: [{ text }],
+            },
+          }),
+        },
+      );
+    } catch (err) {
+      this.handleRemoteFailure(err);
+      return null;
+    }
+
+    if (!response.ok) {
+      let message = response.statusText;
+      try {
+        const body = (await response.json()) as { error?: { message?: string }; message?: string };
+        message = body.error?.message ?? body.message ?? message;
+      } catch {
+        // keep HTTP status text
+      }
+      this.handleRemoteFailure(
+        new Error(`Gemini embedding failed (${response.status}): ${message}`),
+        response.status,
+      );
+      return null;
+    }
+
+    try {
+      const body = (await response.json()) as { embedding?: { values?: unknown[] } };
+      const values = body.embedding?.values;
+      if (Array.isArray(values) && values.every((value) => typeof value === 'number')) {
+        return values;
+      }
+      this.handleRemoteFailure(new Error('Gemini embedding response missing numeric values'));
+    } catch (err) {
+      this.handleRemoteFailure(err);
+    }
+
+    return null;
+  }
+
+  private handleRemoteFailure(err: unknown, status?: number): void {
     const message = (err as Error).message ?? String(err);
-    if (/model_not_found|does not exist|not have access/i.test(message)) {
+    if (
+      (status && [400, 401, 403, 404].includes(status)) ||
+      /model_not_found|does not exist|not have access|permission|api key|unauthorized/i.test(
+        message,
+      )
+    ) {
       this.remoteEmbeddingDisabled = true;
     }
 
     if (!this.remoteFailureWarned) {
-      this.logger.warn(`Remote embedding failed; using local fallback: ${message}`);
+      this.logger.warn(`Remote embedding failed; using ${LOCAL_EMBEDDING_MODEL}: ${message}`);
       this.remoteFailureWarned = true;
     }
   }

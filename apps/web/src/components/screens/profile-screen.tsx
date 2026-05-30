@@ -12,7 +12,7 @@ import {
   Heart,
   MessageCircle,
   Sparkles,
-  Brain,
+  SlidersHorizontal,
   Trash2,
 } from 'lucide-react';
 import { Button, GlassCard } from '@vently/ui';
@@ -105,9 +105,9 @@ export function ProfileScreen() {
     try {
       const next = await updateAiMemory({ enabled: nextEnabled });
       setMemoryStatus(next);
-      toast.success(nextEnabled ? 'AI memory enabled' : 'AI memory paused');
+      toast.success(nextEnabled ? 'Chat personalization enabled' : 'Chat personalization paused');
     } catch (err) {
-      const msg = err instanceof ApiError ? err.message : 'Could not update AI memory';
+      const msg = err instanceof ApiError ? err.message : 'Could not update personalization';
       toast.error(msg);
     } finally {
       setMemoryBusy(false);
@@ -125,9 +125,9 @@ export function ProfileScreen() {
         retentionDays: memoryStatus?.retentionDays ?? 90,
       });
       setClearMemoryOpen(false);
-      toast.success('AI memory cleared');
+      toast.success('Chat personalization cleared');
     } catch (err) {
-      const msg = err instanceof ApiError ? err.message : 'Could not clear AI memory';
+      const msg = err instanceof ApiError ? err.message : 'Could not clear personalization';
       toast.error(msg);
     } finally {
       setMemoryBusy(false);
@@ -222,13 +222,11 @@ export function ProfileScreen() {
         <div className="flex items-start justify-between gap-4">
           <div className="min-w-0">
             <div className="flex items-center gap-2">
-              <Brain className="w-5 h-5 text-primary shrink-0" />
-              <h2 className="text-lg">AI memory</h2>
+              <SlidersHorizontal className="w-5 h-5 text-primary shrink-0" />
+              <h2 className="text-lg">Chat personalization</h2>
             </div>
             <p className="text-sm text-muted-foreground mt-1">
-              {memoryStatus?.enabled
-                ? `${memoryStatus.chunkCount} saved signals · ${memoryStatus.retentionDays} days`
-                : 'Off'}
+              {memoryStatus?.enabled ? `On · ${memoryStatus.retentionDays}-day retention` : 'Off'}
             </p>
           </div>
 
@@ -236,7 +234,7 @@ export function ProfileScreen() {
             type="button"
             role="switch"
             aria-checked={memoryStatus?.enabled ?? false}
-            aria-label="Toggle AI memory"
+            aria-label="Toggle chat personalization"
             disabled={!memoryStatus || memoryBusy}
             onClick={toggleMemory}
             className={`relative h-8 w-14 shrink-0 rounded-full border transition disabled:opacity-50 ${
@@ -259,7 +257,7 @@ export function ProfileScreen() {
           onClick={() => setClearMemoryOpen(true)}
         >
           <Trash2 className="w-4 h-4" />
-          Clear memory
+          Clear personalization
         </Button>
       </GlassCard>
 
@@ -291,8 +289,8 @@ export function ProfileScreen() {
 
       <ConfirmDialog
         open={clearMemoryOpen}
-        title="Clear AI memory?"
-        description="This deletes saved AI chat memory and turns memory off."
+        title="Clear personalization?"
+        description="This deletes saved chat personalization and turns personalization off."
         confirmLabel="Clear"
         busy={memoryBusy}
         onConfirm={handleClearMemory}

@@ -5,7 +5,7 @@ import type { VirtualPeer } from './ai-peer.service.js';
 import type { AiMemoryService, RetrievedAiContext } from '../ai-memory/ai-memory.service.js';
 
 type RunnerInternals = {
-  buildSystemPrompt: (peer: VirtualPeer, ragContext: RetrievedAiContext) => string;
+  buildSystemPrompt: (peer: VirtualPeer, context: RetrievedAiContext, userTurn?: string) => string;
 };
 
 function peerFixture(): VirtualPeer {
@@ -29,7 +29,7 @@ function peerFixture(): VirtualPeer {
   };
 }
 
-describe('AIAgentRunner RAG integration', () => {
+describe('AIAgentRunner private context integration', () => {
   let aiMemory: {
     retrieveContext: jest.Mock;
     observeTurn: jest.Mock;
@@ -43,6 +43,7 @@ describe('AIAgentRunner RAG integration', () => {
     aiMemory = {
       retrieveContext: jest.fn().mockResolvedValue({
         mood: ['Mood: FLIRTY\nSample replies: acha ji? / slow down'],
+        persona: ['Persona: riya (p03), playful college context'],
         user: ['Reply style: user prefers short WhatsApp-length replies.'],
       }),
       observeTurn: jest.fn().mockResolvedValue(undefined),
@@ -58,7 +59,7 @@ describe('AIAgentRunner RAG integration', () => {
     };
   });
 
-  it('includes retrieved RAG context as soft prompt context', () => {
+  it('includes retrieved context as hidden prompt context', () => {
     const config = { get: jest.fn() } as unknown as ConfigService;
     const runner = new AIAgentRunner(
       config,
@@ -66,14 +67,22 @@ describe('AIAgentRunner RAG integration', () => {
       aiMemory as unknown as AiMemoryService,
     ) as unknown as RunnerInternals;
 
-    const prompt = runner.buildSystemPrompt(peerFixture(), {
-      mood: ['Mood: FLIRTY\nSample replies: acha ji? / slow down'],
-      user: ['Reply style: user prefers short WhatsApp-length replies.'],
-    });
+    const prompt = runner.buildSystemPrompt(
+      peerFixture(),
+      {
+        mood: ['Mood: FLIRTY\nSample replies: acha ji? / slow down'],
+        persona: ['Persona: riya (p03), playful college context'],
+        user: ['Reply style: user prefers short WhatsApp-length replies.'],
+      },
+      'haan short flirty reply do',
+    );
 
-    expect(prompt).toContain('Retrieved RAG context');
+    expect(prompt).toContain('Silent adaptation notes');
+    expect(prompt).toContain('Persona: riya (p03), playful college context');
     expect(prompt).toContain('Reply style: user prefers short WhatsApp-length replies.');
+    expect(prompt).toContain('Mirror Hinglish');
     expect(prompt).toContain('Never say "I remember"');
+    expect(prompt).not.toContain('RAG');
   });
 
   it('retrieves context and observes completed AI turns', async () => {
@@ -95,6 +104,7 @@ describe('AIAgentRunner RAG integration', () => {
       'user-a',
       'FLIRTY',
       'acha short flirty reply do',
+      'p03',
     );
     expect(aiMemory.observeTurn).toHaveBeenCalledWith(
       expect.objectContaining({

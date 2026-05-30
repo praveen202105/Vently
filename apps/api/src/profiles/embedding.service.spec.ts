@@ -69,48 +69,77 @@ describe('EmbeddingService', () => {
   });
 
   describe('generate', () => {
-    it('returns a local embedding if remote client is not initialized', async () => {
-      (service as any).client = null;
+    it('returns a local embedding if Gemini key is not configured', async () => {
+      service.onModuleInit();
+
       const embedding = await service.generate('some bio text');
+
       expect(embedding).toHaveLength(128);
       expect(embedding?.some((value) => value !== 0)).toBe(true);
     });
 
     it('returns null for empty or white-spaced bio inputs', async () => {
-      (service as any).client = {};
       expect(await service.generate('')).toBeNull();
       expect(await service.generate('   ')).toBeNull();
     });
 
-    it('uses configured remote embeddings when available', async () => {
-      const create = jest.fn(async () => ({ data: [{ embedding: [0.1, 0.2, 0.3] }] }));
-      (service as any).client = { embeddings: { create } };
-      (service as any).embeddingModel = 'hosted-embedding-model';
+    it('uses configured Gemini embeddings when available', async () => {
+      configGet.mockImplementation((key: string) => {
+        if (key === 'GEMINI_API_KEY') return 'test-gemini-key';
+        if (key === 'GEMINI_EMBEDDING_MODEL') return 'gemini-embedding-001';
+        return undefined;
+      });
+      const fetchMock = jest.spyOn(globalThis, 'fetch').mockResolvedValue({
+        ok: true,
+        json: async () => ({ embedding: { values: [0.1, 0.2, 0.3] } }),
+      } as Response);
+      service.onModuleInit();
 
       const embedding = await service.generate('relationship advice');
 
-      expect(create).toHaveBeenCalledWith({
-        model: 'hosted-embedding-model',
-        input: 'relationship advice',
-      });
+      expect(fetchMock).toHaveBeenCalledWith(
+        'https://generativelanguage.googleapis.com/v1beta/models/gemini-embedding-001:embedContent',
+        expect.objectContaining({
+          method: 'POST',
+          headers: expect.objectContaining({
+            'Content-Type': 'application/json',
+            'x-goog-api-key': 'test-gemini-key',
+          }),
+          body: JSON.stringify({
+            model: 'models/gemini-embedding-001',
+            content: {
+              parts: [{ text: 'relationship advice' }],
+            },
+          }),
+        }),
+      );
       expect(embedding).toEqual([0.1, 0.2, 0.3]);
+      fetchMock.mockRestore();
     });
 
-    it('falls back locally and disables remote calls when the configured model is unavailable', async () => {
-      const create = jest.fn(async () => {
-        throw new Error('model_not_found: does not exist');
+    it('falls back locally and disables Gemini calls when the configured model is unavailable', async () => {
+      configGet.mockImplementation((key: string) => {
+        if (key === 'GEMINI_API_KEY') return 'test-gemini-key';
+        if (key === 'GEMINI_EMBEDDING_MODEL') return 'missing-embedding-model';
+        return undefined;
       });
+      const fetchMock = jest.spyOn(globalThis, 'fetch').mockResolvedValue({
+        ok: false,
+        status: 404,
+        statusText: 'Not Found',
+        json: async () => ({ error: { message: 'model_not_found: does not exist' } }),
+      } as Response);
       const warn = jest.spyOn((service as any).logger, 'warn').mockImplementation(() => undefined);
-      (service as any).client = { embeddings: { create } };
-      (service as any).embeddingModel = 'missing-embedding-model';
+      service.onModuleInit();
 
       const first = await service.generate('neend nahi aa rhi');
       const second = await service.generate('neend nahi aa rhi');
 
       expect(first).toHaveLength(128);
       expect(second).toHaveLength(128);
-      expect(create).toHaveBeenCalledTimes(1);
+      expect(fetchMock).toHaveBeenCalledTimes(1);
       expect(warn).toHaveBeenCalledTimes(1);
+      fetchMock.mockRestore();
       warn.mockRestore();
     });
   });
