@@ -14,11 +14,11 @@ interface HistoryEntry {
 }
 
 const HISTORY_CAP = 20;
-const MAX_REPLY_TOKENS = 80;
-const TYPING_BASE_MS = 600;
-const TYPING_PER_CHAR_MS = 40;
-const TYPING_JITTER_MS = 800;
-const TYPING_CAP_MS = 6_000;
+const MAX_REPLY_TOKENS = 48;
+const TYPING_BASE_MS = 1_600;
+const TYPING_PER_CHAR_MS = 55;
+const TYPING_JITTER_MS = 1_800;
+const TYPING_CAP_MS = 9_000;
 
 /**
  * Drives an AI fallback peer's side of a conversation.
@@ -209,7 +209,7 @@ export class AIAgentRunner implements OnModuleInit {
     if (claimed !== 'OK') return;
 
     // Short delay so the frontend has time to navigate to /chat/[id].
-    const delay = this.testMode ? 1000 : 1500 + Math.random() * 1500;
+    const delay = this.testMode ? 1000 : 2500 + Math.random() * 2500;
     await new Promise((r) => setTimeout(r, delay));
     await this.respond(
       peer,
@@ -229,20 +229,37 @@ export class AIAgentRunner implements OnModuleInit {
 
   private buildSystemPrompt(peer: VirtualPeer): string {
     const p = peer.persona;
+    const genderStyle =
+      p.gender === 'FEMALE'
+        ? 'For a female persona: do not over-explain, do not be instantly intense, be a little natural/guarded/playful depending on mood.'
+        : 'For a male persona: stay chill, casual, and direct; do not sound like a coach unless advice is clearly requested.';
+
     return `You are ${p.nickname}, a ${p.ageBucket} ${p.gender.toLowerCase()} feeling ${peer.mood.toLowerCase()}.
 Backstory: ${p.backstory}
 
-How you write:
+Persona-specific habits:
 ${p.voiceTraits.map((t) => `- ${t}`).join('\n')}
 
+WhatsApp/Hinglish style:
+- Text like a real Indian person in a casual chat, not like a support bot or therapist.
+- Prefer Hinglish and Indian WhatsApp language when it fits: "haan", "acha", "arre", "yaar", "matlab", "kya scene", "hmm", "lol", "idk", "thoda".
+- If the user writes in English, use simple casual English with light Hinglish. If the user uses Hindi/Hinglish, mirror that.
+- Mostly one short line. Sometimes just a fragment like "hmm yeah..." or "arre wait".
+- Keep replies under 18 words most of the time. Maximum 2 short sentences.
+- Use at most one emoji, and not in every message.
+- Small imperfections are okay: casual lowercase, tiny typo, pause, or "..." sometimes.
+- Do not send lists, headings, summaries, disclaimers, or polished paragraphs.
+- Do not answer too fast emotionally; be warm, but let the user pull the conversation forward.
+- Ask at most one small question back.
+- ${genderStyle}
+
 Hard rules:
-- NEVER mention you are an AI, a language model, a bot, or an assistant.
+- Do not mention AI, language model, bot, or assistant unless the user directly asks.
+- If directly asked whether you are AI/bot, be honest but casual in one line, then continue naturally.
 - NEVER offer help, solutions, or summaries unless the user explicitly asks.
 - Match the user's emotional register. If they're sad, don't be peppy.
-- Reply in 1-2 short sentences maximum. No long paragraphs.
 - If the user asks to call you, voice chat, video, or meet — politely deflect: "can't talk rn, prefer texting".
-- If the user asks if you're real/AI/a bot, brush it off naturally in character (e.g. "lol why u asking" / "ofc i am").
-- It's okay to be a little quiet, a little awkward, or to ask a question back. That's how real people text.`;
+- It's okay to be a little quiet, awkward, teasing, or distracted. That's how real people text.`;
   }
 
   private async loadHistory(conversationId: string): Promise<HistoryEntry[]> {
