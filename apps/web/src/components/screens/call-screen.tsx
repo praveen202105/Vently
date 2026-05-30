@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
+import type { KeyboardEvent as ReactKeyboardEvent, PointerEvent as ReactPointerEvent } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { motion, useReducedMotion } from 'motion/react';
 import {
@@ -32,6 +33,145 @@ function callModeFromParams(
 ): CallMode {
   if (voiceOnly) return 'voice';
   return search.get('mode') === 'video' ? 'video' : 'voice';
+}
+
+function IncomingCallSlider({
+  isVideo,
+  onAccept,
+  onReject,
+}: {
+  isVideo: boolean;
+  onAccept: () => void;
+  onReject: () => void;
+}) {
+  const trackRef = useRef<HTMLDivElement | null>(null);
+  const dragXRef = useRef(0);
+  const startXRef = useRef(0);
+  const startDragXRef = useRef(0);
+  const maxDragRef = useRef(120);
+  const [dragX, setDragX] = useState(0);
+  const [dragging, setDragging] = useState(false);
+
+  const setDrag = (next: number) => {
+    const max = maxDragRef.current;
+    const clamped = Math.max(-max, Math.min(max, next));
+    dragXRef.current = clamped;
+    setDragX(clamped);
+  };
+
+  const reset = () => setDrag(0);
+
+  const triggerFromDrag = () => {
+    const max = maxDragRef.current;
+    const threshold = max * 0.72;
+    const current = dragXRef.current;
+    if (current >= threshold) {
+      onAccept();
+      return;
+    }
+    if (current <= -threshold) {
+      onReject();
+      return;
+    }
+    reset();
+  };
+
+  const handlePointerDown = (event: ReactPointerEvent<HTMLDivElement>) => {
+    const track = trackRef.current;
+    if (!track) return;
+    const rect = track.getBoundingClientRect();
+    maxDragRef.current = Math.max(72, rect.width / 2 - 48);
+    startXRef.current = event.clientX;
+    startDragXRef.current = dragXRef.current;
+    setDragging(true);
+    event.currentTarget.setPointerCapture(event.pointerId);
+  };
+
+  const handlePointerMove = (event: ReactPointerEvent<HTMLDivElement>) => {
+    if (!dragging) return;
+    setDrag(startDragXRef.current + event.clientX - startXRef.current);
+  };
+
+  const handlePointerEnd = (event: ReactPointerEvent<HTMLDivElement>) => {
+    if (!dragging) return;
+    setDragging(false);
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    }
+    triggerFromDrag();
+  };
+
+  const handleKeyDown = (event: ReactKeyboardEvent<HTMLDivElement>) => {
+    if (event.key === 'ArrowRight') {
+      event.preventDefault();
+      onAccept();
+    } else if (event.key === 'ArrowLeft') {
+      event.preventDefault();
+      onReject();
+    } else if (event.key === 'Escape') {
+      reset();
+    }
+  };
+
+  const progress = Math.min(1, Math.abs(dragX) / maxDragRef.current);
+  const isRejectIntent = dragX < -12;
+
+  return (
+    <div
+      ref={trackRef}
+      data-testid="incoming-call-slider"
+      className="relative mx-auto h-20 w-full max-w-md select-none overflow-hidden rounded-full border border-white/10 bg-[#111b21]/90 shadow-2xl backdrop-blur-xl touch-none"
+    >
+      <div
+        className={`absolute inset-y-0 transition-opacity ${
+          dragX > 0 ? 'right-0 bg-emerald-500/20' : 'left-0 bg-red-500/20'
+        }`}
+        style={{ width: `${Math.round(progress * 50)}%`, opacity: progress }}
+      />
+      <button
+        type="button"
+        onClick={onReject}
+        aria-label="Reject"
+        className="absolute left-3 top-1/2 z-10 grid h-14 w-14 -translate-y-1/2 place-items-center rounded-full bg-red-600 text-white shadow-lg shadow-red-600/25 transition hover:bg-red-500"
+      >
+        <PhoneOff className="h-6 w-6" />
+      </button>
+      <button
+        type="button"
+        onClick={onAccept}
+        aria-label="Accept"
+        className="absolute right-3 top-1/2 z-10 grid h-14 w-14 -translate-y-1/2 place-items-center rounded-full bg-emerald-500 text-white shadow-lg shadow-emerald-500/25 transition hover:bg-emerald-400"
+      >
+        <Phone className="h-6 w-6" />
+      </button>
+      <div className="absolute inset-0 grid place-items-center text-xs font-medium uppercase tracking-[0.22em] text-white/45">
+        <span aria-hidden="true">{isVideo ? 'Video call' : 'Voice call'}</span>
+      </div>
+      <div
+        role="slider"
+        tabIndex={0}
+        aria-label="Incoming call slider"
+        aria-valuemin={-100}
+        aria-valuemax={100}
+        aria-valuenow={Math.round((dragX / maxDragRef.current) * 100)}
+        data-testid="incoming-call-thumb"
+        onPointerDown={handlePointerDown}
+        onPointerMove={handlePointerMove}
+        onPointerUp={handlePointerEnd}
+        onPointerCancel={handlePointerEnd}
+        onKeyDown={handleKeyDown}
+        className={`absolute left-1/2 top-1/2 z-20 grid h-16 w-16 cursor-grab place-items-center rounded-full text-white shadow-2xl outline-none ring-offset-2 ring-offset-[#111b21] transition focus-visible:ring-2 focus-visible:ring-white/70 active:cursor-grabbing ${
+          isRejectIntent ? 'bg-red-600 shadow-red-600/35' : 'bg-emerald-500 shadow-emerald-500/35'
+        }`}
+        style={{
+          transform: `translate(calc(-50% + ${dragX}px), -50%) scale(${dragging ? 1.05 : 1})`,
+          transitionDuration: dragging ? '0ms' : undefined,
+        }}
+      >
+        {isRejectIntent ? <PhoneOff className="h-7 w-7" /> : <Phone className="h-7 w-7" />}
+      </div>
+    </div>
+  );
 }
 
 export function CallScreen({ conversationId }: { conversationId: string }) {
@@ -226,7 +366,8 @@ export function CallScreen({ conversationId }: { conversationId: string }) {
   const returnToPreviousScreen = () => {
     router.replace(voiceOnly ? '/mood' : `/chat/${conversationId}`);
   };
-  const isPermissionError = !!error && /blocked|permission|allow camera|allow microphone/i.test(error);
+  const isPermissionError =
+    !!error && /blocked|permission|allow camera|allow microphone/i.test(error);
 
   return (
     <div className="fixed inset-0 overflow-hidden bg-[#0b141a] text-white">
@@ -345,85 +486,70 @@ export function CallScreen({ conversationId }: { conversationId: string }) {
       {!isVideo && <audio ref={audioRef} autoPlay playsInline />}
 
       <div className="absolute inset-x-0 bottom-0 z-20 bg-gradient-to-t from-black/80 via-black/45 to-transparent px-4 pb-6 pt-10">
-        <div className="mx-auto flex max-w-md items-center justify-center gap-4 rounded-full border border-white/10 bg-[#111b21]/85 px-4 py-3 shadow-2xl backdrop-blur-xl">
-          {callState === 'IDLE' ? (
-            <>
-              <button
-                type="button"
-                onClick={returnToPreviousScreen}
-                aria-label="Leave call"
-                className="grid h-12 w-12 place-items-center rounded-full bg-white/10 text-white transition hover:bg-white/15"
-              >
-                <PhoneOff className="h-5 w-5" />
-              </button>
-              <button
-                type="button"
-                onClick={() => void startCall()}
-                aria-label={isVideo ? 'Start video call' : 'Start voice call'}
-                className="flex h-14 items-center gap-2 rounded-full bg-emerald-500 px-5 font-semibold text-white shadow-lg shadow-emerald-500/30 transition hover:bg-emerald-400"
-              >
-                {isVideo ? <Camera className="h-5 w-5" /> : <Phone className="h-5 w-5" />}
-                <span>{isVideo ? 'Start video' : 'Start call'}</span>
-              </button>
-            </>
-          ) : callState === 'RINGING' ? (
-            <>
-              <button
-                type="button"
-                onClick={rejectCall}
-                aria-label="Reject"
-                className="grid h-14 w-14 place-items-center rounded-full bg-red-600 text-white shadow-lg"
-              >
-                <PhoneOff className="h-6 w-6" />
-              </button>
-              <button
-                type="button"
-                onClick={acceptCall}
-                aria-label="Accept"
-                className="grid h-14 w-14 place-items-center rounded-full bg-emerald-500 text-white shadow-lg shadow-emerald-500/30"
-              >
-                <Phone className="h-6 w-6" />
-              </button>
-            </>
-          ) : (
-            <>
-              <button
-                type="button"
-                onClick={toggleMute}
-                aria-label={muted ? 'Unmute' : 'Mute'}
-                className="grid h-12 w-12 place-items-center rounded-full bg-white/10 text-white transition hover:bg-white/15"
-              >
-                {muted ? <MicOff className="h-5 w-5" /> : <Mic className="h-5 w-5" />}
-              </button>
-              {isVideo && (
+        {callState === 'RINGING' ? (
+          <IncomingCallSlider isVideo={isVideo} onAccept={acceptCall} onReject={rejectCall} />
+        ) : (
+          <div className="mx-auto flex max-w-md items-center justify-center gap-4 rounded-full border border-white/10 bg-[#111b21]/85 px-4 py-3 shadow-2xl backdrop-blur-xl">
+            {callState === 'IDLE' ? (
+              <>
                 <button
                   type="button"
-                  onClick={toggleCamera}
-                  aria-label={cameraOn ? 'Turn camera off' : 'Turn camera on'}
+                  onClick={returnToPreviousScreen}
+                  aria-label="Leave call"
                   className="grid h-12 w-12 place-items-center rounded-full bg-white/10 text-white transition hover:bg-white/15"
                 >
-                  {cameraOn ? <Camera className="h-5 w-5" /> : <CameraOff className="h-5 w-5" />}
+                  <PhoneOff className="h-5 w-5" />
                 </button>
-              )}
-              <button
-                type="button"
-                onClick={hangup}
-                aria-label="Hang up"
-                className="grid h-14 w-14 place-items-center rounded-full bg-red-600 text-white shadow-lg shadow-red-600/30"
-              >
-                <PhoneOff className="h-6 w-6" />
-              </button>
-              <button
-                type="button"
-                onClick={toggleSpeaker}
-                aria-label={speakerOn ? 'Speaker off' : 'Speaker on'}
-                className="grid h-12 w-12 place-items-center rounded-full bg-white/10 text-white transition hover:bg-white/15"
-              >
-                {speakerOn ? <Volume2 className="h-5 w-5" /> : <VolumeX className="h-5 w-5" />}
-              </button>
-            </>
-          )}
-        </div>
+                <button
+                  type="button"
+                  onClick={() => void startCall()}
+                  aria-label={isVideo ? 'Start video call' : 'Start voice call'}
+                  className="flex h-14 items-center gap-2 rounded-full bg-emerald-500 px-5 font-semibold text-white shadow-lg shadow-emerald-500/30 transition hover:bg-emerald-400"
+                >
+                  {isVideo ? <Camera className="h-5 w-5" /> : <Phone className="h-5 w-5" />}
+                  <span>{isVideo ? 'Start video' : 'Start call'}</span>
+                </button>
+              </>
+            ) : (
+              <>
+                <button
+                  type="button"
+                  onClick={toggleMute}
+                  aria-label={muted ? 'Unmute' : 'Mute'}
+                  className="grid h-12 w-12 place-items-center rounded-full bg-white/10 text-white transition hover:bg-white/15"
+                >
+                  {muted ? <MicOff className="h-5 w-5" /> : <Mic className="h-5 w-5" />}
+                </button>
+                {isVideo && (
+                  <button
+                    type="button"
+                    onClick={toggleCamera}
+                    aria-label={cameraOn ? 'Turn camera off' : 'Turn camera on'}
+                    className="grid h-12 w-12 place-items-center rounded-full bg-white/10 text-white transition hover:bg-white/15"
+                  >
+                    {cameraOn ? <Camera className="h-5 w-5" /> : <CameraOff className="h-5 w-5" />}
+                  </button>
+                )}
+                <button
+                  type="button"
+                  onClick={hangup}
+                  aria-label="Hang up"
+                  className="grid h-14 w-14 place-items-center rounded-full bg-red-600 text-white shadow-lg shadow-red-600/30"
+                >
+                  <PhoneOff className="h-6 w-6" />
+                </button>
+                <button
+                  type="button"
+                  onClick={toggleSpeaker}
+                  aria-label={speakerOn ? 'Speaker off' : 'Speaker on'}
+                  className="grid h-12 w-12 place-items-center rounded-full bg-white/10 text-white transition hover:bg-white/15"
+                >
+                  {speakerOn ? <Volume2 className="h-5 w-5" /> : <VolumeX className="h-5 w-5" />}
+                </button>
+              </>
+            )}
+          </div>
+        )}
       </div>
     </div>
   );

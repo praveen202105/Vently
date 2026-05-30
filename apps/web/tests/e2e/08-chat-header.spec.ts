@@ -71,4 +71,20 @@ test.describe('Chat header', () => {
     await api.dispose();
     await ctx.close();
   });
+
+  test('shows a swipe slider for incoming calls', async ({ browser }) => {
+    const user = await provisionUserViaApi({ gender: 'FEMALE' });
+    const ctx = await browser.newContext();
+    const page = await ctx.newPage();
+
+    await loginPage(page, ctx, user);
+    await page.goto('/call/test-incoming-call?incoming=1&mode=video', { waitUntil: 'networkidle' });
+
+    await expect(page.getByTestId('incoming-call-slider')).toBeVisible();
+    await expect(page.getByRole('slider', { name: /incoming call slider/i })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Reject' })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Accept' })).toBeVisible();
+
+    await ctx.close();
+  });
 });
