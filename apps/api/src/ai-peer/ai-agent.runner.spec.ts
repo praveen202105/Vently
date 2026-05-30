@@ -12,6 +12,7 @@ type RunnerInternals = {
     userTurn?: string,
     now?: Date,
   ) => string;
+  polishReply: (peer: VirtualPeer, userMessage: string, reply: string) => string;
 };
 
 function peerFixture(): VirtualPeer {
@@ -61,6 +62,7 @@ describe('AIAgentRunner private context integration', () => {
   };
   let redis: {
     lrange: jest.Mock;
+    set: jest.Mock;
     pipeline: jest.Mock;
   };
 
@@ -75,6 +77,7 @@ describe('AIAgentRunner private context integration', () => {
     };
     redis = {
       lrange: jest.fn().mockResolvedValue([]),
+      set: jest.fn().mockResolvedValue('OK'),
       pipeline: jest.fn(() => ({
         lpush: jest.fn().mockReturnThis(),
         ltrim: jest.fn().mockReturnThis(),
@@ -176,6 +179,44 @@ describe('AIAgentRunner private context integration', () => {
     } finally {
       randomSpy.mockRestore();
     }
+  });
+
+  it('cleans awkward simple-turn replies before sending them', () => {
+    const config = { get: jest.fn() } as unknown as ConfigService;
+    const runner = new AIAgentRunner(
+      config,
+      redis as unknown as Redis,
+      aiMemory as unknown as AiMemoryService,
+    ) as unknown as RunnerInternals;
+
+    expect(runner.polishReply(peerFixture(), 'Hi', 'hii. aapka name kya hai?')).toBe(
+      'heyy, kya scene?',
+    );
+    expect(
+      runner.polishReply(peerFixture(), 'Praveen', 'praveen! nice naam hai. kaun lagta hai tujhe?'),
+    ).toBe('nice naam hai, kya scene?');
+    expect(runner.polishReply(peerFixture(), 'Matb ?', 'matb? kya scene?')).toBe(
+      'matlab bas puch rahi thi... kya scene hai?',
+    );
+  });
+
+  it('skips the delayed opener if the user already typed first', async () => {
+    const config = {
+      get: jest.fn((key: string) => (key === 'AI_FALLBACK_TEST_MODE' ? 'true' : undefined)),
+    } as unknown as ConfigService;
+    const runner = new AIAgentRunner(
+      config,
+      redis as unknown as Redis,
+      aiMemory as unknown as AiMemoryService,
+    );
+    runner.onModuleInit();
+    redis.lrange.mockResolvedValueOnce([JSON.stringify({ role: 'user', content: 'Hi' })]);
+    const emit = jest.fn();
+    const socketServer = { to: jest.fn(() => ({ emit })) };
+
+    await runner.openConversation(peerFixture(), socketServer as any);
+
+    expect(emit).not.toHaveBeenCalledWith(SocketEvents.CHAT_MESSAGE, expect.anything());
   });
 
   it('serializes rapid turns and answers the latest pending user message', async () => {

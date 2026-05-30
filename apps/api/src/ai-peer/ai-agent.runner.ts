@@ -200,7 +200,7 @@ export class AIAgentRunner implements OnModuleInit {
       }
     }
 
-    reply = reply.trim();
+    reply = this.polishReply(peer, userTurn, reply.trim());
     if (!reply) {
       this.logger.warn(`AI produced empty reply for ${peer.conversationId}; using local fallback.`);
       reply = this.buildFallbackReply(peer, userTurn);
@@ -276,6 +276,15 @@ export class AIAgentRunner implements OnModuleInit {
     // Short delay so the frontend has time to navigate to /chat/[id].
     const delay = this.testMode ? 1000 : 2500 + Math.random() * 2500;
     await new Promise((r) => setTimeout(r, delay));
+
+    // If the user typed before the delayed opener fired, skip the synthetic
+    // greeting. Otherwise the chat can receive two AI replies for one "Hi",
+    // which feels stuck/awkward and pollutes the next turn's context.
+    const history = await this.loadHistory(peer.conversationId);
+    if (history.some((entry) => entry.role === 'user' && !entry.content.startsWith('['))) {
+      return;
+    }
+
     await this.respond(
       peer,
       '[just matched - say hi in character, 1 short sentence]',
@@ -306,6 +315,18 @@ export class AIAgentRunner implements OnModuleInit {
       return `hey, i'm ${peer.nickname}. kya scene hai?`;
     }
 
+    if (this.isGreetingOnly(text)) {
+      return 'heyy, kya scene?';
+    }
+
+    if (this.isLikelyName(userMessage)) {
+      return 'nice naam hai, kya scene?';
+    }
+
+    if (this.isMeaningClarification(text)) {
+      return 'matlab bas puch rahi thi... kya scene hai?';
+    }
+
     if (/\b(breakup|ex|heartbreak|dil|hurt|miss)\b/i.test(text)) {
       return 'arre... breakup wala scene heavy hota hai, sach me.';
     }
@@ -325,6 +346,50 @@ export class AIAgentRunner implements OnModuleInit {
     return peer.gender === 'FEMALE'
       ? 'hmm... net sa weird ho gaya, phir bolo na?'
       : 'hmm, thoda miss ho gaya... bol?';
+  }
+
+  private polishReply(peer: VirtualPeer, userMessage: string, reply: string): string {
+    const text = userMessage.trim();
+    const lower = text.toLowerCase();
+    const replyLower = reply.toLowerCase();
+
+    if (!reply) return '';
+
+    if (this.isMeaningClarification(lower)) {
+      return 'matlab bas puch rahi thi... kya scene hai?';
+    }
+
+    const asksName = /\b(name|naam)\b.*\b(kya|what)\b|\b(kya|what)\b.*\b(name|naam)\b/i.test(reply);
+    if (this.isGreetingOnly(lower) && asksName) {
+      return this.buildFallbackReply(peer, text);
+    }
+
+    if (
+      this.isLikelyName(text) &&
+      /\b(kaun lagta|kya rehta|kya lagta|who are you|what are you|naam kya)\b/i.test(replyLower)
+    ) {
+      return this.buildFallbackReply(peer, text);
+    }
+
+    if (/\b(kaun lagta hai tujhe|kya rehta hai|kya lagta hai tujhe)\b/i.test(replyLower)) {
+      return this.isLikelyName(text) ? 'nice naam hai, kya scene?' : 'hmm... kya scene?';
+    }
+
+    return reply;
+  }
+
+  private isGreetingOnly(text: string): boolean {
+    return /^(hi+|hey+|hello+|hlo|hii+|heyy+|yo|sup|namaste|namaskar)[.!? ]*$/i.test(text.trim());
+  }
+
+  private isLikelyName(text: string): boolean {
+    const trimmed = text.trim();
+    if (!/^[a-zA-Z][a-zA-Z.'-]{2,24}$/.test(trimmed)) return false;
+    return !/\b(hello|hii?|hey|okay|ok|yes|no|matlab|kya|scene|breakup|single)\b/i.test(trimmed);
+  }
+
+  private isMeaningClarification(text: string): boolean {
+    return /^(matb|mtlb|matlab|meaning|matlab\?|matb\?|mtlb\?)\s*\??$/i.test(text.trim());
   }
 
   private buildSystemPrompt(
@@ -362,6 +427,10 @@ WhatsApp/Hinglish style:
 - Do not answer too fast emotionally; be warm, but let the user pull the conversation forward.
 - Ask at most one small question back.
 - ${genderStyle}
+- Do not ask for the user's name on the first greeting. Start with a casual vibe check instead.
+- If the user sends only their name, acknowledge it naturally and ask one simple vibe/context question.
+- Never ask vague awkward questions like "kaun lagta hai tujhe", "kya rehta hai", or "what are you?".
+- If the user asks "matlab?", "mtlb?", or "matb?", clarify your previous intent in one short line.
 
 Current turn style:
 ${styleNotes.map((note) => `- ${note}`).join('\n')}
