@@ -61,10 +61,12 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Generate Prisma client
-        run: pnpm --filter @vently/shared prisma generate
+        run: pnpm --filter @vently/shared prisma:generate
 
       - name: Validate Prisma schema
-        run: pnpm --filter @vently/shared prisma validate
+        run: pnpm --filter @vently/shared prisma:validate
+        env:
+          DATABASE_URL: postgresql://placeholder:placeholder@localhost:5432/placeholder
 
       - name: Build Shared Packages
         run: pnpm --filter @vently/shared build

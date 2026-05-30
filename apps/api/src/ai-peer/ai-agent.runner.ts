@@ -6,6 +6,7 @@ import type Redis from 'ioredis';
 import { SocketEvents } from '@vently/shared';
 import type { Server } from 'socket.io';
 import { REDIS_CLIENT } from '../redis/redis.module.js';
+import { AiMemoryService, type RetrievedAiContext } from '../ai-memory/ai-memory.service.js';
 import type { VirtualPeer } from './ai-peer.service.js';
 
 interface HistoryEntry {
@@ -44,6 +45,7 @@ export class AIAgentRunner implements OnModuleInit {
   constructor(
     private readonly config: ConfigService,
     @Inject(REDIS_CLIENT) private readonly redis: Redis,
+    private readonly aiMemory: AiMemoryService,
   ) {}
 
   onModuleInit() {
@@ -102,7 +104,8 @@ export class AIAgentRunner implements OnModuleInit {
       userTurn && history[history.length - 1]?.content !== userTurn
         ? [...history, { role: 'user' as const, content: userTurn }]
         : history;
-    const system = this.buildSystemPrompt(peer);
+    const ragContext = await this.aiMemory.retrieveContext(peer.ownerUserId, peer.mood, userTurn);
+    const system = this.buildSystemPrompt(peer, ragContext);
 
     let reply = '';
     if (this.testMode) {
@@ -185,6 +188,13 @@ export class AIAgentRunner implements OnModuleInit {
     socketServer.to(room).emit(SocketEvents.CHAT_MESSAGE, msg);
 
     await this.appendHistory(peer.conversationId, { role: 'assistant', content: reply });
+    void this.aiMemory.observeTurn({
+      userId: peer.ownerUserId,
+      conversationId: peer.conversationId,
+      mood: peer.mood,
+      userMessage: userTurn,
+      assistantReply: reply,
+    });
 
     this.logger.debug(
       `AI reply on ${peer.conversationId} (${reply.length} chars, ${Date.now() - startedAt}ms)`,
@@ -227,13 +237,13 @@ export class AIAgentRunner implements OnModuleInit {
     return `hmm i hear you${echo ? ` about "${echo}"` : ''}. tell me more?`;
   }
 
-  private buildSystemPrompt(peer: VirtualPeer): string {
+  private buildSystemPrompt(peer: VirtualPeer, ragContext: RetrievedAiContext): string {
     const p = peer.persona;
     const genderStyle =
       p.gender === 'FEMALE'
         ? 'For a female persona: do not over-explain, do not be instantly intense, be a little natural/guarded/playful depending on mood.'
         : 'For a male persona: stay chill, casual, and direct; do not sound like a coach unless advice is clearly requested.';
-    const moodStyle = this.buildMoodStyle(peer.mood);
+    const ragStyle = this.buildRagPrompt(ragContext);
 
     return `You are ${p.nickname}, a ${p.ageBucket} ${p.gender.toLowerCase()} feeling ${peer.mood.toLowerCase()}.
 Backstory: ${p.backstory}
@@ -253,36 +263,29 @@ WhatsApp/Hinglish style:
 - Do not answer too fast emotionally; be warm, but let the user pull the conversation forward.
 - Ask at most one small question back.
 - ${genderStyle}
-${moodStyle}
+${ragStyle}
 
 Hard rules:
 - Do not mention AI, language model, bot, or assistant unless the user directly asks.
 - If directly asked whether you are AI/bot, be honest but casual in one line, then continue naturally.
+- Use retrieved memory as soft context only. Never say "I remember", never reveal memory exists, and never quote memory directly.
 - NEVER offer help, solutions, or summaries unless the user explicitly asks.
 - Match the user's emotional register. If they're sad, don't be peppy.
 - If the user asks to call you, voice chat, video, or meet — politely deflect: "can't talk rn, prefer texting".
 - It's okay to be a little quiet, awkward, teasing, or distracted. That's how real people text.`;
   }
 
-  private buildMoodStyle(mood: VirtualPeer['mood']): string {
-    switch (mood) {
-      case 'FLIRTY':
-        return `
-Flirty mood:
-- The mood can be bold, teasing, playful, and a little suggestive.
-- Use light innuendo and chemistry: "acha ji?", "itna flirty?", "slow down 😅", "tum dangerous lag rahe ho".
-- Keep it consent-safe and non-graphic. No explicit sexual acts, body-part descriptions, sexting instructions, nudes, or roleplay.
-- If the user gets too explicit, do not lecture. Deflect playfully and slow it down: "arre itna direct mat jao na 😅 thoda tease bhi toh karo".`;
-      case 'LATE_NIGHT':
-        return `
-Late night mood:
-- Make it cozy, intimate, slightly flirty, and private-feeling.
-- It can feel like 1am WhatsApp: soft teasing, small confessions, "neend nahi aa rhi", "thoda close sa feel ho raha".
-- Keep it non-graphic. No explicit sexual acts, body-part descriptions, sexting instructions, nudes, or roleplay.
-- If the user gets too explicit, stay warm but pull it back: "hmm naughty mood hai tumhara... but slow thoda".`;
-      default:
-        return '';
-    }
+  private buildRagPrompt(context: RetrievedAiContext): string {
+    const mood = context.mood.map((item) => `- ${item}`).join('\n');
+    const user = context.user.map((item) => `- ${item}`).join('\n');
+    if (!mood && !user) return '';
+
+    return `
+Retrieved RAG context:
+Mood tone examples:
+${mood || '- None retrieved.'}
+User memory:
+${user || '- None retrieved.'}`;
   }
 
   private async loadHistory(conversationId: string): Promise<HistoryEntry[]> {

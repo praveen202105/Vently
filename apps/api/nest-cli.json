@@ -8,6 +8,10 @@
       {
         "include": "ai-peer/personas.json",
         "outDir": "dist"
+      },
+      {
+        "include": "ai-peer/tone-packs.json",
+        "outDir": "dist"
       }
     ]
   }

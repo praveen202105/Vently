@@ -1,4 +1,11 @@
-import type { AuthResponse, MeResponse, OnboardingInput, UpdateProfileInput } from '@vently/shared';
+import type {
+  AiMemoryStatus,
+  AuthResponse,
+  MeResponse,
+  OnboardingInput,
+  UpdateAiMemoryInput,
+  UpdateProfileInput,
+} from '@vently/shared';
 import { api } from './client';
 
 export interface LoginPayload {
@@ -30,4 +37,16 @@ export function upsertProfile(body: OnboardingInput) {
 
 export function updateProfile(body: UpdateProfileInput) {
   return api<MeResponse['profile']>('/me/profile', { method: 'PATCH', body });
+}
+
+export function getAiMemoryStatus() {
+  return api<AiMemoryStatus>('/me/ai-memory');
+}
+
+export function updateAiMemory(body: UpdateAiMemoryInput) {
+  return api<AiMemoryStatus>('/me/ai-memory', { method: 'PATCH', body });
+}
+
+export function clearAiMemory() {
+  return api<void>('/me/ai-memory', { method: 'DELETE' });
 }

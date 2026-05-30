@@ -81,7 +81,7 @@ jobs:
 
       - name: Generate Prisma Client & Build Shared Packages
         run: |
-          pnpm --filter @vently/shared prisma generate
+          pnpm --filter @vently/shared prisma:generate
           pnpm --filter @vently/shared build
 
       - name: Install Playwright Browsers

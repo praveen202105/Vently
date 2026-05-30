@@ -28,6 +28,7 @@ import { SuggestionsModule } from './suggestions/suggestions.module.js';
 import { TranslationModule } from './translation/translation.module.js';
 import { SlackModule } from './slack/slack.module.js';
 import { AIPeerModule } from './ai-peer/ai-peer.module.js';
+import { AiMemoryModule } from './ai-memory/ai-memory.module.js';
 
 @Module({
   imports: [
@@ -81,6 +82,7 @@ import { AIPeerModule } from './ai-peer/ai-peer.module.js';
     SuggestionsModule,
     TranslationModule,
     SlackModule,
+    AiMemoryModule,
     AIPeerModule,
   ],
   providers: [

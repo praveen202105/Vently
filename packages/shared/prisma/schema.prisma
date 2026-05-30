@@ -13,17 +13,19 @@ datasource db {
 // ─── Identity ──────────────────────────────────────────────────────────────
 
 model User {
-  id           String    @id @default(cuid())
-  email        String    @unique
+  id           String   @id @default(cuid())
+  email        String   @unique
   passwordHash String?
-  googleId     String?   @unique
-  role         Role      @default(USER)
-  createdAt    DateTime  @default(now())
-  updatedAt    DateTime  @updatedAt
+  googleId     String?  @unique
+  role         Role     @default(USER)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
 
-  profile           Profile?
-  sessions          Session[]
-  pushSubscriptions PushSubscription[]
+  profile            Profile?
+  sessions           Session[]
+  pushSubscriptions  PushSubscription[]
+  aiMemoryPreference AiMemoryPreference?
+  aiRagChunks        AiRagChunk[]
 
   @@index([email])
 }
@@ -97,18 +99,17 @@ model Message {
   // Quote-reply: optionally points to the message being replied to.
   replyToMessageId String?
 
-  conversation Conversation     @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  conversation Conversation      @relation(fields: [conversationId], references: [id], onDelete: Cascade)
   receipts     MessageReceipt[]
   reactions    MessageReaction[]
   flags        ModerationFlag[]
-  replyTo      Message?         @relation("MessageReplies", fields: [replyToMessageId], references: [id], onDelete: SetNull)
-  replies      Message[]        @relation("MessageReplies")
+  replyTo      Message?          @relation("MessageReplies", fields: [replyToMessageId], references: [id], onDelete: SetNull)
+  replies      Message[]         @relation("MessageReplies")
 
   @@index([conversationId, createdAt])
   @@index([senderId])
   @@index([replyToMessageId])
 }
-
 
 model MessageReceipt {
   messageId   String
@@ -220,6 +221,37 @@ model ModerationFlag {
   @@index([severity])
 }
 
+// ─── AI Memory / RAG ───────────────────────────────────────────────────────
+
+model AiMemoryPreference {
+  userId    String   @id
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  enabled   Boolean  @default(false)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model AiRagChunk {
+  id                   String      @id @default(cuid())
+  scope                AiRagScope
+  userId               String?
+  user                 User?       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  mood                 MoodIntent?
+  kind                 AiRagKind
+  content              String
+  embedding            Json?
+  metadata             Json?
+  sourceConversationId String?
+  sourceKey            String?     @unique
+  expiresAt            DateTime?
+  createdAt            DateTime    @default(now())
+  updatedAt            DateTime    @updatedAt
+
+  @@index([scope, mood])
+  @@index([userId, scope, expiresAt])
+  @@index([sourceConversationId])
+}
+
 // ─── Voice Calls ────────────────────────────────────────────────────────────
 
 model CallSession {
@@ -307,4 +339,14 @@ enum NotifType {
   FRIEND_ACCEPTED
   MISSED_CALL
   SYSTEM
+}
+
+enum AiRagScope {
+  MOOD_TEMPLATE
+  USER_MEMORY
+}
+
+enum AiRagKind {
+  TONE_EXAMPLE
+  USER_SIGNAL
 }

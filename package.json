@@ -19,10 +19,10 @@
     "clean": "turbo run clean && rm -rf node_modules",
     "format": "prettier --write \"**/*.{ts,tsx,md,json}\"",
     "format:check": "prettier --check \"**/*.{ts,tsx,md,json}\"",
-    "db:generate": "pnpm --filter @vently/shared prisma generate",
-    "db:migrate": "pnpm --filter @vently/shared prisma migrate dev",
-    "db:deploy": "pnpm --filter @vently/shared prisma migrate deploy",
-    "db:studio": "pnpm --filter @vently/shared prisma studio"
+    "db:generate": "pnpm --filter @vently/shared prisma:generate",
+    "db:migrate": "pnpm --filter @vently/shared prisma:migrate",
+    "db:deploy": "pnpm --filter @vently/shared prisma:deploy",
+    "db:studio": "pnpm --filter @vently/shared prisma:studio"
   },
   "devDependencies": {
     "@types/node": "^20.14.0",
