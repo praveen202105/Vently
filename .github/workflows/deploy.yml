@@ -47,18 +47,22 @@ jobs:
         env:
           RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
         run: |
-          railway variable set \
+          if ! railway variable set \
+            --project 5089630a-4313-46f8-bab8-7051c52b42f1 \
+            --environment production \
+            --service api \
+            --skip-deploys \
             AI_FALLBACK_ENABLED=true \
             AI_FALLBACK_MS=8000 \
-            AI_FALLBACK_TEST_MODE=false \
-            --service api \
-            --skip-deploys
+            AI_FALLBACK_TEST_MODE=false; then
+            echo "::warning::Could not update AI fallback variables; continuing with existing Railway variables."
+          fi
 
       - name: Deploy to Railway
         if: steps.gate.outputs.skip != 'true'
         env:
           RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
-        run: railway up --service api --detach
+        run: railway up --project 5089630a-4313-46f8-bab8-7051c52b42f1 --environment production --service api --detach -m "Deploy ${{ github.sha }}"
 
       - name: Notify Slack on deploy
         if: steps.gate.outputs.skip != 'true' && always()
