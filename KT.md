@@ -739,6 +739,7 @@ These are layered on top of the base chat feature in §6.4.
 - The card has a primary button to start the verification pipeline remotely.
 - CI, deploy, verification, and auto-heal workflows post Slack status cards using `SLACK_WEBHOOK_URL`.
 - When verification fails, Slack can show heal buttons: fix on same branch or create a new auto-heal branch/PR.
+- Current production status: slash command, interactive buttons, GitHub dispatch, and Slack notifications are configured and working.
 
 #### Files
 
