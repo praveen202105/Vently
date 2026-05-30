@@ -12,7 +12,11 @@ import {
   WebSocketServer,
 } from '@nestjs/websockets';
 import type { Server } from 'socket.io';
-import { SocketEvents, type PresenceFocusPayload } from '@vently/shared';
+import {
+  SocketEvents,
+  type PresenceFocusPayload,
+  type PresenceVisibilityPayload,
+} from '@vently/shared';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { PresenceService } from '../presence/presence.service.js';
 import { MatchmakingService } from '../matchmaking/matchmaking.service.js';
@@ -46,6 +50,14 @@ export class RealtimeGateway implements OnGatewayInit, OnGatewayConnection, OnGa
   @SubscribeMessage(SocketEvents.PRESENCE_FOCUS)
   onFocus(@ConnectedSocket() socket: AuthedSocket, @MessageBody() payload: PresenceFocusPayload) {
     this.focus.setFocus(socket.data.user.userId, payload.conversationId ?? null);
+  }
+
+  @SubscribeMessage(SocketEvents.PRESENCE_VISIBILITY)
+  onVisibility(
+    @ConnectedSocket() socket: AuthedSocket,
+    @MessageBody() payload: PresenceVisibilityPayload,
+  ) {
+    this.focus.setVisibility(socket.data.user.userId, socket.id, payload.visible === true);
   }
 
   afterInit() {
@@ -133,7 +145,8 @@ export class RealtimeGateway implements OnGatewayInit, OnGatewayConnection, OnGa
     // Clear active-conversation focus so any push fired after this point
     // (we just disconnected, so we WANT the OS notification) isn't
     // suppressed by stale focus state.
-    this.focus.clearAllForUser(user.userId);
+    this.focus.clearSocket(socket.id);
+    this.focus.setFocus(user.userId, null);
 
     this.server.emit(SocketEvents.PRESENCE_OFFLINE, { userId: user.userId });
     this.logger.debug(`disconnected ${user.userId}`);

@@ -15,6 +15,8 @@ import {
 import { RealtimeGateway } from '../realtime/realtime.gateway.js';
 import { type AuthedSocket } from '../realtime/types.js';
 import { SocketThrottleService } from '../realtime/socket-throttle.service.js';
+import { FocusService } from '../realtime/focus.service.js';
+import { PushService } from '../push/push.service.js';
 import { CallsService } from './calls.service.js';
 
 // Caps for the noisy signaling events. Invite is human-paced so 3/min is
@@ -34,6 +36,8 @@ export class CallsGateway {
     private readonly calls: CallsService,
     private readonly realtime: RealtimeGateway,
     private readonly throttle: SocketThrottleService,
+    private readonly focus: FocusService,
+    private readonly push: PushService,
   ) {}
 
   // Caller offers a call → wake the callee.
@@ -68,6 +72,15 @@ export class CallsGateway {
       conversationId: payload.conversationId,
       fromUserId: caller.userId,
     });
+    if (!this.focus.isUserVisible(peerId)) {
+      void this.push.sendToUser(peerId, {
+        title: 'Incoming call',
+        body: `${caller.nickname} is calling you`,
+        url: `/call/${payload.conversationId}?incoming=1`,
+        tag: `call:${payload.conversationId}`,
+        requireInteraction: true,
+      });
+    }
     return { ok: true };
   }
 

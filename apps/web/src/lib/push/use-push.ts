@@ -25,6 +25,24 @@ function isSupported(): boolean {
   return 'serviceWorker' in navigator && 'PushManager' in window && 'Notification' in window;
 }
 
+async function getReadyServiceWorker() {
+  await navigator.serviceWorker.register('/sw.js');
+  return navigator.serviceWorker.ready;
+}
+
+async function toSubscribeBody(sub: PushSubscription) {
+  const json = sub.toJSON() as { endpoint?: string; keys?: { p256dh?: string; auth?: string } };
+  if (!json.endpoint || !json.keys?.p256dh || !json.keys?.auth) {
+    console.warn('[push] subscription missing fields', json);
+    return null;
+  }
+  return {
+    endpoint: json.endpoint,
+    p256dh: json.keys.p256dh,
+    auth: json.keys.auth,
+  };
+}
+
 /**
  * Manages the lifecycle of this device's web-push subscription:
  *  - registers the service worker
@@ -54,11 +72,38 @@ export function usePush() {
   // Register the service worker once per session.
   useEffect(() => {
     if (!isSupported()) return;
-    navigator.serviceWorker.register('/sw.js').catch((err: Error) => {
-      // eslint-disable-next-line no-console
+    getReadyServiceWorker().catch((err: Error) => {
       console.warn('[push] sw register failed:', err.message);
     });
   }, []);
+
+  const syncSubscription = useCallback(async () => {
+    if (!isSupported() || !accessToken || !VAPID_PUBLIC_KEY) return false;
+    if (Notification.permission !== 'granted') return false;
+    setWorking(true);
+    try {
+      const reg = await getReadyServiceWorker();
+      const existing = await reg.pushManager.getSubscription();
+      const sub =
+        existing ??
+        (await reg.pushManager.subscribe({
+          userVisibleOnly: true,
+          // Cast to BufferSource — modern TS lib types Uint8Array as
+          // generic Uint8Array<ArrayBufferLike> which doesn't match the
+          // narrower PushSubscriptionOptionsInit signature.
+          applicationServerKey: urlBase64ToUint8Array(VAPID_PUBLIC_KEY) as BufferSource,
+        }));
+      const body = await toSubscribeBody(sub);
+      if (!body) return false;
+      await subscribePush(body);
+      return true;
+    } catch (err) {
+      console.warn('[push] sync failed:', (err as Error).message);
+      return false;
+    } finally {
+      setWorking(false);
+    }
+  }, [accessToken]);
 
   const enable = useCallback(async () => {
     if (!isSupported() || !accessToken || !VAPID_PUBLIC_KEY) return false;
@@ -68,43 +113,20 @@ export function usePush() {
       setPermission(result as PushPermission);
       if (result !== 'granted') return false;
 
-      const reg = await navigator.serviceWorker.ready;
-      // PushManager.subscribe is idempotent — if already subscribed it
-      // returns the existing subscription. We POST it to the api either way
-      // so a fresh-device subscription always lands server-side.
-      const sub = await reg.pushManager.subscribe({
-        userVisibleOnly: true,
-        // Cast to BufferSource — modern TS lib types Uint8Array as
-        // generic Uint8Array<ArrayBufferLike> which doesn't match the
-        // narrower PushSubscriptionOptionsInit signature.
-        applicationServerKey: urlBase64ToUint8Array(VAPID_PUBLIC_KEY) as BufferSource,
-      });
-      const json = sub.toJSON() as { endpoint?: string; keys?: { p256dh?: string; auth?: string } };
-      if (!json.endpoint || !json.keys?.p256dh || !json.keys?.auth) {
-        // eslint-disable-next-line no-console
-        console.warn('[push] subscription missing fields', json);
-        return false;
-      }
-      await subscribePush({
-        endpoint: json.endpoint,
-        p256dh: json.keys.p256dh,
-        auth: json.keys.auth,
-      });
-      return true;
+      return await syncSubscription();
     } catch (err) {
-      // eslint-disable-next-line no-console
       console.warn('[push] enable failed:', (err as Error).message);
       return false;
     } finally {
       setWorking(false);
     }
-  }, [accessToken]);
+  }, [accessToken, syncSubscription]);
 
   const disable = useCallback(async () => {
     if (!isSupported()) return;
     setWorking(true);
     try {
-      const reg = await navigator.serviceWorker.ready;
+      const reg = await getReadyServiceWorker();
       const sub = await reg.pushManager.getSubscription();
       if (sub) {
         await sub.unsubscribe();
@@ -115,5 +137,5 @@ export function usePush() {
     }
   }, []);
 
-  return { permission, working, enable, disable, supported: isSupported() };
+  return { permission, working, enable, disable, syncSubscription, supported: isSupported() };
 }

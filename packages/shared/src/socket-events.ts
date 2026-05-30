@@ -35,6 +35,7 @@ export const SocketEvents = {
 
   // Presence (focus suppression for push)
   PRESENCE_FOCUS: 'presence:focus',
+  PRESENCE_VISIBILITY: 'presence:visibility',
 
   // Friends
   FRIEND_REQUEST: 'friend:request',
@@ -170,6 +171,12 @@ export interface PresenceFocusPayload {
   conversationId: string | null;
 }
 
+// Sent by every app tab when its browser visibility/focus state changes.
+// Backend uses this to avoid sending OS push while the app is visibly active.
+export interface PresenceVisibilityPayload {
+  visible: boolean;
+}
+
 export interface FriendRequestEventPayload {
   requestId: string;
   fromUserId: string;
@@ -231,6 +238,7 @@ export interface NotificationPayload {
 export interface ClientToServerEvents {
   [SocketEvents.PRESENCE_HEARTBEAT]: () => void;
   [SocketEvents.PRESENCE_FOCUS]: (payload: PresenceFocusPayload) => void;
+  [SocketEvents.PRESENCE_VISIBILITY]: (payload: PresenceVisibilityPayload) => void;
   [SocketEvents.MATCH_JOIN]: (payload: MatchJoinPayload) => void;
   [SocketEvents.MATCH_CANCEL]: () => void;
   [SocketEvents.CHAT_JOIN]: (payload: { conversationId: string }) => void;

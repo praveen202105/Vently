@@ -31,6 +31,7 @@ self.addEventListener('push', (event) => {
     // conversation) so the OS replaces instead of stacking.
     tag: data.tag,
     data: { url: data.url || '/' },
+    requireInteraction: data.requireInteraction === true,
     // renotify=true makes the OS re-ring/re-vibrate even when the tag
     // matches an existing notification. Important for second message in a
     // burst — otherwise it silently replaces.

@@ -12,6 +12,9 @@ export interface PushPayload {
   // Used to group/replace notifications on the OS level — e.g. multiple
   // messages in the same conversation stack instead of spawning N pings.
   tag?: string;
+  // For call notifications: keep the notification visible until the user
+  // interacts where supported.
+  requireInteraction?: boolean;
 }
 
 /**
