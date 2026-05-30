@@ -35,6 +35,7 @@ interface SpawnArgs {
 }
 
 const RATE_LIMIT_WINDOW_SEC = 600; // 10min: 1 AI session per user per window
+const SESSION_TTL_SEC = 3600;
 
 /**
  * Factory + registry for AI fallback peers. Picks a persona matching the
@@ -77,9 +78,24 @@ export class AIPeerService {
    * seeding personas).
    */
   async spawn(args: SpawnArgs): Promise<VirtualPeer | null> {
+    const active = await this.findActiveForUser(args.userId);
+    if (active) {
+      this.logger.debug(
+        `Reusing active AI peer ${active.userId} for user ${args.userId} on conv ${active.conversationId}`,
+      );
+      return active;
+    }
+
     if (await this.isRateLimited(args.userId)) {
-      this.logger.debug(`user ${args.userId} is AI-throttled`);
-      return null;
+      const legacyActive = await this.findActiveForUser(args.userId, { scanLegacySessions: true });
+      if (legacyActive) {
+        this.logger.debug(
+          `Recovered active AI peer ${legacyActive.userId} for user ${args.userId} on conv ${legacyActive.conversationId}`,
+        );
+        return legacyActive;
+      }
+      this.logger.warn(`Clearing stale AI throttle for ${args.userId}`);
+      await this.redis.del(`aichat:rl:${args.userId}`);
     }
 
     const targetGender: Gender =
@@ -115,9 +131,11 @@ export class AIPeerService {
 
     // Two Redis keys:
     //   aichat:conv:{conversationId} -> JSON-encoded VirtualPeer (60min TTL)
+    //   aichat:user:{userId}         -> active AI conversationId (60min TTL)
     //   aichat:rl:{userId}            -> throttle marker (10min TTL)
     await Promise.all([
-      this.redis.set(`aichat:conv:${conversationId}`, JSON.stringify(peer), 'EX', 3600),
+      this.redis.set(`aichat:conv:${conversationId}`, JSON.stringify(peer), 'EX', SESSION_TTL_SEC),
+      this.redis.set(`aichat:user:${args.userId}`, conversationId, 'EX', SESSION_TTL_SEC),
       this.redis.set(`aichat:rl:${args.userId}`, '1', 'EX', RATE_LIMIT_WINDOW_SEC),
     ]);
 
@@ -146,6 +164,52 @@ export class AIPeerService {
     }
   }
 
+  /**
+   * Return the user's active AI conversation if one still exists. The direct
+   * user index is new; the scan fallback recovers sessions created by older
+   * deploys so users are not stuck behind an orphaned throttle.
+   */
+  async findActiveForUser(
+    userId: string,
+    options: { scanLegacySessions?: boolean } = {},
+  ): Promise<VirtualPeer | null> {
+    const userKey = `aichat:user:${userId}`;
+    const indexedConversationId = await this.redis.get(userKey);
+    if (indexedConversationId) {
+      const indexedPeer = await this.load(indexedConversationId);
+      if (indexedPeer?.ownerUserId === userId) return indexedPeer;
+      await this.redis.del(userKey);
+    }
+    if (!options.scanLegacySessions) return null;
+
+    let cursor = '0';
+    do {
+      const [nextCursor, keys] = await this.redis.scan(
+        cursor,
+        'MATCH',
+        'aichat:conv:*',
+        'COUNT',
+        100,
+      );
+      cursor = nextCursor;
+      for (const key of keys) {
+        const raw = await this.redis.get(key);
+        if (!raw) continue;
+        try {
+          const peer = JSON.parse(raw) as VirtualPeer;
+          if (peer.ownerUserId !== userId) continue;
+          const ttl = await this.redis.ttl(key);
+          await this.redis.set(userKey, peer.conversationId, 'EX', ttl > 0 ? ttl : SESSION_TTL_SEC);
+          return peer;
+        } catch {
+          // Ignore malformed legacy entries and keep scanning.
+        }
+      }
+    } while (cursor !== '0');
+
+    return null;
+  }
+
   /** Convenience: is THIS peer userId an AI peer? Checks the prefix only. */
   static isAIPeerId(userId: string | null | undefined): boolean {
     return !!userId && userId.startsWith('ai_');
@@ -164,6 +228,7 @@ export class AIPeerService {
     if (peer?.ownerUserId) {
       // Ending the AI chat should let the same user search again immediately.
       keys.push(`aichat:rl:${peer.ownerUserId}`);
+      keys.push(`aichat:user:${peer.ownerUserId}`);
     }
     await this.redis.del(...keys);
     this.logger.debug(`Evicted AI conv ${conversationId}`);

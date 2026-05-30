@@ -191,7 +191,7 @@ export class MatchmakingGateway implements OnGatewayDisconnect {
             gender: virtualPeer.gender,
             avatarSeed: virtualPeer.avatarSeed,
           },
-          mood: payload.mood,
+          mood: virtualPeer.mood,
           lastMetAt: null,
           isAIChat: true,
         });

@@ -8,6 +8,8 @@ describe('AIPeerService', () => {
     get: jest.Mock;
     set: jest.Mock;
     del: jest.Mock;
+    scan: jest.Mock;
+    ttl: jest.Mock;
   };
   let service: AIPeerService;
 
@@ -27,6 +29,11 @@ describe('AIPeerService', () => {
         }
         return deleted;
       }),
+      scan: jest.fn(async () => [
+        '0',
+        [...store.keys()].filter((key) => key.startsWith('aichat:conv:')),
+      ]),
+      ttl: jest.fn(async () => 300),
     };
     service = new AIPeerService(redis as unknown as Redis);
   });
@@ -48,7 +55,38 @@ describe('AIPeerService', () => {
       `aichat:hist:${peer!.conversationId}`,
       `aichat:greeted:${peer!.conversationId}`,
       'aichat:rl:user-a',
+      'aichat:user:user-a',
     );
     expect(await service.isRateLimited('user-a')).toBe(false);
+  });
+
+  it('reuses an active AI conversation when the user searches again', async () => {
+    const first = await service.spawn({
+      userId: 'user-a',
+      mood: 'NEED_TO_TALK',
+      myGender: 'MALE',
+    });
+
+    const second = await service.spawn({
+      userId: 'user-a',
+      mood: 'FRIENDSHIP',
+      myGender: 'MALE',
+    });
+
+    expect(second).toEqual(first);
+  });
+
+  it('recovers active AI conversations created before the user index existed', async () => {
+    const first = await service.spawn({
+      userId: 'user-a',
+      mood: 'NEED_TO_TALK',
+      myGender: 'MALE',
+    });
+    store.delete('aichat:user:user-a');
+
+    const recovered = await service.findActiveForUser('user-a', { scanLegacySessions: true });
+
+    expect(recovered?.conversationId).toBe(first!.conversationId);
+    expect(store.get('aichat:user:user-a')).toBe(first!.conversationId);
   });
 });
