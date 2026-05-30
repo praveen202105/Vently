@@ -1,9 +1,11 @@
 name: Vently E2E Verification & CI/CD Pipeline
 
 on:
-  push:
-    branches: [main]
   pull_request:
+    branches: [main]
+  workflow_run:
+    workflows: [Deploy]
+    types: [completed]
     branches: [main]
   repository_dispatch:
     types: [verify_pipeline]
@@ -19,12 +21,13 @@ jobs:
     name: Verify & Deploy smoke test
     runs-on: ubuntu-latest
     timeout-minutes: 45
+    if: ${{ github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success' }}
 
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v4
         with:
-          ref: ${{ github.event.client_payload.branch || github.ref || 'main' }}
+          ref: ${{ github.event.client_payload.branch || github.event.workflow_run.head_sha || github.ref || 'main' }}
           # token with write scope is required so verify-feature.js can push
           # auto-heal commits back. GITHUB_TOKEN gets `contents: write` from
           # the workflow-level permissions block above.
@@ -69,6 +72,7 @@ jobs:
           GITHUB_REPOSITORY: ${{ github.repository }}
           GITHUB_RUN_ID: ${{ github.run_id }}
           GITHUB_SERVER_URL: ${{ github.server_url }}
+          VERIFY_TARGET_BRANCH: ${{ github.event.client_payload.branch || github.event.workflow_run.head_branch || github.ref_name || 'main' }}
           NEXT_PUBLIC_API_URL: http://localhost:4000/api
           NEXT_PUBLIC_SOCKET_URL: http://localhost:4000
           NEXT_PUBLIC_VAPID_PUBLIC_KEY: placeholder_vapid_key_for_build

@@ -776,8 +776,8 @@ Button actions:
 GitHub Actions:
 
 - `ci.yml` runs on push/PR: install, Prisma validate/generate, shared build, typecheck, lint, build, Prettier. It sends Slack start/success/failure notifications.
-- `deploy.yml` runs on push to `main`: builds API, ensures AI fallback Railway vars, deploys API to Railway with `RAILWAY_TOKEN`, then posts Slack deploy status. Web deploy is handled by Vercel's Git integration.
-- `verify.yml` runs on push/PR/manual/Slack dispatch: installs Playwright, runs `scripts/verify-feature.js`; PRs use `--local-only`, main/dispatch use `--ci`.
+- `deploy.yml` runs after the `CI` workflow succeeds on `main` or by manual dispatch: builds API, ensures AI fallback Railway vars, deploys API to Railway with `RAILWAY_TOKEN`, then posts Slack deploy status. Web deploy is handled by Vercel's Git integration.
+- `verify.yml` runs after the `Deploy` workflow succeeds, on PR, manual dispatch, or Slack dispatch: installs Playwright, runs `scripts/verify-feature.js`; PRs use `--local-only`, deploy/manual/Slack use `--ci`.
 - `heal.yml` runs on Slack heal dispatch/manual: runs `scripts/heal-runner.js` with Gemini/Anthropic keys, commits a patch to the same branch or opens an auto-heal PR, then posts Slack status.
 
 Required secrets/config:
@@ -1015,12 +1015,13 @@ Production notes:
 
 ### …trigger verification/deploy from Slack?
 
-1. In Slack, run `/verify-vently main` (or a target branch name).
-2. Slack calls `POST /api/slack/trigger-verify`, and the API returns a dashboard card.
-3. Click the run button. Slack calls `POST /api/slack/interactivity`.
-4. The API uses `GITHUB_TOKEN` to dispatch `verify_pipeline` to GitHub Actions.
-5. `.github/workflows/verify.yml` runs `scripts/verify-feature.js`.
-6. If verification fails, the Slack card can offer `heal_same_branch` or `heal_new_branch`, which dispatch `.github/workflows/heal.yml`.
+1. Normal push flow is ordered as `CI` → `Deploy` → `Production verification`, so prod smoke tests start only after Railway deploy succeeds.
+2. In Slack, run `/verify-vently main` (or a target branch name) when you want to verify the currently deployed production build manually.
+3. Slack calls `POST /api/slack/trigger-verify`, and the API returns a dashboard card.
+4. Click the run button. Slack calls `POST /api/slack/interactivity`.
+5. The API uses `GITHUB_TOKEN` to dispatch `verify_pipeline` to GitHub Actions.
+6. `.github/workflows/verify.yml` runs `scripts/verify-feature.js`.
+7. If verification fails, the Slack card can offer `heal_same_branch` or `heal_new_branch`, which dispatch `.github/workflows/heal.yml`.
 
 If Slack does not trigger anything:
 

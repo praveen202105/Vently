@@ -260,6 +260,7 @@ function askQuestion(query) {
 }
 
 async function getBranchName() {
+  if (process.env.VERIFY_TARGET_BRANCH) return process.env.VERIFY_TARGET_BRANCH;
   try {
     return execSync('git rev-parse --abbrev-ref HEAD').toString().trim();
   } catch {

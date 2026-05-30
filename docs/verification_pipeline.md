@@ -16,12 +16,13 @@ graph TD
     D --> E[AI reads bugs.md & applies fixes]
     E --> B
     C -- Yes --> F[Script runs git commit & push]
-    F --> G[Wait for deployment to finish]
-    G --> H[Script runs production E2E tests]
-    H --> I{Prod E2E Tests Pass?}
-    I -- No --> J[Script appends to bugs.md]
-    J --> E
-    I -- Yes --> K[All green! Release complete]
+    F --> G[CI workflow passes]
+    G --> H[Deploy workflow ships Railway API]
+    H --> I[Verify workflow runs production E2E tests]
+    I --> J{Prod E2E Tests Pass?}
+    J -- No --> K[Script appends to bugs.md]
+    K --> E
+    J -- Yes --> L[All green! Release complete]
 ```
 
 ---
@@ -48,11 +49,15 @@ It determines your current Git branch (e.g. `main` or a feature branch) and push
 
 ### Stage 4: Deployment Smoke-Testing
 
-It prompts you with a stylized countdown in the terminal to wait for the Vercel/Railway build to finish deploying.
+On GitHub Actions, production smoke tests are ordered after deploy:
 
-- Once the deployment is live, type `ok` and press Enter.
+- `ci.yml` runs first on push/PR.
+- `deploy.yml` runs after `CI` succeeds on `main`.
+- `verify.yml` runs after `Deploy` succeeds, then executes production-targeted Playwright tests.
 - It automatically executes production-targeted Playwright tests (`pnpm --filter @vently/web test:agent`) directly against the live URL: `https://vently-web-gamma.vercel.app`.
 - If any production bugs are caught, they are immediately written to `bugs.md` for hotfixing.
+
+When running `node scripts/verify-feature.js` manually outside CI, it prompts you with a stylized countdown. Once deployment is live, type `ok` and press Enter to run the production smoke tests.
 
 ---
 
