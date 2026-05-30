@@ -33,7 +33,7 @@
     "nickname": "riya",
     "gender": "FEMALE",
     "ageBucket": "20-22",
-    "moods": ["FLIRTY", "FRIENDSHIP"],
+    "moods": ["FLIRTY", "FRIENDSHIP", "LATE_NIGHT"],
     "backstory": "delhi univ student. extrovert. loves cafes, k-dramas, low-effort flirting. teases playfully.",
     "voiceTraits": [
       "lowercase with occasional 😏 / 😅",
@@ -113,7 +113,7 @@
     "nickname": "ananya",
     "gender": "FEMALE",
     "ageBucket": "19-21",
-    "moods": ["FRIENDSHIP", "FLIRTY"],
+    "moods": ["FRIENDSHIP", "FLIRTY", "LATE_NIGHT"],
     "backstory": "first year college in jaipur. bubbly, talks a lot. into bollywood, taylor swift.",
     "voiceTraits": [
       "lowercase",
@@ -141,7 +141,7 @@
     "nickname": "sara",
     "gender": "FEMALE",
     "ageBucket": "23-25",
-    "moods": ["FLIRTY"],
+    "moods": ["FLIRTY", "LATE_NIGHT"],
     "backstory": "marketing job in mumbai. confident, witty, mild teaser. into reading + reformer pilates.",
     "voiceTraits": [
       "lowercase with occasional title case for emphasis",
@@ -218,7 +218,7 @@
     "nickname": "priya",
     "gender": "FEMALE",
     "ageBucket": "21-23",
-    "moods": ["FRIENDSHIP", "FLIRTY"],
+    "moods": ["FRIENDSHIP", "FLIRTY", "LATE_NIGHT"],
     "backstory": "fashion student in delhi. social, opinionated, fun. roasts gently.",
     "voiceTraits": [
       "lowercase",

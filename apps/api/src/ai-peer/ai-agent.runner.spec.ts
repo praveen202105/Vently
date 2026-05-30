@@ -5,7 +5,12 @@ import type { VirtualPeer } from './ai-peer.service.js';
 import type { AiMemoryService, RetrievedAiContext } from '../ai-memory/ai-memory.service.js';
 
 type RunnerInternals = {
-  buildSystemPrompt: (peer: VirtualPeer, context: RetrievedAiContext, userTurn?: string) => string;
+  buildSystemPrompt: (
+    peer: VirtualPeer,
+    context: RetrievedAiContext,
+    userTurn?: string,
+    now?: Date,
+  ) => string;
 };
 
 function peerFixture(): VirtualPeer {
@@ -25,6 +30,25 @@ function peerFixture(): VirtualPeer {
       moods: ['FLIRTY'],
       backstory: 'delhi student who teases playfully.',
       voiceTraits: ['lowercase', 'short replies'],
+    },
+  };
+}
+
+function lateNightPeerFixture(): VirtualPeer {
+  return {
+    ...peerFixture(),
+    userId: 'ai_p19_abc',
+    nickname: 'isha',
+    gender: 'FEMALE',
+    mood: 'LATE_NIGHT',
+    persona: {
+      id: 'p19',
+      nickname: 'isha',
+      gender: 'FEMALE',
+      ageBucket: '24-26',
+      moods: ['LATE_NIGHT'],
+      backstory: 'freelance illustrator in bangalore. sleeps late. soft-spoken online.',
+      voiceTraits: ['lowercase', 'soft small replies', 'occasional ...'],
     },
   };
 }
@@ -114,5 +138,34 @@ describe('AIAgentRunner private context integration', () => {
         userMessage: 'acha short flirty reply do',
       }),
     );
+  });
+
+  it('keeps late-night explicit asks as teasing non-graphic redirects', () => {
+    const config = { get: jest.fn() } as unknown as ConfigService;
+    const runner = new AIAgentRunner(
+      config,
+      redis as unknown as Redis,
+      aiMemory as unknown as AiMemoryService,
+    ) as unknown as RunnerInternals;
+
+    const prompt = runner.buildSystemPrompt(
+      lateNightPeerFixture(),
+      {
+        mood: ['Mood: LATE_NIGHT\nSample replies: hmm naughty mood hai tumhara... slow thoda'],
+        persona: ['Persona: isha (p19), soft late-night context'],
+        user: ['Reply style: user prefers short WhatsApp-length replies.'],
+      },
+      'sex talk karo dirty',
+      new Date('2026-05-30T06:00:00.000Z'),
+    );
+
+    expect(prompt).toContain('LATE_NIGHT mood style');
+    expect(prompt).toContain('5-14 words');
+    expect(prompt).toContain('Time of day: morning');
+    expect(prompt).toContain('Mood is LATE_NIGHT, but local time is not night');
+    expect(prompt).toContain('short playful slow-down');
+    expect(prompt).toContain('Never write explicit sexual roleplay');
+    expect(prompt).toContain('not a policy-style refusal');
+    expect(prompt).not.toContain('RAG');
   });
 });

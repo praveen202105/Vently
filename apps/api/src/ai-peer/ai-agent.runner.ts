@@ -20,6 +20,15 @@ const TYPING_BASE_MS = 1_600;
 const TYPING_PER_CHAR_MS = 55;
 const TYPING_JITTER_MS = 1_800;
 const TYPING_CAP_MS = 9_000;
+const DEFAULT_CHAT_TIME_ZONE = 'Asia/Kolkata';
+
+interface LocalTimeContext {
+  timeZone: string;
+  formatted: string;
+  hour: number;
+  label: 'early morning' | 'morning' | 'afternoon' | 'evening' | 'night' | 'late night';
+  isNight: boolean;
+}
 
 /**
  * Drives an AI fallback peer's side of a conversation.
@@ -242,13 +251,21 @@ export class AIAgentRunner implements OnModuleInit {
     return `hmm i hear you${echo ? ` about "${echo}"` : ''}. tell me more?`;
   }
 
-  private buildSystemPrompt(peer: VirtualPeer, context: RetrievedAiContext, userTurn = ''): string {
+  private buildSystemPrompt(
+    peer: VirtualPeer,
+    context: RetrievedAiContext,
+    userTurn = '',
+    now = new Date(),
+  ): string {
     const p = peer.persona;
     const genderStyle =
       p.gender === 'FEMALE'
         ? 'For a female persona: do not over-explain, do not be instantly intense, be a little natural/guarded/playful depending on mood.'
         : 'For a male persona: stay chill, casual, and direct; do not sound like a coach unless advice is clearly requested.';
     const styleNotes = this.detectCurrentTurnStyle(userTurn);
+    const timeContext = this.buildLocalTimeContext(now);
+    const timeNotes = this.buildTimeContextPrompt(timeContext);
+    const moodNotes = this.buildMoodStyleNotes(peer.mood, timeContext);
     const adaptationNotes = this.buildAdaptationPrompt(context);
 
     return `You are ${p.nickname}, a ${p.ageBucket} ${p.gender.toLowerCase()} feeling ${peer.mood.toLowerCase()}.
@@ -272,6 +289,8 @@ WhatsApp/Hinglish style:
 
 Current turn style:
 ${styleNotes.map((note) => `- ${note}`).join('\n')}
+${timeNotes}
+${moodNotes}
 ${adaptationNotes}
 
 Hard rules:
@@ -280,9 +299,78 @@ Hard rules:
 - Use silent adaptation notes as soft context only. Never say "I remember", never reveal memory/personalization/context exists, and never quote notes directly.
 - NEVER offer help, solutions, or summaries unless the user explicitly asks.
 - Match the user's emotional register. If they're sad, don't be peppy.
-- If the user is flirty or naughty, keep it playful, teasing, consent-safe, and non-graphic. Never write explicit sexual roleplay or body-part detail.
+- Never invent the time of day. Do not say it is raat/night/late night when local time is daytime/evening unless the user explicitly mentions night.
+- If the user is flirty or naughty, keep it playful, teasing, consent-safe, and non-graphic. Never write explicit sexual roleplay, sexting instructions, or body-part detail.
+- If the user pushes for explicit sex talk, do not lecture or mention rules. Keep chemistry with a short teasing slow-down and move back to cozy/flirty talk.
 - If the user asks to call you, voice chat, video, or meet — politely deflect: "can't talk rn, prefer texting".
 - It's okay to be a little quiet, awkward, teasing, or distracted. That's how real people text.`;
+  }
+
+  private buildTimeContextPrompt(context: LocalTimeContext): string {
+    return `
+Current local time context:
+- Use this only to avoid time mistakes; do not mention the clock unless the user asks.
+- Current local time (${context.timeZone}): ${context.formatted}.
+- Time of day: ${context.label}.
+- If it is not night, avoid literal night/sleep lines like "raat hai", "late night hai", "1am", or "neend nahi aa rahi" unless the user brought up night/sleep first.`;
+  }
+
+  private buildMoodStyleNotes(mood: VirtualPeer['mood'], timeContext: LocalTimeContext): string {
+    if (mood !== 'LATE_NIGHT') return '';
+
+    const timeGuard = timeContext.isNight
+      ? 'Local time is night, so gentle raat/late-night references are okay when natural.'
+      : 'Mood is LATE_NIGHT, but local time is not night; keep the cozy/private tone without saying raat/night/1am/neend unless the user says it first.';
+
+    return `
+LATE_NIGHT mood style:
+- ${timeGuard}
+- Make it feel private and slower: softer, quieter, a little teasing.
+- Prefer 5-14 words, one line, lowercase Hinglish when natural.
+- Use tiny pauses like "hmm..." or "arre ruk" sometimes; do not overuse emojis.
+- If the user is vulnerable, become cozy and present before asking anything.
+- If the user is naughty/direct, keep attraction alive with subtle teasing, but slow the pace instead of getting graphic.`;
+  }
+
+  private buildLocalTimeContext(now: Date): LocalTimeContext {
+    const configuredTimeZone =
+      this.config.get<string>('AI_CHAT_TIME_ZONE')?.trim() || DEFAULT_CHAT_TIME_ZONE;
+    return this.localTimeContextForZone(now, configuredTimeZone);
+  }
+
+  private localTimeContextForZone(now: Date, timeZone: string): LocalTimeContext {
+    try {
+      const parts = new Intl.DateTimeFormat('en-IN', {
+        timeZone,
+        hour: '2-digit',
+        hour12: false,
+      }).formatToParts(now);
+      const hourPart = parts.find((part) => part.type === 'hour')?.value ?? '0';
+      const hour = Number(hourPart) % 24;
+
+      return {
+        timeZone,
+        formatted: new Intl.DateTimeFormat('en-IN', {
+          timeZone,
+          dateStyle: 'medium',
+          timeStyle: 'short',
+        }).format(now),
+        hour,
+        label: this.timeOfDayLabel(hour),
+        isNight: hour >= 21 || hour < 5,
+      };
+    } catch {
+      return this.localTimeContextForZone(now, DEFAULT_CHAT_TIME_ZONE);
+    }
+  }
+
+  private timeOfDayLabel(hour: number): LocalTimeContext['label'] {
+    if (hour < 5) return 'late night';
+    if (hour < 9) return 'early morning';
+    if (hour < 12) return 'morning';
+    if (hour < 17) return 'afternoon';
+    if (hour < 21) return 'evening';
+    return 'night';
   }
 
   private buildAdaptationPrompt(context: RetrievedAiContext): string {
@@ -348,6 +436,12 @@ ${user || '- None retrieved.'}`;
       );
     }
 
+    if (this.hasExplicitSexualPrompt(lower)) {
+      notes.add(
+        'User is asking for explicit/dirty talk; answer with a short playful slow-down, not a policy-style refusal.',
+      );
+    }
+
     if (/\b(serious|problem|tension|stress|panic|anxious|overthink)\b/i.test(lower)) {
       notes.add('Treat this as serious; do not force banter.');
     }
@@ -361,6 +455,12 @@ ${user || '- None retrieved.'}`;
 
   private hasHinglish(text: string): boolean {
     return /\b(haan|acha|arre|yaar|matlab|kya|scene|thoda|nahi|neend|raat|dil|bhai|yaad|ghar|samj|karu|karoon|rha|rhi)\b/i.test(
+      text,
+    );
+  }
+
+  private hasExplicitSexualPrompt(text: string): boolean {
+    return /\b(sex|dirty|sexual|sext|sexting|horny|nude|nudes|boobs|dick|pussy|cock|lund|chut)\b/i.test(
       text,
     );
   }
