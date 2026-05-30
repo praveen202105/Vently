@@ -36,6 +36,8 @@ interface SpawnArgs {
 
 const RATE_LIMIT_WINDOW_SEC = 600; // 10min: 1 AI session per user per window
 const SESSION_TTL_SEC = 3600;
+const RECENT_PERSONA_TTL_SEC = 7 * 24 * 3600;
+const RECENT_PERSONA_LIMIT = 3;
 
 /**
  * Factory + registry for AI fallback peers. Picks a persona matching the
@@ -111,7 +113,7 @@ export class AIPeerService {
       return null;
     }
 
-    const persona = candidates[Math.floor(Math.random() * candidates.length)]!;
+    const persona = await this.pickPersona(args.userId, args.mood, targetGender, candidates);
     const rand = randomBytes(4).toString('hex');
     const userId = `ai_${persona.id}_${rand}` as `ai_${string}`;
     const conversationId = `ai_conv_${rand}_${Date.now().toString(36)}`;
@@ -137,12 +139,68 @@ export class AIPeerService {
       this.redis.set(`aichat:conv:${conversationId}`, JSON.stringify(peer), 'EX', SESSION_TTL_SEC),
       this.redis.set(`aichat:user:${args.userId}`, conversationId, 'EX', SESSION_TTL_SEC),
       this.redis.set(`aichat:rl:${args.userId}`, '1', 'EX', RATE_LIMIT_WINDOW_SEC),
+      this.rememberPersona(args.userId, args.mood, targetGender, persona.id, candidates.length),
     ]);
 
     this.logger.log(
       `Spawned AI peer ${userId} (persona=${persona.id}) for user ${args.userId} on conv ${conversationId}`,
     );
     return peer;
+  }
+
+  private async pickPersona(
+    userId: string,
+    mood: MoodIntent,
+    gender: Gender,
+    candidates: Persona[],
+  ): Promise<Persona> {
+    if (candidates.length === 1) return candidates[0]!;
+
+    const recent = await this.loadRecentPersonas(userId, mood, gender);
+    const recentIds = new Set(recent);
+    const freshCandidates = candidates.filter((p) => !recentIds.has(p.id));
+    const pool = freshCandidates.length > 0 ? freshCandidates : candidates;
+
+    return pool[Math.floor(Math.random() * pool.length)]!;
+  }
+
+  private async rememberPersona(
+    userId: string,
+    mood: MoodIntent,
+    gender: Gender,
+    personaId: string,
+    candidateCount: number,
+  ): Promise<void> {
+    const recent = await this.loadRecentPersonas(userId, mood, gender);
+    const limit = Math.min(Math.max(candidateCount - 1, 1), RECENT_PERSONA_LIMIT);
+    const next = [personaId, ...recent.filter((id) => id !== personaId)].slice(0, limit);
+    await this.redis.set(
+      this.recentPersonaKey(userId, mood, gender),
+      JSON.stringify(next),
+      'EX',
+      RECENT_PERSONA_TTL_SEC,
+    );
+  }
+
+  private async loadRecentPersonas(
+    userId: string,
+    mood: MoodIntent,
+    gender: Gender,
+  ): Promise<string[]> {
+    const raw = await this.redis.get(this.recentPersonaKey(userId, mood, gender));
+    if (!raw) return [];
+    try {
+      const parsed = JSON.parse(raw);
+      return Array.isArray(parsed)
+        ? parsed.filter((id): id is string => typeof id === 'string')
+        : [];
+    } catch {
+      return [];
+    }
+  }
+
+  private recentPersonaKey(userId: string, mood: MoodIntent, gender: Gender): string {
+    return `aichat:recent-personas:${userId}:${mood}:${gender}`;
   }
 
   /** True when conversationId points at an active AI chat. Fast path used by chat/calls/friends gates. */

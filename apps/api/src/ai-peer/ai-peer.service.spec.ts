@@ -76,6 +76,33 @@ describe('AIPeerService', () => {
     expect(second).toEqual(first);
   });
 
+  it('rotates away from the last AI persona after the old chat is ended', async () => {
+    const randomSpy = jest.spyOn(Math, 'random').mockReturnValue(0.99);
+    try {
+      const first = await service.spawn({
+        userId: 'user-a',
+        mood: 'FRIENDSHIP',
+        myGender: 'MALE',
+      });
+
+      expect(first?.persona.id).toBe('p17');
+      expect(first?.nickname).toBe('priya');
+
+      await service.evict(first!.conversationId);
+
+      const second = await service.spawn({
+        userId: 'user-a',
+        mood: 'FRIENDSHIP',
+        myGender: 'MALE',
+      });
+
+      expect(second?.persona.id).toBe('p09');
+      expect(second?.nickname).toBe('ananya');
+    } finally {
+      randomSpy.mockRestore();
+    }
+  });
+
   it('recovers active AI conversations created before the user index existed', async () => {
     const first = await service.spawn({
       userId: 'user-a',
