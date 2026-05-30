@@ -86,8 +86,10 @@ test.describe('Chat header', () => {
 
     await expect(page.getByTestId('incoming-call-slider')).toBeVisible();
     await expect(page.getByRole('slider', { name: /incoming call slider/i })).toBeVisible();
-    await expect(page.getByRole('button', { name: 'Reject' })).toBeVisible();
-    await expect(page.getByRole('button', { name: 'Accept' })).toBeVisible();
+    await expect(page.getByTestId('reject-slide-marker')).toBeVisible();
+    await expect(page.getByTestId('accept-slide-marker')).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Reject' })).toHaveCount(0);
+    await expect(page.getByRole('button', { name: 'Accept' })).toHaveCount(0);
 
     await ctx.close();
   });

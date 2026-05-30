@@ -128,22 +128,20 @@ function IncomingCallSlider({
         }`}
         style={{ width: `${Math.round(progress * 50)}%`, opacity: progress }}
       />
-      <button
-        type="button"
-        onClick={onReject}
-        aria-label="Reject"
-        className="absolute left-3 top-1/2 z-10 grid h-14 w-14 -translate-y-1/2 place-items-center rounded-full bg-red-600 text-white shadow-lg shadow-red-600/25 transition hover:bg-red-500"
+      <div
+        aria-hidden="true"
+        data-testid="reject-slide-marker"
+        className="pointer-events-none absolute left-4 top-1/2 z-10 grid h-12 w-12 -translate-y-1/2 place-items-center rounded-full bg-red-600/25 text-red-100/45 ring-1 ring-red-200/10"
       >
-        <PhoneOff className="h-6 w-6" />
-      </button>
-      <button
-        type="button"
-        onClick={onAccept}
-        aria-label="Accept"
-        className="absolute right-3 top-1/2 z-10 grid h-14 w-14 -translate-y-1/2 place-items-center rounded-full bg-emerald-500 text-white shadow-lg shadow-emerald-500/25 transition hover:bg-emerald-400"
+        <PhoneOff className="h-5 w-5" />
+      </div>
+      <div
+        aria-hidden="true"
+        data-testid="accept-slide-marker"
+        className="pointer-events-none absolute right-4 top-1/2 z-10 grid h-12 w-12 -translate-y-1/2 place-items-center rounded-full bg-emerald-500/25 text-emerald-100/45 ring-1 ring-emerald-200/10"
       >
-        <Phone className="h-6 w-6" />
-      </button>
+        <Phone className="h-5 w-5" />
+      </div>
       <div className="absolute inset-0 grid place-items-center text-xs font-medium uppercase tracking-[0.22em] text-white/45">
         <span aria-hidden="true">{isVideo ? 'Video call' : 'Voice call'}</span>
       </div>
