@@ -20,6 +20,7 @@ const TYPING_BASE_MS = 1_600;
 const TYPING_PER_CHAR_MS = 55;
 const TYPING_JITTER_MS = 1_800;
 const TYPING_CAP_MS = 9_000;
+const DEFAULT_REPLY_TIMEOUT_MS = 12_000;
 const DEFAULT_CHAT_TIME_ZONE = 'Asia/Kolkata';
 
 interface LocalTimeContext {
@@ -50,6 +51,11 @@ export class AIAgentRunner implements OnModuleInit {
   private readonly logger = new Logger(AIAgentRunner.name);
   private client: Groq | null = null;
   private testMode = false;
+  private readonly pendingReplies = new Map<
+    string,
+    { peer: VirtualPeer; userMessage: string; socketServer: Server }
+  >();
+  private readonly runningReplies = new Map<string, Promise<void>>();
 
   constructor(
     private readonly config: ConfigService,
@@ -94,6 +100,44 @@ export class AIAgentRunner implements OnModuleInit {
    */
   async respond(peer: VirtualPeer, userMessage: string, socketServer: Server): Promise<void> {
     if (!this.client && !this.testMode) return;
+
+    // Collapse rapid user bursts into the latest pending turn while one reply
+    // is already generating. This avoids parallel Groq streams racing each
+    // other and keeps the chat feeling like one person catching up.
+    this.pendingReplies.set(peer.conversationId, { peer, userMessage, socketServer });
+
+    const running = this.runningReplies.get(peer.conversationId);
+    if (running) return running;
+
+    return this.startReplyQueue(peer.conversationId);
+  }
+
+  private startReplyQueue(conversationId: string): Promise<void> {
+    const queue = this.drainReplyQueue(conversationId).finally(() => {
+      this.runningReplies.delete(conversationId);
+      if (this.pendingReplies.has(conversationId)) {
+        this.startReplyQueue(conversationId);
+      }
+    });
+    this.runningReplies.set(conversationId, queue);
+    return queue;
+  }
+
+  private async drainReplyQueue(conversationId: string): Promise<void> {
+    while (true) {
+      const next = this.pendingReplies.get(conversationId);
+      if (!next) return;
+      this.pendingReplies.delete(conversationId);
+      await this.respondNow(next.peer, next.userMessage, next.socketServer);
+    }
+  }
+
+  private async respondNow(
+    peer: VirtualPeer,
+    userMessage: string,
+    socketServer: Server,
+  ): Promise<void> {
+    if (!this.client && !this.testMode) return;
     const client = this.client;
 
     const room = `conv:${peer.conversationId}`;
@@ -125,17 +169,23 @@ export class AIAgentRunner implements OnModuleInit {
     if (this.testMode) {
       reply = this.buildTestReply(peer, userTurn);
     } else {
+      const controller = new AbortController();
+      const timeoutMs = this.replyTimeoutMs();
+      const timeout = setTimeout(() => controller.abort(), timeoutMs);
       try {
-        const stream = await client!.chat.completions.create({
-          model: 'llama-3.1-8b-instant',
-          max_tokens: MAX_REPLY_TOKENS,
-          temperature: 0.9,
-          messages: [
-            { role: 'system', content: system },
-            ...promptHistory.map((h) => ({ role: h.role, content: h.content })),
-          ],
-          stream: true,
-        });
+        const stream = await client!.chat.completions.create(
+          {
+            model: 'llama-3.1-8b-instant',
+            max_tokens: MAX_REPLY_TOKENS,
+            temperature: 0.9,
+            messages: [
+              { role: 'system', content: system },
+              ...promptHistory.map((h) => ({ role: h.role, content: h.content })),
+            ],
+            stream: true,
+          },
+          { signal: controller.signal },
+        );
 
         for await (const chunk of stream) {
           const t = chunk.choices[0]?.delta?.content ?? '';
@@ -143,26 +193,17 @@ export class AIAgentRunner implements OnModuleInit {
         }
       } catch (err) {
         this.logger.warn(
-          `Groq stream failed for ${peer.conversationId}: ${(err as Error).message}`,
+          `Groq stream failed for ${peer.conversationId} after ${Date.now() - startedAt}ms; using local fallback: ${(err as Error).message}`,
         );
-        // Stop typing indicator on failure so the user isn't stuck watching dots forever.
-        socketServer.to(room).emit(SocketEvents.CHAT_TYPING_STATUS, {
-          conversationId: peer.conversationId,
-          userId: peer.userId,
-          isTyping: false,
-        });
-        return;
+      } finally {
+        clearTimeout(timeout);
       }
     }
 
     reply = reply.trim();
     if (!reply) {
-      socketServer.to(room).emit(SocketEvents.CHAT_TYPING_STATUS, {
-        conversationId: peer.conversationId,
-        userId: peer.userId,
-        isTyping: false,
-      });
-      return;
+      this.logger.warn(`AI produced empty reply for ${peer.conversationId}; using local fallback.`);
+      reply = this.buildFallbackReply(peer, userTurn);
     }
 
     // Humanlike cadence: scale by reply length, add jitter, cap at TYPING_CAP_MS.
@@ -249,6 +290,41 @@ export class AIAgentRunner implements OnModuleInit {
     const cleaned = userMessage.replace(/\s+/g, ' ').trim();
     const echo = cleaned.length > 42 ? `${cleaned.slice(0, 39)}...` : cleaned;
     return `hmm i hear you${echo ? ` about "${echo}"` : ''}. tell me more?`;
+  }
+
+  private replyTimeoutMs(): number {
+    const configured = Number(this.config.get<string>('AI_REPLY_TIMEOUT_MS') ?? '');
+    return Number.isFinite(configured) && configured >= 3_000
+      ? configured
+      : DEFAULT_REPLY_TIMEOUT_MS;
+  }
+
+  private buildFallbackReply(peer: VirtualPeer, userMessage: string): string {
+    const text = userMessage.toLowerCase();
+
+    if (text.includes('[just matched')) {
+      return `hey, i'm ${peer.nickname}. kya scene hai?`;
+    }
+
+    if (/\b(breakup|ex|heartbreak|dil|hurt|miss)\b/i.test(text)) {
+      return 'arre... breakup wala scene heavy hota hai, sach me.';
+    }
+
+    if (/\b(gf|boyfriend|girlfriend|crush|like u|love|search of gf)\b/i.test(text)) {
+      return 'acha? itni jaldi like bhi... cute ho tum.';
+    }
+
+    if (this.hasExplicitSexualPrompt(text)) {
+      return 'hmm naughty mood hai... but thoda slow chalo.';
+    }
+
+    if (/\b(kya|kyu|why|what|kaise|bolo|bata)\b/i.test(text)) {
+      return 'hmm... samjhi, par thoda clear bol na?';
+    }
+
+    return peer.gender === 'FEMALE'
+      ? 'hmm... net sa weird ho gaya, phir bolo na?'
+      : 'hmm, thoda miss ho gaya... bol?';
   }
 
   private buildSystemPrompt(

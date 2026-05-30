@@ -1,4 +1,5 @@
 import { ConfigService } from '@nestjs/config';
+import { SocketEvents } from '@vently/shared';
 import type Redis from 'ioredis';
 import { AIAgentRunner } from './ai-agent.runner.js';
 import type { VirtualPeer } from './ai-peer.service.js';
@@ -138,6 +139,70 @@ describe('AIAgentRunner private context integration', () => {
         userMessage: 'acha short flirty reply do',
       }),
     );
+  });
+
+  it('sends a local fallback reply when Groq fails', async () => {
+    const randomSpy = jest.spyOn(Math, 'random').mockReturnValue(0);
+    const config = {
+      get: jest.fn((key: string) => (key === 'AI_REPLY_TIMEOUT_MS' ? '3000' : undefined)),
+    } as unknown as ConfigService;
+    const runner = new AIAgentRunner(
+      config,
+      redis as unknown as Redis,
+      aiMemory as unknown as AiMemoryService,
+    );
+    (runner as any).client = {
+      chat: {
+        completions: {
+          create: jest.fn().mockRejectedValue(new Error('rate limit')),
+        },
+      },
+    };
+    const emit = jest.fn();
+    const socketServer = { to: jest.fn(() => ({ emit })) };
+
+    try {
+      await runner.respond(peerFixture(), 'Bolo kuch i like u', socketServer as any);
+
+      const message = emit.mock.calls.find(([event]) => event === SocketEvents.CHAT_MESSAGE)?.[1];
+      expect(message?.body).toContain('itni jaldi like');
+      expect(emit).toHaveBeenCalledWith(
+        SocketEvents.CHAT_TYPING_STATUS,
+        expect.objectContaining({ isTyping: false }),
+      );
+      expect(aiMemory.observeTurn).toHaveBeenCalledWith(
+        expect.objectContaining({ assistantReply: expect.stringContaining('itni jaldi like') }),
+      );
+    } finally {
+      randomSpy.mockRestore();
+    }
+  });
+
+  it('serializes rapid turns and answers the latest pending user message', async () => {
+    const config = {
+      get: jest.fn((key: string) => (key === 'AI_FALLBACK_TEST_MODE' ? 'true' : undefined)),
+    } as unknown as ConfigService;
+    const runner = new AIAgentRunner(
+      config,
+      redis as unknown as Redis,
+      aiMemory as unknown as AiMemoryService,
+    );
+    runner.onModuleInit();
+    const emit = jest.fn();
+    const socketServer = { to: jest.fn(() => ({ emit })) };
+
+    const first = runner.respond(peerFixture(), 'first fast msg', socketServer as any);
+    const second = runner.respond(peerFixture(), 'second should be collapsed', socketServer as any);
+    const third = runner.respond(peerFixture(), 'third latest msg', socketServer as any);
+    await Promise.all([first, second, third]);
+
+    const bodies = emit.mock.calls
+      .filter(([event]) => event === SocketEvents.CHAT_MESSAGE)
+      .map(([, message]) => message.body as string);
+    expect(bodies).toHaveLength(2);
+    expect(bodies[0]).toContain('first fast msg');
+    expect(bodies[1]).toContain('third latest msg');
+    expect(bodies.join('\n')).not.toContain('second should be collapsed');
   });
 
   it('keeps late-night explicit asks as teasing non-graphic redirects', () => {
